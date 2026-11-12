@@ -1,5 +1,7 @@
 # VPS demo deployment
 
+Current temporary demo: https://commission-big-gathered-activation.trycloudflare.com (verified 12 November 2026). The current image is `omer:auth-onboarding-fixed`. Tunnel metrics bind to 127.0.0.1:20242.
+
 Host: the existing Hostinger VPS. Source is installed at `/opt/omer/app`. Containers: `omer-app`, `omer-tunnel`, and existing `unfairweekend-db-postgres-1`. Database: `omer`; schema/migration owner: `omer_owner`; runtime role: `omer_app`. App listens only on 127.0.0.1:3000; PostgreSQL only on 127.0.0.1:5432. Cloudflare tunnel makes outbound connections; no public database port is opened.
 
 Secrets are generated on the VPS and stored in mode-600 `/opt/omer/runtime.env` and `/opt/omer/migration.env`, inside a root-only directory. Never paste these into chat or Git. The runtime role has table DML and sequence permissions, not superuser/role creation/schema ownership. The migration role is used only for migrations. Better Auth uses hashed passwords and server-backed sessions. Production cookies are Secure/HttpOnly under the HTTPS APP_URL.

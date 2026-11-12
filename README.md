@@ -61,7 +61,7 @@ The smoke test needs a running local app/database, Chrome, and port 5180. Set CH
 
 For deployment verification set APP_URL to the public app URL and DEMO_ORIGIN to `https://owned-demo.example`. The test intercepts only that synthetic website document in the browser; auth, script loading and event collection go to the actual deployed app. It does not claim installation on an independently hosted customer site. Test account emails are in example.com; do not use real personal data.
 
-Local and live VPS smoke tests passed on 12 November 2026. Runtime audit passed; four moderate development-tool findings remain through Drizzle Kit's esbuild chain. No forced downgrade was applied.
+Local and live VPS smoke tests passed on 12 November 2026. Dependency audit passes after pinning the transitive esbuild helper to 0.25.12. Migration and browser tests were rerun after that update.
 
 ## Planning sources
 
