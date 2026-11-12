@@ -1,8 +1,8 @@
 # VPS deployment · app.tryomer.com
 
-Target production hostname: **https://app.tryomer.com** via a named Cloudflare Tunnel to the Hostinger VPS. Until the named tunnel is connected and verified, use the current temporary Quick Tunnel: https://commission-big-gathered-activation.trycloudflare.com. Keep Google OAuth disabled there; its production callback is registered for the permanent hostname.
+Production: **https://app.tryomer.com** via the named Cloudflare Tunnel to the Hostinger VPS. The permanent hostname passed the onboarding smoke test against VPS PostgreSQL. Use this hostname for sign-in and new tracker snippets. Replace any old Quick Tunnel URLs in installed scripts before retiring the temporary connector.
 
-Host: Hostinger VPS. Release sources live under `/opt/omer/releases/`. Containers: `omer-app`, `omer-tunnel` (temporary tunnel until cutover), and existing `unfairweekend-db-postgres-1`. Database: `omer`; schema/migration owner: `omer_owner`; runtime role: `omer_app`. App listens only on `127.0.0.1:3000`; PostgreSQL only on `127.0.0.1:5432`. Cloudflare Tunnel makes outbound connections; no public database port is opened.
+Host: Hostinger VPS. Release sources live under `/opt/omer/releases/`. Containers: `omer-app`, `omer-tunnel-named` (permanent connector), and existing `unfairweekend-db-postgres-1`. Database: `omer`; schema/migration owner: `omer_owner`; runtime role: `omer_app`. App listens only on `127.0.0.1:3000`; PostgreSQL only on `127.0.0.1:5432`. Cloudflare Tunnel makes outbound connections; no public database port is opened.
 
 Secrets live in mode-600 `/opt/omer/runtime.env` and `/opt/omer/migration.env` inside a root-only directory. Never paste these into chat or Git.
 
