@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  BookOpen, Check, ChevronDown, CodeXml, Copy, Globe2, LayoutDashboard, Lock, Plus, RefreshCw, X,
+  BookOpen, Check, ChevronDown, Copy, Globe2, Inbox, LayoutDashboard, Lock, Mail,
+  Plus, RefreshCw, Settings, Users, BarChart3, X,
 } from 'lucide-react';
 import { installPrompt, installSnippet, type Project } from './project';
 import './styles.css';
@@ -9,6 +10,16 @@ import { AuthGate } from './auth';
 
 type ProjectError = { field?: 'name' | 'website'; error: string };
 type SetupStep = 'site' | 'brand' | 'install' | 'check' | 'sender';
+type AppScreen = 'home' | 'opportunities' | 'people' | 'results' | 'campaigns' | 'settings';
+
+const DOCK: { id: AppScreen; label: string; icon: typeof LayoutDashboard }[] = [
+  { id: 'home', label: 'Home', icon: LayoutDashboard },
+  { id: 'opportunities', label: 'Opportunities', icon: Inbox },
+  { id: 'people', label: 'People', icon: Users },
+  { id: 'results', label: 'Results', icon: BarChart3 },
+  { id: 'campaigns', label: 'Campaigns', icon: Mail },
+  { id: 'settings', label: 'Settings', icon: Settings },
+];
 
 const SETUP_STEPS: { id: SetupStep; label: string; locked?: boolean }[] = [
   { id: 'site', label: 'Your website' },
@@ -53,6 +64,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [step, setStep] = useState<SetupStep>('site');
   const [reached, setReached] = useState(0);
   const [forceSetup, setForceSetup] = useState(false);
+  const [screen, setScreen] = useState<AppScreen>('home');
   const createDialog = useRef<HTMLDialogElement>(null);
   const guideDialog = useRef<HTMLDialogElement>(null);
   const dashboardHeading = useRef<HTMLHeadingElement>(null);
@@ -427,43 +439,90 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
           </div>
         </main>
       ) : (
-        <main id="dashboard" className="dashboard">
-          <header className="page-head">
-            <h1 tabIndex={-1} ref={dashboardHeading}>Dashboard</h1>
-            <p>{project ? new URL(project.origin).host : 'Connect your website to start collecting events.'}</p>
-          </header>
-          <section className="status-card" aria-labelledby="activity-heading">
-            <span className="feature-icon"><CodeXml size={24} aria-hidden="true" /></span>
-            <div className={`status-pill${project?.firstEventAt ? ' received' : ''}`}>
-              {project?.firstEventAt ? <Check size={14} aria-hidden="true" /> : <span aria-hidden="true" />}
-              {project?.firstEventAt ? 'Connected' : 'Awaiting installation'}
+        <main id="dashboard" className={`app-body ${screen === 'home' ? 'ho v2 v2-empty' : 'v2-screen'}`}>
+          {screen === 'home' && project ? (
+            <>
+              <div className="v2-backdrop" aria-hidden="true">
+                <div className="v2-row"><div className="v2-ghost v2-ghost-tall"><p className="v2-ghost-t" style={{ width: '28%' }}> </p><p className="v2-ghost-t" style={{ width: '44%' }}> </p><p className="v2-ghost-t" style={{ width: '62%' }}> </p></div></div>
+                <div className="v2-row v2-three">
+                  <div className="v2-ghost"><p className="v2-ghost-t" style={{ width: '34%' }}> </p><p className="v2-ghost-t" style={{ width: '52%' }}> </p></div>
+                  <div className="v2-ghost"><p className="v2-ghost-t" style={{ width: '34%' }}> </p><p className="v2-ghost-t" style={{ width: '52%' }}> </p></div>
+                  <div className="v2-ghost"><p className="v2-ghost-t" style={{ width: '34%' }}> </p><p className="v2-ghost-t" style={{ width: '52%' }}> </p></div>
+                </div>
+                <div className="v2-row v2-two">
+                  <div className="v2-ghost v2-ghost-mid"><p className="v2-ghost-t" style={{ width: '38%' }}> </p></div>
+                  <div className="v2-ghost v2-ghost-mid"><p className="v2-ghost-t" style={{ width: '30%' }}> </p></div>
+                </div>
+              </div>
+              <div className="v2-connect">
+                <div className={`v2-link${project.firstEventAt ? ' is-on' : ''}`}>
+                  <span className="v2-tile" aria-hidden="true">
+                    <img className="brand-logo" src="/assets/logos/shopify.svg" alt="" draggable={false} />
+                  </span>
+                  <i className="v2-dots" aria-hidden="true" />
+                  <span className="v2-tile v2-tile-us" aria-hidden="true"><Ghost size={34} /></span>
+                </div>
+                <h2 tabIndex={-1} ref={dashboardHeading}>
+                  {project.firstEventAt ? `Watching ${new URL(project.origin).host}` : 'Connect your website'}
+                </h2>
+                <p>
+                  {project.firstEventAt
+                    ? <>First event received {project.firstEventAt && <time dateTime={project.firstEventAt}>{new Date(project.firstEventAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</time>}. Live visitors, opportunities and email metrics land here as we ship those slices — no mock charts.</>
+                    : 'Install the snippet and grant analytics consent to confirm the connection.'}
+                </p>
+                <div className="v2-cta-row">
+                  <button
+                    type="button"
+                    className="btn btn-primary v2-cta"
+                    onClick={() => {
+                      setForceSetup(true);
+                      setStep(project.firstEventAt ? 'check' : 'install');
+                      setReached((value) => Math.max(value, stepIndex(project.firstEventAt ? 'check' : 'install')));
+                    }}
+                  >
+                    {project.firstEventAt ? 'Open setup' : 'Finish setup'}
+                  </button>
+                  <button type="button" className="btn btn-secondary v2-cta" onClick={openGuide}>Installation guide</button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="v2-empty-screen">
+              <h1>{DOCK.find((item) => item.id === screen)?.label}</h1>
+              <section className="v2-card">
+                <header><Inbox size={16} aria-hidden="true" /><h3>Coming next</h3></header>
+                <div className="v2-in">
+                  <p className="su-side-p">
+                    {screen === 'opportunities' && 'Review and approve follow-up emails here once generation and opportunities are wired.'}
+                    {screen === 'people' && 'Visitor profiles and replays show here once capture and identity are live — no sample people.'}
+                    {screen === 'results' && 'Revenue and send results show here once campaigns actually send.'}
+                    {screen === 'campaigns' && 'Campaign recipes live here once the recipe engine ships.'}
+                    {screen === 'settings' && 'Brand, sender and team settings land here as those backends ship.'}
+                  </p>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => setScreen('home')}>Back to Home</button>
+                </div>
+              </section>
             </div>
-            <h2 id="activity-heading">{project?.firstEventAt ? 'First event received' : 'Waiting for events'}</h2>
-            <p>
-              {project?.firstEventAt
-                ? <>Received on <time dateTime={project.firstEventAt}>{new Date(project.firstEventAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</time>.</>
-                : 'After installing the script, visit your site and grant analytics consent to send the first event.'}
-            </p>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
-              <button className="btn btn-secondary" type="button" onClick={() => {
-                setForceSetup(true);
-                setStep('check');
-                setReached((value) => Math.max(value, stepIndex('check')));
-              }}>
-                Open setup
-              </button>
-              <button className="btn btn-ghost" type="button" onClick={openGuide}>Installation guide</button>
-            </div>
-          </section>
-          <div className={notice ? 'notice' : 'sr-only'} role="status">{notice}</div>
+          )}
+          <div className={notice ? 'notice v2-notice' : 'sr-only'} role="status">{notice}</div>
         </main>
       )}
 
       {!inSetup && (
-        <nav className="dock" aria-label="Dashboard tools">
-          <a href="#dashboard" className="dock-item active" aria-label="Dashboard" aria-current="page" title="Dashboard">
-            <LayoutDashboard size={20} aria-hidden="true" />
-          </a>
+        <nav className="dock" aria-label="Product">
+          {DOCK.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              className={`dock-item${screen === id ? ' active' : ''}`}
+              aria-label={label}
+              aria-current={screen === id ? 'page' : undefined}
+              title={label}
+              onClick={() => setScreen(id)}
+            >
+              <Icon size={20} aria-hidden="true" />
+            </button>
+          ))}
           <button className="dock-item" type="button" aria-label="Installation guide" title="Installation guide" onClick={openGuide}>
             <BookOpen size={20} aria-hidden="true" />
           </button>

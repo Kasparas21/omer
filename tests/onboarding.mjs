@@ -92,7 +92,7 @@ try {
       await page.getByRole('button', { name: 'Check installation' }).click();
     }
   }
-  await page.getByRole('heading', { name: 'First event received' }).waitFor();
+  await page.getByRole('heading', { name: /First event received|Watching / }).waitFor();
   const before = await page.evaluate(async () => (await (await fetch('/api/projects')).json()).projects[0].firstEventAt);
   await fetch(`${base}/v1/collect/install`, { method: 'POST', headers: { Origin: demoOrigin }, body: key });
   const after = await page.evaluate(async () => (await (await fetch('/api/projects')).json()).projects[0].firstEventAt);
