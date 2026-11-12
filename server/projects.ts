@@ -2,6 +2,7 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import pg from 'pg';
 import { projects } from './schema';
+import { auth, pool, appURL } from './auth';
 
 type RateLimit = { limit(input: { key: string }): Promise<{ success: boolean }> };
 type Env = {
@@ -12,7 +13,7 @@ type Env = {
   COLLECT_LIMIT: RateLimit;
 };
 
-const cookieName = 'uw_onboarding';
+
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const projectFields = {
   id: projects.id,
@@ -67,39 +68,25 @@ function siteOrigin(value: unknown, allowLocal: boolean) {
   }
 }
 
-async function ownerHash(token: string) {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+async function withDatabase<T>(_env: Env, action: (db: NodePgDatabase) => Promise<T>) {
+  return action(drizzle(pool));
 }
 
-function sessionToken(request: Request) {
-  const token = request.headers.get('Cookie')?.match(/(?:^|;\s*)uw_onboarding=([^;]+)/)?.[1];
-  return token && uuid.test(token) ? token : null;
-}
-
-async function withDatabase<T>(env: Env, action: (db: NodePgDatabase) => Promise<T>) {
-  const connectionString = env.HYPERDRIVE?.connectionString ?? env.DATABASE_URL;
-  if (!connectionString) throw new Error('Database binding missing');
-  const client = new pg.Client({ connectionString, connectionTimeoutMillis: 4000, query_timeout: 4000 });
-  try {
-    await client.connect();
-    return await action(drizzle(client));
-  } finally {
-    await client.end();
-  }
+async function ownerID(request: Request) {
+  const session = await auth.api.getSession({ headers: request.headers });
+  return session?.user.id;
 }
 
 async function listProjects(request: Request, env: Env) {
-  const token = sessionToken(request);
-  if (!token) return json({ projects: [] });
-  const owner = await ownerHash(token);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to view projects.' }, 401);
   const records = await withDatabase(env, (db) => db.select(projectFields)
     .from(projects).where(eq(projects.owner, owner)).orderBy(desc(projects.createdAt)));
   return json({ projects: records });
 }
 
 async function createProject(request: Request, env: Env, url: URL) {
-  if (request.headers.get('Origin') !== url.origin) return json({ error: 'Open the dashboard and try again.' }, 403);
+  if (request.headers.get('Origin') !== appURL) return json({ error: 'Open the dashboard and try again.' }, 403);
   const ip = request.headers.get('CF-Connecting-IP') ?? 'local';
   if (!(await env.CREATE_LIMIT.limit({ key: ip })).success) {
     return json({ error: 'Too many attempts. Try again in a minute.' }, 429);
@@ -113,13 +100,10 @@ async function createProject(request: Request, env: Env, url: URL) {
   if (!name || name.length > 80) return json({ field: 'name', error: 'Enter a project name up to 80 characters.' }, 400);
   if (!origin) return json({ field: 'website', error: 'Enter a website address like https://example.com.' }, 400);
 
-  const token = sessionToken(request) ?? crypto.randomUUID();
-  const owner = await ownerHash(token);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to create a project.' }, 401);
   const [project] = await withDatabase(env, (db) => db.insert(projects).values({ owner, name, origin }).returning(projectFields));
-  const secure = url.protocol === 'https:' ? '; Secure' : '';
-  return json({ project }, 201, {
-    'Set-Cookie': `${cookieName}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000${secure}`,
-  });
+  return json({ project }, 201);
 }
 
 async function receiveFirstEvent(request: Request, env: Env) {

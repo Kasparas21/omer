@@ -10,5 +10,5 @@
     "jsx": "react-jsx",
     "noEmit": true
   },
-  "include": ["src", "worker", "vite.config.ts", "drizzle.config.ts"]
+  "include": ["src", "server", "vite.config.ts", "drizzle.config.ts"]
 }

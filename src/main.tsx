@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { ArrowUpRight, BookOpen, Check, ChevronDown, CodeXml, Copy, Globe2, LayoutDashboard, Plus, RefreshCw, X } from 'lucide-react';
 import { installPrompt, installSnippet, type Project } from './project';
 import './styles.css';
+import { AuthGate } from './auth';
 
 type ProjectError = { field?: 'name' | 'website'; error: string };
 
@@ -16,12 +17,13 @@ function Ghost({ size = 24 }: { size?: number }) {
 
 async function getProjects(signal?: AbortSignal) {
   const response = await fetch('/api/projects', { signal, cache: 'no-store' });
+  if (response.status === 401) window.dispatchEvent(new Event('session-expired'));
   if (!response.ok) throw new Error('Unable to load projects.');
   const data: { projects: Project[] } = await response.json();
   return data.projects;
 }
 
-function App() {
+function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selection, setSelection] = useState<string>();
   const [loading, setLoading] = useState(true);
@@ -160,6 +162,7 @@ function App() {
           </select>
           <ChevronDown className="select-arrow" size={15} aria-hidden="true" />
         </label>}
+        <button className="button text-button" onClick={() => void onSignOut().catch(() => setNotice('Unable to sign out. Try again.'))}>Sign out</button>
         <button className="button secondary new-project" onClick={openCreate}><Plus size={17} aria-hidden="true" /> New project</button>
       </div>
     </header>
@@ -260,4 +263,4 @@ function App() {
   </>;
 }
 
-createRoot(document.getElementById('root')!).render(<App />);
+createRoot(document.getElementById('root')!).render(<AuthGate>{(onSignOut) => <App onSignOut={onSignOut} />}</AuthGate>);
