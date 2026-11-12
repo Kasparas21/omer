@@ -1,0 +1,10 @@
+<svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="15" height="15" rx="7.5" fill="#CF0921"/>
+<path d="M0 3H15V12H0V3Z" fill-rule="evenodd" clip-rule="evenodd" fill="#FCD20F"/>
+<path d="M0 3L7.5 7.5L0 12V3Z" fill-rule="evenodd" clip-rule="evenodd" fill="#007B5E"/>
+<path d="M1 7H2V8H1V7Z" fill-rule="evenodd" clip-rule="evenodd" fill="#FCD20F"/>
+<path d="M15 3L7.5 7.5L15 12V3Z" fill-rule="evenodd" clip-rule="evenodd" fill="#007B5E"/>
+<path d="M4 1H5V2H4V1ZM7 1H8V2H7V1ZM10 1H11V2H10V1ZM4 13H5V14H4V13ZM7 13H8V14H7V13ZM10 13H11V14H10V13Z" fill-rule="evenodd" clip-rule="evenodd" fill="#FCD20F"/>
+<path d="M7.5 10C8.88071 10 10 8.88071 10 7.5C10 6.11929 8.88071 5 7.5 5C6.11929 5 5 6.11929 5 7.5C5 8.88071 6.11929 10 7.5 10Z" fill="#CF0921"/>
+<path d="M7.50007 8.75L6.03007 9.523L6.31007 7.886L5.12207 6.726L6.76507 6.489L7.50007 5L8.23507 6.49L9.87807 6.727L8.68807 7.887L8.96807 9.523" fill-rule="evenodd" clip-rule="evenodd" fill="#FCD20F"/>
+</svg>

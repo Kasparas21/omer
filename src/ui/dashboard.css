@@ -120,9 +120,6 @@
 .omer-account summary::-webkit-details-marker { display: none; }
 .omer-account-panel { position: absolute; inset: 40px 0 auto auto; min-width: max-content; display: grid; padding: 5px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-md); }
 .omer-account-panel button { justify-content: start; }
-.omer-dock { position: fixed; z-index: 6; inset: auto 0 max(16px, env(safe-area-inset-bottom)); display: flex; justify-content: center; pointer-events: none; }
-.omer-dock .dock { position: relative; inset: auto; transform: none; pointer-events: auto; margin: 0; }
-.omer-dock .dock-bar { flex-direction: row; }
 .ho-link {
   flex: none; display: inline-flex; align-items: center; gap: 2px; margin-inline-start: auto;
   height: 26px; padding: 0; border: 0; background: none;
@@ -155,7 +152,6 @@
 .omer-globe-page .v2-map-stage { min-height: min(65vh, 610px); }
 @media (max-width: 600px) {
   .app-shelf-where { display: none; }
-  .v2-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-  .omer-dock .dock-bar { gap: 0; }
-  .omer-dock .dock-item { min-width: 36px; padding-inline: 6px; }
+  .v2-metrics, .v2-metrics-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  .app-dock .dock-item { min-width: 36px; padding-inline: 6px; }
 }

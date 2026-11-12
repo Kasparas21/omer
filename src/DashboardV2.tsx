@@ -1,47 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
-  Activity, ArrowRight, ArrowUpRight, Clock3, DollarSign, FileText, Ghost, Globe2,
-  Inbox, Megaphone, Radio, Send, Sparkles, Star,
+  ArrowRight, ArrowUpRight, FileText, Ghost, Globe2, Inbox, Radio,
 } from 'lucide-react';
 import type { Project } from './project';
 
-export function DottedGlobe() {
-  const host = useRef<HTMLDivElement>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    const stage = host.current;
-    if (!stage) return;
-    let disposed = false;
-    let globe: { destroy(): void } | undefined;
-    const moduleUrl = '/globe/dotglobe.js';
-    void import(/* @vite-ignore */ moduleUrl).then(async ({ createDotGlobe, preloadDotGlobe }) => {
-      await preloadDotGlobe();
-      if (disposed) return;
-      globe = createDotGlobe(stage, { autoSpin: false, quietIntro: true, maxZoom: 1.3, radiusScale: 1.15 });
-      stage.setAttribute('aria-label', 'Dotted world globe. Drag or use arrow keys to rotate it.');
-    }).catch(() => { if (!disposed) setFailed(true); });
-    return () => { disposed = true; globe?.destroy(); };
-  }, []);
-
-  return failed ? <p className="v2-map-fallback">The globe couldn’t load.</p> : <div className="v2-map-stage" ref={host} />;
-}
-
-type Metric = 'people' | 'views' | 'dwell' | 'clicked' | 'sales';
+type Metric = 'people' | 'views' | 'dwell';
 const RANGES = [1, 7, 30] as const;
-const METRICS: { key: Metric; label: string; chartable: boolean }[] = [
-  { key: 'people', label: 'Visitors', chartable: true },
-  { key: 'views', label: 'Pageviews', chartable: true },
-  { key: 'dwell', label: 'Visit duration', chartable: true },
-  { key: 'clicked', label: 'Clicked', chartable: false },
-  { key: 'sales', label: 'Revenue', chartable: false },
+const METRICS: { key: Metric; label: string }[] = [
+  { key: 'people', label: 'Visitors' },
+  { key: 'views', label: 'Pageviews' },
+  { key: 'dwell', label: 'Visit duration' },
 ];
 
 const dayMs = 86_400_000;
 const dayLabel = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
 const tipLabel = new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
 const countFmt = new Intl.NumberFormat();
-const moneyFmt = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 
 function utcDay(ms = Date.now()) {
   const d = new Date(ms);
@@ -84,17 +58,13 @@ function formatMetric(kind: Metric, value: number) {
     const seconds = Math.round((value % 60_000) / 1000);
     return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
   }
-  if (kind === 'sales') return moneyFmt.format(value);
-  if (kind === 'clicked') return `${Math.round(value)}%`;
   return countFmt.format(Math.round(value));
 }
 
 function metricSub(kind: Metric, people: number, views: number) {
   if (kind === 'people') return 'Unique people';
   if (kind === 'views') return people ? `${(views / people).toFixed(1)} per visitor` : 'No sessions yet';
-  if (kind === 'dwell') return 'Avg. active time';
-  if (kind === 'clicked') return 'Email not connected';
-  return 'From 0 customers';
+  return 'Avg. active time';
 }
 
 function smooth(values: number[]) {
@@ -131,32 +101,6 @@ function curve(points: { x: number; y: number }[]) {
 function areaPath(line: string) {
   if (!line) return '';
   return `${line} L970 100 L30 100 Z`;
-}
-
-function sparkArea(values: number[], color: string) {
-  const safe = values.length ? values : [0, 0];
-  const top = Math.max(...safe, 1) * 1.08;
-  const low = Math.min(...safe) * 0.55;
-  const n = safe.length;
-  const pts = safe.map((v, i) => [(i / Math.max(n - 1, 1)) * 300, 68 - ((v - low) / (top - low || 1)) * 56] as const);
-  let d = `M${pts[0][0]} ${pts[0][1].toFixed(1)}`;
-  for (let i = 0; i < n - 1; i++) {
-    const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(n - 1, i + 2)];
-    d += ` C${(p1[0] + (p2[0] - p0[0]) / 6).toFixed(1)} ${(p1[1] + (p2[1] - p0[1]) / 6).toFixed(1)} ${(p2[0] - (p3[0] - p1[0]) / 6).toFixed(1)} ${(p2[1] - (p3[1] - p1[1]) / 6).toFixed(1)} ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
-  }
-  const id = `spark-${color.replace('#', '')}`;
-  return (
-    <svg className="v2-area" viewBox="0 0 300 80" preserveAspectRatio="none" aria-hidden="true" style={{ ['--c' as string]: color }}>
-      <defs>
-        <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor={color} stopOpacity=".18" />
-          <stop offset="1" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path className="v2-fill" d={`${d} L300 80 L0 80 Z`} fill={`url(#${id})`} />
-      <path className="v2-line" d={d} />
-    </svg>
-  );
 }
 
 function sourceLabel(name: string) {
@@ -225,8 +169,6 @@ export function DashboardV2({ project, onSetup, onGlobe, headingRef }: {
       if (!samples.length) return 0;
       return samples.reduce((sum, day) => sum + day.value, 0) / samples.length;
     })(),
-    clicked: 0,
-    sales: 0,
   };
   const prevTotals = {
     people: previous.people.reduce((sum, day) => sum + day.value, 0),
@@ -236,13 +178,11 @@ export function DashboardV2({ project, onSetup, onGlobe, headingRef }: {
       if (!samples.length) return 0;
       return samples.reduce((sum, day) => sum + day.value, 0) / samples.length;
     })(),
-    clicked: 0,
-    sales: 0,
   };
 
-  const chartMetric: Metric = METRICS.find((item) => item.key === metric)?.chartable ? metric : 'people';
-  const nowSeries = current[chartMetric === 'dwell' ? 'dwell' : chartMetric === 'views' ? 'views' : 'people'];
-  const backSeries = previous[chartMetric === 'dwell' ? 'dwell' : chartMetric === 'views' ? 'views' : 'people'];
+  const chartMetric = metric;
+  const nowSeries = current[chartMetric];
+  const backSeries = previous[chartMetric];
   const nowValues = smooth(nowSeries.map((day) => day.value));
   const backValues = smooth(backSeries.map((day) => day.value));
   const top = Math.max(...nowValues, ...backValues, 1) / 0.9;
@@ -267,15 +207,15 @@ export function DashboardV2({ project, onSetup, onGlobe, headingRef }: {
         </nav>
         <div className="v2-ctrl">
           <div className="v2-head">
-            <nav className="v2-metrics" aria-label="Metrics">
-              {METRICS.map(({ key, label, chartable }) => (
+            <nav className="v2-metrics v2-metrics-3" aria-label="Metrics">
+              {METRICS.map(({ key, label }) => (
                 <button
                   key={key}
                   type="button"
                   className="v2-m"
                   data-homet={key}
                   aria-pressed={metric === key}
-                  aria-label={chartable ? `Show ${label} on the graph` : `${label}`}
+                  aria-label={`Show ${label} on the graph`}
                   onClick={() => setMetric(key)}
                 >
                   <span className="v2-m-k">{label}</span>
@@ -373,74 +313,16 @@ export function DashboardV2({ project, onSetup, onGlobe, headingRef }: {
             <p className="v2-brand-ind">Store pulse · <em>{totals.people ? 'Receiving visitors' : 'Waiting for traffic'}</em></p>
           </div>
         </Card>
-        <Card icon={<DollarSign size={16} aria-hidden="true" />} title="Email revenue">
-          <div className="v2-head">
-            <b className="v2-val v2-big">{moneyFmt.format(0)}</b>
-            <span className="v2-chip">—</span>
-          </div>
-          <p className="v2-m-s v2-card-sub">From 0 customers</p>
-          {sparkArea([0, 0, 0, 0, 0, 0, 0], '#12b886')}
-          <p className="omer-empty-note">Connect email + sales attribution to fill this in.</p>
-        </Card>
-      </div>
-
-      <div className="v2-row v2-two">
-        <Card icon={<Clock3 size={16} aria-hidden="true" />} title="Schedule" extra={<button type="button" className="ho-link" onClick={onSetup}>Opportunities <ArrowRight size={14} aria-hidden="true" /></button>}>
-          <div className="v2-sched">
-            <b className="v2-val">0 <span>sends lined up</span></b>
-            <ul><li><span><b>No sends yet</b><small>Campaigns land here once drafting starts.</small></span></li></ul>
-          </div>
-        </Card>
-        <Card icon={<Send size={16} aria-hidden="true" />} title="Emails">
-          <div className="v2-head">
-            <b className="v2-val">0</b>
-            <span className="v2-chip">—</span>
-          </div>
-          <p className="v2-m-s v2-card-sub">0% clicked · 0 people</p>
-          {sparkArea([0, 0, 0, 0, 0, 0, 0], '#4F4BE0')}
-        </Card>
-      </div>
-
-      <div className="v2-row v2-two">
-        <Card icon={<Megaphone size={16} aria-hidden="true" />} title="Sales by campaign" className="v2-gauge-card">
-          <div className="v2-gauge-wrap">
-            <svg className="v2-gauge" viewBox="0 0 300 160" aria-hidden="true">
-              <path d="M38 148 A112 112 0 0 1 262 148" pathLength="100" style={{ ['--c' as string]: '#d0d0db', ['--d' as string]: '0s', ['--t' as string]: '0.4s' }} />
-            </svg>
-            <div className="v2-gauge-mid"><span>Total from email</span><b>{moneyFmt.format(0)}</b></div>
-          </div>
-          <div className="v2-legend">
-            <button type="button" disabled><i style={{ ['--c' as string]: '#d0d0db' }} /><span>No campaigns yet</span><small>100%</small><b>{moneyFmt.format(0)}</b></button>
-          </div>
-        </Card>
-        <Card icon={<Star size={16} aria-hidden="true" />} title="Top products">
-          <div className="v2-products">
-            <div className="omer-empty-block">
-              <Sparkles size={16} aria-hidden="true" />
-              <p>Product attribution appears after Shopify orders sync.</p>
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      <div className="v2-row">
-        <Card icon={<Activity size={16} aria-hidden="true" />} title="Sales mix" className="v2-wide" extra={<span className="v2-side">Bought before <b>{moneyFmt.format(0)}</b></span>}>
-          <div className="v2-head">
-            <b className="v2-val v2-big">{moneyFmt.format(0)}</b>
-            <p className="v2-d"><b>—</b><span>last {range === 1 ? '24h' : `${range}d`}</span></p>
-          </div>
-          <div className="v2-bars-wrap">
-            <div className="v2-key" aria-hidden="true">
-              <span><i style={{ ['--c' as string]: '#6360F0' }} />New customers</span>
-              <span><i style={{ ['--c' as string]: '#4F4BE0' }} />Bought before</span>
-            </div>
-            <div className="v2-bars omer-empty-bars" aria-hidden="true">
-              {Array.from({ length: Math.min(range, 14) }, (_, index) => (
-                <span key={index} className="v2-col" style={{ ['--i' as string]: index }}>
-                  <i className="v2-new" style={{ ['--h' as string]: '8%' }} />
-                </span>
-              ))}
-            </div>
+        <Card icon={<Radio size={16} aria-hidden="true" />} title="Website">
+          <div className="omer-site-card">
+            <span className={`status-pill ${project.firstEventAt ? 'received' : ''}`}>
+              <Radio size={14} aria-hidden="true" /> {project.firstEventAt ? 'Receiving events' : 'Waiting for install'}
+            </span>
+            <a href={project.origin} target="_blank" rel="noreferrer">{hostname}<ArrowUpRight size={15} aria-hidden="true" /></a>
+            {project.firstEventAt
+              ? <p>First event <time dateTime={project.firstEventAt}>{new Date(project.firstEventAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</time>.</p>
+              : <p>Install the tracker and grant analytics consent to start the pulse.</p>}
+            <button className="btn btn-secondary btn-sm" type="button" onClick={onSetup}>Open setup</button>
           </div>
         </Card>
       </div>
@@ -451,7 +333,7 @@ export function DashboardV2({ project, onSetup, onGlobe, headingRef }: {
             <p className="omer-empty-note">Referrers show up after the first consented page views.</p>
           ) : (
             <table className="v2-stat-table">
-              <thead><tr><th scope="col">Source</th><th scope="col">Visitors</th><th scope="col">Share</th></tr></thead>
+              <thead><tr><th scope="col">Source</th><th scope="col">Views</th><th scope="col">Share</th></tr></thead>
               <tbody>
                 {project.sources!.map((row) => (
                   <tr key={row.name}>
@@ -485,36 +367,20 @@ export function DashboardV2({ project, onSetup, onGlobe, headingRef }: {
       </div>
 
       <div className="v2-row v2-two">
-        <Card icon={<Radio size={16} aria-hidden="true" />} title="Website">
-          <div className="omer-site-card">
-            <span className={`status-pill ${project.firstEventAt ? 'received' : ''}`}>
-              <Radio size={14} aria-hidden="true" /> {project.firstEventAt ? 'Receiving events' : 'Waiting for install'}
-            </span>
-            <a href={project.origin} target="_blank" rel="noreferrer">{hostname}<ArrowUpRight size={15} aria-hidden="true" /></a>
-            {project.firstEventAt
-              ? <p>First event <time dateTime={project.firstEventAt}>{new Date(project.firstEventAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</time>.</p>
-              : <p>Install the tracker and grant analytics consent to start the pulse.</p>}
-            <button className="btn btn-secondary btn-sm" type="button" onClick={onSetup}>Open setup</button>
+        <Card icon={<Globe2 size={16} aria-hidden="true" />} title="Live" extra={<button type="button" className="ho-link" onClick={onGlobe}>Open <ArrowRight size={14} aria-hidden="true" /></button>}>
+          <div className="omer-live-cta">
+            <p>See who’s on the site right now — pins, recent visits, and sources on the Live globe.</p>
+            <button className="btn btn-primary btn-sm" type="button" onClick={onGlobe}>Open Live</button>
           </div>
         </Card>
-        <Card icon={<Inbox size={16} aria-hidden="true" />} title="Needs you" className="v2-wide">
+        <Card icon={<Inbox size={16} aria-hidden="true" />} title="Needs you">
           <div className="omer-needs">
             <p>{project.firstEventAt
-              ? 'Traffic is flowing. Email, campaigns, and geo live still need wiring — those cards stay empty until then.'
-              : 'Finish install so visitors, sources, pages, and visit duration can fill in.'}</p>
+              ? 'Traffic, sources, pages, and Live geo are on. Email and campaigns come next.'
+              : 'Finish install so visitors, sources, pages, and Live can fill in.'}</p>
             <div className="omer-needs-actions">
-              <button className="btn btn-primary btn-sm" type="button" onClick={onSetup}>Open setup</button>
-              <button className="btn btn-secondary btn-sm" type="button" onClick={onGlobe}>Open live globe</button>
+              <button className="btn btn-secondary btn-sm" type="button" onClick={onSetup}>Open setup</button>
             </div>
-          </div>
-        </Card>
-      </div>
-
-      <div className="v2-row">
-        <Card icon={<Globe2 size={16} aria-hidden="true" />} title="Visitor globe" extra={<button type="button" className="ho-link" onClick={onGlobe}>Open <ArrowRight size={14} aria-hidden="true" /></button>}>
-          <div className="omer-map-card">
-            <DottedGlobe />
-            <p>Locations aren’t collected yet — globe is ready for live pins later.</p>
           </div>
         </Card>
       </div>

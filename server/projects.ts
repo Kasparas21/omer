@@ -1,6 +1,7 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, sql } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { dailyVisitors, dwell, pageViews, pathViews, projects, referrerViews } from './schema';
+import { localDemoPlace, placeFromRequest } from './geo';
+import { dailyVisitors, dwell, pageViews, pathViews, projects, referrerViews, visits } from './schema';
 import { auth, pool, appURL } from './auth';
 
 type RateLimit = { limit(input: { key: string }): Promise<{ success: boolean }> };
@@ -256,6 +257,22 @@ async function receiveEvent(request: Request, env: Env) {
         target: [referrerViews.projectId, referrerViews.day, referrerViews.referrer],
         set: { count: sql`${referrerViews.count} + 1` },
       });
+    const geo = placeFromRequest(request) ?? (env.ALLOW_LOCAL_SITES === 'true' ? localDemoPlace(vid) : null);
+    await tx.insert(visits).values({
+      projectId: project.id,
+      visitorId: vid,
+      path,
+      referrer,
+      cc: geo?.cc ?? null,
+      city: geo?.city ?? null,
+      place: geo?.place ?? null,
+      lat: geo?.lat ?? null,
+      lng: geo?.lng ?? null,
+    });
+    await tx.delete(visits).where(and(
+      eq(visits.projectId, project.id),
+      sql`${visits.seenAt} < now() - interval '7 days'`,
+    ));
     return true;
   }));
 
@@ -264,10 +281,94 @@ async function receiveEvent(request: Request, env: Env) {
     : new Response(null, { status: 403 });
 }
 
+async function liveFeed(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Project not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to view live visitors.' }, 401);
+
+  return withDatabase(env, async (db) => {
+    const [project] = await db.select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.id, projectId), eq(projects.owner, owner)))
+      .limit(1);
+    if (!project) return json({ error: 'Project not found.' }, 404);
+
+    const recent = await db.select({
+      id: visits.id,
+      visitorId: visits.visitorId,
+      path: visits.path,
+      referrer: visits.referrer,
+      cc: visits.cc,
+      city: visits.city,
+      place: visits.place,
+      lat: visits.lat,
+      lng: visits.lng,
+      seenAt: visits.seenAt,
+    })
+      .from(visits)
+      .where(and(eq(visits.projectId, projectId), gt(visits.seenAt, sql`now() - interval '24 hours'`)))
+      .orderBy(desc(visits.seenAt))
+      .limit(48);
+
+    const [{ online }] = await db.select({
+      online: sql<number>`count(distinct ${visits.visitorId})::int`,
+    })
+      .from(visits)
+      .where(and(eq(visits.projectId, projectId), gt(visits.seenAt, sql`now() - interval '5 minutes'`)));
+
+    const hourVisits = await db.select({ seenAt: visits.seenAt })
+      .from(visits)
+      .where(and(eq(visits.projectId, projectId), gt(visits.seenAt, sql`now() - interval '60 minutes'`)));
+
+    const minutes = Array.from({ length: 60 }, () => 0);
+    const now = Date.now();
+    for (const row of hourVisits) {
+      const ageMin = Math.min(59, Math.max(0, Math.floor((now - new Date(row.seenAt).getTime()) / 60_000)));
+      minutes[59 - ageMin] += 1;
+    }
+
+    const sourceRows = await db.select({
+      name: referrerViews.referrer,
+      count: sql<number>`sum(${referrerViews.count})::float8`,
+    })
+      .from(referrerViews)
+      .where(and(
+        eq(referrerViews.projectId, projectId),
+        sql`${referrerViews.day} >= (now() at time zone 'UTC')::date - 6`,
+      ))
+      .groupBy(referrerViews.referrer)
+      .orderBy(desc(sql`sum(${referrerViews.count})`))
+      .limit(6);
+
+    return json({
+      online: Number(online ?? 0),
+      minutes,
+      sources: sourceRows.map((row) => ({ name: row.name, count: Number(row.count) })),
+      visits: recent.map((row) => ({
+        id: row.id,
+        seed: row.visitorId,
+        path: row.path,
+        referrer: row.referrer,
+        cc: row.cc,
+        city: row.city,
+        place: row.place,
+        lat: row.lat,
+        lng: row.lng,
+        seenAt: row.seenAt,
+      })),
+    });
+  });
+}
+
 export default {
   async fetch(request: Request, env: Env) {
     const url = new URL(request.url);
     try {
+      const liveMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/live$/i);
+      if (liveMatch) {
+        if (request.method === 'GET') return await liveFeed(request, env, liveMatch[1]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
       if (url.pathname === '/api/projects') {
         if (request.method === 'GET') return await listProjects(request, env);
         if (request.method === 'POST') return await createProject(request, env, url);

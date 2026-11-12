@@ -1,4 +1,4 @@
-import { bigint, date, index, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { bigint, date, doublePrecision, index, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 export const projects = pgTable('onboarding_projects', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -42,3 +42,17 @@ export const dwell = pgTable('project_dwell', {
   totalMs: bigint('total_ms', { mode: 'number' }).notNull(),
   samples: bigint('samples', { mode: 'number' }).notNull(),
 }, (table) => [primaryKey({ name: 'project_dwell_pk', columns: [table.projectId, table.day] })]);
+
+export const visits = pgTable('project_visits', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  visitorId: text('visitor_id').notNull(),
+  path: text('path').notNull(),
+  referrer: text('referrer').notNull(),
+  cc: text('cc'),
+  city: text('city'),
+  place: text('place'),
+  lat: doublePrecision('lat'),
+  lng: doublePrecision('lng'),
+  seenAt: timestamp('seen_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [index('project_visits_project_seen_idx').on(table.projectId, table.seenAt)]);

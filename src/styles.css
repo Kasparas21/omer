@@ -2,6 +2,7 @@
 @import './ui/components.css';
 @import './ui/setup.css';
 @import './ui/v2.css';
+@import './ui/live.css';
 @import './ui/dashboard.css';
 
 
@@ -81,19 +82,32 @@ body { background: var(--v2-page, var(--bg)); }
 .status-pill.received { color: var(--success-text); background: var(--success-bg); }
 .notice { margin-top: 16px; color: var(--ink-2); font-size: var(--fs-md); }
 
-.dock {
-  position: fixed; inset-block-end: max(20px, env(safe-area-inset-bottom)); inset-inline-start: 50%;
-  transform: translateX(-50%); display: flex; gap: 4px; padding: var(--dock-pad);
+.app {
+  min-height: 100dvh;
+  container-type: inline-size;
+  container-name: app;
+  background: var(--v2-page, var(--bg));
+}
+.app.globe-mode .app-body.globe-body {
+  height: 100dvh;
+  overflow: hidden;
+  padding: 0;
+}
+.app-dock {
+  position: fixed; z-index: 6; inset: auto 0 max(16px, env(safe-area-inset-bottom));
+  display: flex; justify-content: center; pointer-events: none;
+}
+.app-dock .dock-frame { pointer-events: auto; }
+.app-dock .dock {
+  position: relative; inset: auto; transform: none; margin: 0;
+  display: flex; gap: 4px; padding: var(--dock-pad);
   color: var(--dock-fg); background: var(--dock-bg); border: 1px solid var(--dock-line);
   border-radius: var(--dock-r); box-shadow: var(--dock-lift);
 }
-.dock-item {
-  min-width: var(--dock-item-size); min-height: var(--dock-item-size);
-  display: grid; place-items: center; border: 0; border-radius: var(--dock-item-r);
-  background: transparent; color: inherit;
-}
-.dock-item:hover { background: var(--dock-item-active); }
-.dock-item.active { color: var(--dock-fg-active); background: var(--dock-item-active); }
+.v2-metrics-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.omer-live-cta { display: grid; gap: 12px; align-content: start; }
+.omer-live-cta p { margin: 0; color: var(--ink-2); line-height: 1.45; }
+.flag { width: 16px; height: 16px; border-radius: 50%; object-fit: cover; }
 
 .dialog {
   width: min(460px, calc(100% - 32px)); max-height: calc(100% - 32px); padding: 0;

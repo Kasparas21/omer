@@ -1,27 +1,39 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  BookOpen, Check, ChevronsUpDown, Copy, Globe2, Home, Inbox, Lock, Mail, UserRound,
+  BookOpen, Check, ChevronsUpDown, Copy, Globe2, Home, Inbox, Lock, Megaphone, UserRound,
   Plus, RefreshCw, Settings, Users, BarChart3, X,
 } from 'lucide-react';
 import { installPrompt, installSnippet, type Project } from './project';
 import './styles.css';
 import { AuthGate } from './auth';
-import { DashboardV2, DottedGlobe } from './DashboardV2';
+import { DashboardV2 } from './DashboardV2';
+import { LiveGlobe } from './LiveGlobe';
+import { People } from './People';
 
 type ProjectError = { field?: 'name' | 'website'; error: string };
 type SetupStep = 'site' | 'brand' | 'install' | 'check' | 'sender';
-type AppScreen = 'home' | 'globe' | 'opportunities' | 'people' | 'results' | 'campaigns' | 'settings';
+type AppScreen = 'home' | 'inbox' | 'visitors' | 'campaigns' | 'results' | 'globe' | 'settings';
 
-const DOCK: { id: AppScreen; label: string; icon: typeof Home }[] = [
+const DOCK: { id: AppScreen; label: string; icon: typeof Home; live?: boolean }[] = [
   { id: 'home', label: 'Dashboard', icon: Home },
-  { id: 'opportunities', label: 'Opportunities', icon: Inbox },
-  { id: 'people', label: 'People', icon: Users },
+  { id: 'inbox', label: 'Opportunities', icon: Inbox },
+  { id: 'visitors', label: 'People', icon: Users },
+  { id: 'campaigns', label: 'Campaigns', icon: Megaphone },
   { id: 'results', label: 'Results', icon: BarChart3 },
-  { id: 'campaigns', label: 'Campaigns', icon: Mail },
-  { id: 'globe', label: 'Visitor globe', icon: Globe2 },
+  { id: 'globe', label: 'Live', icon: Globe2, live: true },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
+
+const WHERE: Record<AppScreen, string> = {
+  home: '',
+  inbox: 'Opportunities',
+  visitors: 'People',
+  campaigns: 'Campaigns',
+  results: 'Results',
+  globe: 'Live',
+  settings: 'Settings',
+};
 
 const SETUP_STEPS: { id: SetupStep; label: string; locked?: boolean }[] = [
   { id: 'site', label: 'Your website' },
@@ -67,6 +79,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [reached, setReached] = useState(0);
   const [forceSetup, setForceSetup] = useState(false);
   const [screen, setScreen] = useState<AppScreen>('home');
+  const [liveCount, setLiveCount] = useState(0);
   const createDialog = useRef<HTMLDialogElement>(null);
   const guideDialog = useRef<HTMLDialogElement>(null);
   const dashboardHeading = useRef<HTMLHeadingElement>(null);
@@ -82,6 +95,24 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
     document.documentElement.dataset.dash = '2';
     return () => { delete document.documentElement.dataset.dash; };
   }, []);
+
+  useEffect(() => {
+    if (!project?.id || !setupComplete) return;
+    let cancelled = false;
+    async function loadLive() {
+      try {
+        const response = await fetch(`/api/projects/${project!.id}/live`, { cache: 'no-store' });
+        if (!response.ok) return;
+        const data: { online: number } = await response.json();
+        if (!cancelled) setLiveCount(data.online);
+      } catch {
+        /* ignore */
+      }
+    }
+    void loadLive();
+    const timer = window.setInterval(() => { if (!document.hidden) void loadLive(); }, 8000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [project?.id, setupComplete]);
 
   useEffect(() => {
     if (!setupComplete) return;
@@ -381,7 +412,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
   }
 
   return (
-    <>
+    <div className={`app has-shelf${screen === 'globe' && !inSetup ? ' globe-mode' : ''}`} data-screen={inSetup ? 'setup' : screen}>
       <a href="#dashboard" className="skip">Skip to dashboard</a>
       <header className="app-shelf">
         <div className="app-shelf-in">
@@ -402,7 +433,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
                 </select>
               </label>
             )}
-            {!inSetup && screen !== 'home' && <span className="app-shelf-where">{DOCK.find((item) => item.id === screen)?.label}</span>}
+            {!inSetup && WHERE[screen] ? <span className="app-shelf-where">{WHERE[screen]}</span> : null}
           </div>
           <div className="app-shelf-r">
             <button className="btn btn-ghost btn-icon round" type="button" aria-label="New project" title="New project" onClick={openCreate}><Plus size={18} aria-hidden="true" /></button>
@@ -461,7 +492,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
           </div>
         </main>
       ) : (
-        <main id="dashboard" className={`app-body ${screen === 'home' ? 'ho v2 is-in' : 'v2-screen'}`}>
+        <main id="dashboard" className={`app-body ${screen === 'home' ? 'ho v2 is-in' : screen === 'globe' ? 'globe-body' : 'v2-screen'}`}>
           {screen === 'home' && project ? (
             <DashboardV2 key={project.id} project={project} headingRef={dashboardHeading}
               onGlobe={() => setScreen('globe')} onSetup={() => {
@@ -469,23 +500,38 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
                 setStep('check');
                 setReached(stepIndex('check'));
               }} />
-          ) : screen === 'globe' ? (
-            <section className="omer-globe-page">
-              <div className="omer-globe-heading"><h1>Visitor globe</h1><p>Visitor locations aren’t collected yet.</p></div>
-              <DottedGlobe />
-            </section>
+          ) : screen === 'globe' && project ? (
+            <LiveGlobe key={project.id} projectId={project.id} />
+          ) : screen === 'visitors' && project ? (
+            <People projectId={project.id} />
+          ) : screen === 'settings' && project ? (
+            <div className="v2-empty-screen">
+              <h1>Settings</h1>
+              <section className="v2-card">
+                <header><Settings size={16} aria-hidden="true" /><h3>Project</h3></header>
+                <div className="v2-in omer-site-card">
+                  <p><b>{project.name}</b></p>
+                  <a href={project.origin} target="_blank" rel="noreferrer">{project.origin}</a>
+                  <p>Write key is used only in your install snippet.</p>
+                  <button className="btn btn-secondary btn-sm" type="button" onClick={openGuide}>Installation guide</button>
+                  <button className="btn btn-ghost btn-sm" type="button" onClick={() => {
+                    setForceSetup(true);
+                    setStep('install');
+                    setReached(stepIndex('install'));
+                  }}>Open setup</button>
+                </div>
+              </section>
+            </div>
           ) : (
             <div className="v2-empty-screen">
-              <h1>{DOCK.find((item) => item.id === screen)?.label}</h1>
+              <h1>{WHERE[screen] || 'Soon'}</h1>
               <section className="v2-card">
-                <header><Inbox size={16} aria-hidden="true" /><h3>No data to show yet</h3></header>
+                <header><Inbox size={16} aria-hidden="true" /><h3>After email ships</h3></header>
                 <div className="v2-in">
                   <p className="su-side-p">
-                    {screen === 'opportunities' && 'Review and approve follow-up emails here once generation and opportunities are wired.'}
-                    {screen === 'people' && 'Visitor profiles and replays show here once capture and identity are live.'}
-                    {screen === 'results' && 'Revenue and send results show here once campaigns actually send.'}
-                    {screen === 'campaigns' && 'Campaign recipes live here once the recipe engine ships.'}
-                    {screen === 'settings' && 'Brand, sender and team settings land here as those backends ship.'}
+                    {screen === 'inbox' && 'Opportunities and follow-up drafts will land here once email generation is connected.'}
+                    {screen === 'campaigns' && 'Campaign recipes and sends will live here once the email engine ships.'}
+                    {screen === 'results' && 'Attributed revenue and send results will show here once campaigns go out.'}
                   </p>
                   <button type="button" className="btn btn-secondary btn-sm" onClick={() => setScreen('home')}>Back to Home</button>
                 </div>
@@ -497,21 +543,28 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
       )}
 
       {!inSetup && (
-        <div className="omer-dock"><nav className="dock" aria-label="Product"><div className="dock-bar">
-          {DOCK.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              type="button"
-              className={`dock-item${screen === id ? ' active' : ''}`}
-              aria-label={label}
-              aria-current={screen === id ? 'page' : undefined}
-              title={label}
-              onClick={() => setScreen(id)}
-            >
-              <Icon size={20} aria-hidden="true" />
-            </button>
-          ))}
-          </div></nav></div>
+        <div className="app-dock dock-host">
+          <div className="dock-frame">
+            <nav className="dock" aria-label="Main navigation">
+              <div className="dock-bar">
+                {DOCK.map(({ id, label, icon: Icon, live }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={`dock-item${live ? ' live' : ''}`}
+                    aria-label={live ? `Live, ${liveCount} online` : label}
+                    aria-current={screen === id ? 'page' : undefined}
+                    title={label}
+                    onClick={() => setScreen(id)}
+                  >
+                    <Icon size={20} aria-hidden="true" />
+                    {live ? <span className="count">{liveCount}</span> : null}
+                  </button>
+                ))}
+              </div>
+            </nav>
+          </div>
+        </div>
       )}
 
       <dialog ref={createDialog} className="dialog" aria-labelledby="create-heading" onCancel={(event) => { if (saving) event.preventDefault(); }}>
@@ -575,7 +628,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
           <p role="status" className="notice">{notice}</p>
         </div>
       </dialog>
-    </>
+    </div>
   );
 }
 
