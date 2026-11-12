@@ -1,23 +1,25 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  BookOpen, Check, ChevronDown, Copy, Globe2, Inbox, LayoutDashboard, Lock, Mail,
+  BookOpen, Check, ChevronsUpDown, Copy, Globe2, Home, Inbox, Lock, Mail, UserRound,
   Plus, RefreshCw, Settings, Users, BarChart3, X,
 } from 'lucide-react';
 import { installPrompt, installSnippet, type Project } from './project';
 import './styles.css';
 import { AuthGate } from './auth';
+import { DashboardV2, DottedGlobe } from './DashboardV2';
 
 type ProjectError = { field?: 'name' | 'website'; error: string };
 type SetupStep = 'site' | 'brand' | 'install' | 'check' | 'sender';
-type AppScreen = 'home' | 'opportunities' | 'people' | 'results' | 'campaigns' | 'settings';
+type AppScreen = 'home' | 'globe' | 'opportunities' | 'people' | 'results' | 'campaigns' | 'settings';
 
-const DOCK: { id: AppScreen; label: string; icon: typeof LayoutDashboard }[] = [
-  { id: 'home', label: 'Home', icon: LayoutDashboard },
+const DOCK: { id: AppScreen; label: string; icon: typeof Home }[] = [
+  { id: 'home', label: 'Dashboard', icon: Home },
   { id: 'opportunities', label: 'Opportunities', icon: Inbox },
   { id: 'people', label: 'People', icon: Users },
   { id: 'results', label: 'Results', icon: BarChart3 },
   { id: 'campaigns', label: 'Campaigns', icon: Mail },
+  { id: 'globe', label: 'Visitor globe', icon: Globe2 },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -75,6 +77,15 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const snippet = project ? installSnippet(project, window.location.origin) : '';
   const setupComplete = Boolean(project?.firstEventAt);
   const inSetup = !loading && !loadError && (!setupComplete || forceSetup);
+
+  useEffect(() => {
+    if (!setupComplete) return;
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void getProjects().then(setProjects).catch(() => undefined);
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [setupComplete]);
+
 
   async function refresh(interactive = false) {
     pending.current?.abort();
@@ -339,7 +350,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
               {received
                 ? <button className="btn btn-primary" type="button" onClick={() => {
                     setForceSetup(false);
-                    setNotice('Setup complete for this slice.');
+                    setNotice('');
                     requestAnimationFrame(() => dashboardHeading.current?.focus());
                   }}>
                     Go to my dashboard
@@ -367,30 +378,36 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
   return (
     <>
       <a href="#dashboard" className="skip">Skip to dashboard</a>
-      <header className="top">
-        <div className="top-inner">
-          <a href="/" className="wordmark"><span className="brand-icon"><Ghost size={22} /></span>Unfair Weekend</a>
-          {projects.length > 0 && (
-            <label className="project-picker">
-              <Globe2 size={16} aria-hidden="true" />
-              <select
-                aria-label="Current project"
-                value={project?.id}
-                onChange={(event) => {
+      <header className="app-shelf">
+        <div className="app-shelf-in">
+          <div className="app-shelf-l">
+            <button type="button" className="app-shelf-logo" aria-label="Dashboard" onClick={() => { setScreen('home'); setForceSetup(false); }}><Ghost size={28} /></button>
+            {projects.length > 0 && (
+              <label className="app-shelf-brand">
+                <span className="app-shelf-dot" aria-hidden="true" />
+                <span className="app-shelf-name" aria-hidden="true">{project?.name}</span>
+                <ChevronsUpDown className="app-shelf-chev" size={14} aria-hidden="true" />
+                <select aria-label="Current project" value={project?.id} onChange={(event) => {
                   setSelection(event.target.value);
+                  setForceSetup(false);
+                  setScreen('home');
                   setNotice('');
-                }}
-              >
-                {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-              </select>
-              <ChevronDown className="select-arrow" size={15} aria-hidden="true" />
-            </label>
-          )}
-          <div className="top-actions">
-            <button className="btn btn-ghost btn-sm" type="button" onClick={() => void onSignOut().catch(() => setNotice('Unable to sign out. Try again.'))}>Sign out</button>
-            <button className="btn btn-secondary btn-sm new-project" type="button" onClick={openCreate}>
-              <Plus size={16} aria-hidden="true" /> New project
-            </button>
+                }}>
+                  {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+              </label>
+            )}
+            {!inSetup && screen !== 'home' && <span className="app-shelf-where">{DOCK.find((item) => item.id === screen)?.label}</span>}
+          </div>
+          <div className="app-shelf-r">
+            <button className="btn btn-ghost btn-icon round" type="button" aria-label="New project" title="New project" onClick={openCreate}><Plus size={18} aria-hidden="true" /></button>
+            <details className="omer-account">
+              <summary className="app-shelf-account" aria-label="Your account"><span className="app-shelf-avatar"><UserRound size={15} aria-hidden="true" /></span></summary>
+              <div className="omer-account-panel">
+                <button className="btn btn-ghost btn-sm" type="button" onClick={openGuide}>Installation guide</button>
+                <button className="btn btn-ghost btn-sm" type="button" onClick={() => void onSignOut().catch(() => setNotice('Unable to sign out. Try again.'))}>Sign out</button>
+              </div>
+            </details>
           </div>
         </div>
       </header>
@@ -439,62 +456,28 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
           </div>
         </main>
       ) : (
-        <main id="dashboard" className={`app-body ${screen === 'home' ? 'ho v2 v2-empty' : 'v2-screen'}`}>
+        <main id="dashboard" className={`app-body ${screen === 'home' ? 'ho v2' : 'v2-screen'}`}>
           {screen === 'home' && project ? (
-            <>
-              <div className="v2-backdrop" aria-hidden="true">
-                <div className="v2-row"><div className="v2-ghost v2-ghost-tall"><p className="v2-ghost-t" style={{ width: '28%' }}> </p><p className="v2-ghost-t" style={{ width: '44%' }}> </p><p className="v2-ghost-t" style={{ width: '62%' }}> </p></div></div>
-                <div className="v2-row v2-three">
-                  <div className="v2-ghost"><p className="v2-ghost-t" style={{ width: '34%' }}> </p><p className="v2-ghost-t" style={{ width: '52%' }}> </p></div>
-                  <div className="v2-ghost"><p className="v2-ghost-t" style={{ width: '34%' }}> </p><p className="v2-ghost-t" style={{ width: '52%' }}> </p></div>
-                  <div className="v2-ghost"><p className="v2-ghost-t" style={{ width: '34%' }}> </p><p className="v2-ghost-t" style={{ width: '52%' }}> </p></div>
-                </div>
-                <div className="v2-row v2-two">
-                  <div className="v2-ghost v2-ghost-mid"><p className="v2-ghost-t" style={{ width: '38%' }}> </p></div>
-                  <div className="v2-ghost v2-ghost-mid"><p className="v2-ghost-t" style={{ width: '30%' }}> </p></div>
-                </div>
-              </div>
-              <div className="v2-connect">
-                <div className={`v2-link${project.firstEventAt ? ' is-on' : ''}`}>
-                  <span className="v2-tile" aria-hidden="true">
-                    <img className="brand-logo" src="/assets/logos/shopify.svg" alt="" draggable={false} />
-                  </span>
-                  <i className="v2-dots" aria-hidden="true" />
-                  <span className="v2-tile v2-tile-us" aria-hidden="true"><Ghost size={34} /></span>
-                </div>
-                <h2 tabIndex={-1} ref={dashboardHeading}>
-                  {project.firstEventAt ? `Watching ${new URL(project.origin).host}` : 'Connect your website'}
-                </h2>
-                <p>
-                  {project.firstEventAt
-                    ? <>First event received {project.firstEventAt && <time dateTime={project.firstEventAt}>{new Date(project.firstEventAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</time>}. Live visitors, opportunities and email metrics land here as we ship those slices — no mock charts.</>
-                    : 'Install the snippet and grant analytics consent to confirm the connection.'}
-                </p>
-                <div className="v2-cta-row">
-                  <button
-                    type="button"
-                    className="btn btn-primary v2-cta"
-                    onClick={() => {
-                      setForceSetup(true);
-                      setStep(project.firstEventAt ? 'check' : 'install');
-                      setReached((value) => Math.max(value, stepIndex(project.firstEventAt ? 'check' : 'install')));
-                    }}
-                  >
-                    {project.firstEventAt ? 'Open setup' : 'Finish setup'}
-                  </button>
-                  <button type="button" className="btn btn-secondary v2-cta" onClick={openGuide}>Installation guide</button>
-                </div>
-              </div>
-            </>
+            <DashboardV2 key={project.id} project={project} headingRef={dashboardHeading}
+              onGlobe={() => setScreen('globe')} onSetup={() => {
+                setForceSetup(true);
+                setStep('check');
+                setReached(stepIndex('check'));
+              }} />
+          ) : screen === 'globe' ? (
+            <section className="omer-globe-page">
+              <div className="omer-globe-heading"><h1>Visitor globe</h1><p>Visitor locations aren’t collected yet.</p></div>
+              <DottedGlobe />
+            </section>
           ) : (
             <div className="v2-empty-screen">
               <h1>{DOCK.find((item) => item.id === screen)?.label}</h1>
               <section className="v2-card">
-                <header><Inbox size={16} aria-hidden="true" /><h3>Coming next</h3></header>
+                <header><Inbox size={16} aria-hidden="true" /><h3>No data to show yet</h3></header>
                 <div className="v2-in">
                   <p className="su-side-p">
                     {screen === 'opportunities' && 'Review and approve follow-up emails here once generation and opportunities are wired.'}
-                    {screen === 'people' && 'Visitor profiles and replays show here once capture and identity are live — no sample people.'}
+                    {screen === 'people' && 'Visitor profiles and replays show here once capture and identity are live.'}
                     {screen === 'results' && 'Revenue and send results show here once campaigns actually send.'}
                     {screen === 'campaigns' && 'Campaign recipes live here once the recipe engine ships.'}
                     {screen === 'settings' && 'Brand, sender and team settings land here as those backends ship.'}
@@ -509,7 +492,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
       )}
 
       {!inSetup && (
-        <nav className="dock" aria-label="Product">
+        <div className="omer-dock"><nav className="dock" aria-label="Product"><div className="dock-bar">
           {DOCK.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -523,10 +506,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
               <Icon size={20} aria-hidden="true" />
             </button>
           ))}
-          <button className="dock-item" type="button" aria-label="Installation guide" title="Installation guide" onClick={openGuide}>
-            <BookOpen size={20} aria-hidden="true" />
-          </button>
-        </nav>
+          </div></nav></div>
       )}
 
       <dialog ref={createDialog} className="dialog" aria-labelledby="create-heading" onCancel={(event) => { if (saving) event.preventDefault(); }}>

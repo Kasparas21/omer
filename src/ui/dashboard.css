@@ -1,0 +1,153 @@
+@import url('/globe/globe.css');
+
+:root {
+  --v2-rail: min(100% - clamp(24px, 7%, 80px), 920px);
+  --app-shelf-h: 58px;
+  --app-shelf-fade: 24px;
+}
+.app-shelf {
+  position: absolute; z-index: 8; inset: 0 0 auto;
+  height: var(--app-shelf-h);
+  display: flex; align-items: stretch; justify-content: center;
+  pointer-events: none;
+}
+.app-shelf::before {
+  content: ""; position: absolute; inset: 0 0 calc(-1 * var(--app-shelf-fade)); pointer-events: none;
+  /* Keep the frost consistent through the controls, then feather its lower edge. */
+  background: color-mix(in srgb, var(--v2-page, var(--bg)) 84%, transparent);
+  backdrop-filter: blur(14px) saturate(0.5);
+  mask-image: linear-gradient(to bottom,
+    #000 43%,
+    rgb(0 0 0 / 0.9) 56%,
+    rgb(0 0 0 / 0.58) 71%,
+    rgb(0 0 0 / 0.23) 85%,
+    rgb(0 0 0 / 0.05) 96%,
+    transparent);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .app-shelf::before {
+    inset-block-end: 0;
+    background: var(--v2-page, var(--bg));
+    backdrop-filter: none;
+    mask-image: none;
+  }
+}
+.app-shelf[hidden] { display: none !important; }
+.app-shelf-in {
+  position: relative; z-index: 1; display: grid; grid-template-columns: auto 1fr auto;
+  align-items: center; column-gap: 0;
+  width: var(--v2-rail);
+  max-width: 100%; margin: 0 auto;
+  min-width: 0; min-height: var(--app-shelf-h); box-sizing: border-box;
+}
+.app-shelf-l, .app-shelf-r { display: flex; align-items: center; min-width: 0; pointer-events: auto; }
+.app-shelf-l { grid-column: 1; gap: 8px; }
+.app-shelf-r { grid-column: 3; justify-self: end; }
+.app-shelf-logo, .app-shelf-account {
+  display: grid; place-items: center; flex: none;
+  width: 32px; height: 32px; padding: 0; border-radius: var(--r-btn);
+  border: 0; background: transparent; color: var(--ink); cursor: pointer;
+  transition: background var(--t-fast) var(--ease);
+}
+.app-shelf-logo { width: 32px; height: 32px; margin: 0; border-radius: 10px; }
+.app-shelf-logo .ico { width: 28px; height: 28px; }
+.app-shelf :is(.app-shelf-logo, .app-shelf-brand, .app-shelf-query, .app-shelf-account, .app-shelf-back):focus-visible {
+  outline: 2px solid var(--accent-text); outline-offset: 2px;
+}
+.app-shelf-brand {
+  position: relative; isolation: isolate;
+  display: flex; align-items: center; gap: 7px; max-width: min(100%, 13rem);
+  height: 32px; padding: 0 8px 0 4px; border-radius: var(--r-btn);
+  border: 0; background: transparent;
+  font: inherit; font-size: 14px; font-weight: 500; line-height: 1;
+  letter-spacing: -0.02em; color: var(--ink); cursor: pointer;
+  white-space: nowrap;
+}
+.app-shelf-logo:hover,
+.app-shelf-account:hover,
+.app-shelf-account[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+/* Hover wash hugs the 32px row — same radius as buttons, not a taller capsule. */
+.app-shelf-brand::before {
+  content: ""; position: absolute; z-index: -1; inset: 0;
+  border-radius: inherit; pointer-events: none;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--ease);
+}
+@media (hover: hover) {
+  .app-shelf-brand:hover::before { opacity: 1; }
+}
+.app-shelf-brand[aria-expanded="true"]::before {
+  opacity: 1;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+.app-shelf-dot {
+  display: grid; place-items: center; flex: none;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: #f5f5f5;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.1);
+}
+.app-shelf-dot::before {
+  content: ""; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--c, var(--accent));
+}
+.app-shelf-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-shelf-chev { width: 14px; height: 14px; flex: none; margin-inline-start: -1px; color: #999; opacity: 0.9; }
+.app-shelf-chev .ico.updown { width: 14px; height: 14px; stroke-width: 1.5; }
+.app-shelf-where {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; font-weight: 500; color: var(--ink-3); letter-spacing: -0.015em;
+}
+.app-shelf-where:empty { display: none; }
+.app-shelf-where::before { content: "/"; margin: 0 9px 0 1px; color: var(--ink-3); opacity: 0.45; font-weight: 400; }
+.app-shelf-account { width: 32px; height: 32px; margin: 0; border-radius: 50%; }
+.app-shelf-avatar {
+  display: grid; place-items: center;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent-text);
+  font-size: 12px; font-weight: 600;
+}
+.app-shelf { position: sticky; top: 0; z-index: 8; }
+.app-shelf-l { grid-column: 1 / 3; }
+.app-shelf-brand { min-width: 0; }
+.app-shelf-brand select { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.app-shelf-brand:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.app-shelf-r { gap: 4px; }
+.omer-account { position: relative; }
+.omer-account summary { list-style: none; }
+.omer-account summary::-webkit-details-marker { display: none; }
+.omer-account-panel { position: absolute; inset: 40px 0 auto auto; min-width: max-content; display: grid; padding: 5px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-md); }
+.omer-account-panel button { justify-content: start; }
+.omer-dock { position: fixed; z-index: 6; inset: auto 0 max(16px, env(safe-area-inset-bottom)); display: flex; justify-content: center; pointer-events: none; }
+.omer-dock .dock { position: relative; inset: auto; transform: none; pointer-events: auto; margin: 0; }
+.omer-dock .dock-bar { flex-direction: row; }
+.omer-metrics .v2-m { opacity: 1; cursor: default; }
+.omer-metrics .v2-m-v b { font-size: clamp(22px, 5vw, 38px); }
+.omer-metrics .v2-m-k { white-space: normal; }
+.omer-activity { width: var(--v2-rail); margin: 16px auto 28px; }
+.omer-plot { position: relative; height: clamp(150px, 24vh, 240px); display: flex; align-items: end; gap: clamp(3px, 1vw, 12px); padding: 16px 4px 0; border-bottom: 1px solid var(--v2-line); background: repeating-linear-gradient(to top, transparent 0 calc(25% - 1px), var(--v2-line) calc(25% - 1px) 25%); }
+.omer-chart-fill { fill: color-mix(in srgb, var(--v2-chart) 12%, transparent); }
+.omer-chart-point { fill: var(--v2-chart); }
+.omer-plot .v2-ln { stroke: var(--v2-chart); stroke-width: 2.5px; stroke-linecap: round; stroke-linejoin: round; }
+.omer-plot p { position: absolute; inset: 0; display: grid; place-content: center; color: var(--ink-2); margin: 0; }
+.omer-axis { display: flex; justify-content: space-between; padding-top: 8px; color: var(--ink-2); font-size: 12px; }
+.omer-card-action { margin-inline-start: auto; }
+.omer-map-card { padding: 0; min-height: 250px; }
+.v2-map-stage { position: relative; flex: 1; min-height: 232px; }
+.omer-map-card > p { margin: 0; padding: 0 12px 12px; text-align: center; font-size: 13px; color: var(--ink-2); }
+.omer-site-card { align-items: flex-start; justify-content: center; gap: 12px; }
+.omer-site-card a { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; overflow-wrap: anywhere; text-decoration: none; font-weight: 600; }
+.omer-site-card a svg { flex: none; }
+.omer-site-card p { margin: 0; color: var(--ink-2); }
+.omer-globe-page { width: var(--v2-rail); margin: auto; display: flex; flex-direction: column; min-height: calc(100dvh - 150px); padding-top: 20px; }
+.omer-globe-heading h1 { margin: 0; font-size: 26px; font-weight: 500; }
+.omer-globe-heading p, .v2-map-fallback { color: var(--ink-2); }
+.omer-globe-page .v2-map-stage { min-height: min(65vh, 610px); }
+@media (max-width: 600px) {
+  .app-shelf-where { display: none; }
+  .omer-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .omer-dock .dock-bar { gap: 0; }
+  .omer-dock .dock-item { min-width: 36px; padding-inline: 6px; }
+}

@@ -1,7 +1,7 @@
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import pg from 'pg';
-import { projects } from './schema';
+import { pageViews, projects } from './schema';
 import { auth, pool, appURL } from './auth';
 
 type RateLimit = { limit(input: { key: string }): Promise<{ success: boolean }> };
@@ -80,7 +80,15 @@ async function ownerID(request: Request) {
 async function listProjects(request: Request, env: Env) {
   const owner = await ownerID(request);
   if (!owner) return json({ error: 'Sign in to view projects.' }, 401);
-  const records = await withDatabase(env, (db) => db.select(projectFields)
+  const records = await withDatabase(env, (db) => db.select({
+      ...projectFields,
+      pageViews: sql<{ day: string; count: number }[]>`coalesce((
+        select json_agg(json_build_object('day', ${pageViews.day}, 'count', ${pageViews.count}) order by ${pageViews.day})
+        from ${pageViews}
+        where ${pageViews.projectId} = ${projects.id}
+          and ${pageViews.day} >= (now() at time zone 'UTC')::date - 29
+      ), '[]'::json)`,
+    })
     .from(projects).where(eq(projects.owner, owner)).orderBy(desc(projects.createdAt)));
   return json({ projects: records });
 }
@@ -114,14 +122,20 @@ async function receiveFirstEvent(request: Request, env: Env) {
   const writeKey = await readText(request, 36);
   if (!writeKey || !uuid.test(writeKey)) return new Response(null, { status: 400 });
 
-  const accepted = await withDatabase(env, async (db) => {
+  const accepted = await withDatabase(env, (db) => db.transaction(async (tx) => {
     const match = and(eq(projects.writeKey, writeKey), eq(projects.origin, origin));
-    const updated = await db.update(projects).set({ firstEventAt: new Date() })
-      .where(and(match, isNull(projects.firstEventAt))).returning({ id: projects.id });
-    if (updated.length) return true;
-    const [existing] = await db.select({ id: projects.id }).from(projects).where(match).limit(1);
-    return Boolean(existing);
-  });
+    const [project] = await tx.update(projects)
+      .set({ firstEventAt: sql`coalesce(${projects.firstEventAt}, now())` })
+      .where(match).returning({ id: projects.id });
+    if (!project) return false;
+    await tx.insert(pageViews)
+      .values({ projectId: project.id, day: sql`(now() at time zone 'UTC')::date`, count: 1 })
+      .onConflictDoUpdate({
+        target: [pageViews.projectId, pageViews.day],
+        set: { count: sql`${pageViews.count} + 1` },
+      });
+    return true;
+  }));
 
   return accepted
     ? new Response(null, { status: 204, headers: { 'Access-Control-Allow-Origin': origin, 'Vary': 'Origin', 'Cache-Control': 'no-store' } })

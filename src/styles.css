@@ -2,6 +2,8 @@
 @import './ui/components.css';
 @import './ui/setup.css';
 @import './ui/v2.css';
+@import './ui/dashboard.css';
+
 
 * { box-sizing: border-box; }
 html, body { margin: 0; min-width: 0; background: var(--bg); color: var(--ink); font-family: var(--font); }
@@ -41,31 +43,6 @@ a { color: inherit; }
 .auth-submit { margin-top: 4px; }
 .auth-switch { margin-top: 14px; color: var(--accent-text); }
 
-/* ---- App chrome ---- */
-.top { background: var(--surface); border-bottom: 1px solid var(--line); }
-.top-inner {
-  width: min(1120px, calc(100% - 48px)); margin-inline: auto; min-height: 64px;
-  display: flex; align-items: center; gap: 16px;
-}
-.wordmark {
-  display: inline-flex; align-items: center; gap: 10px; font-size: 15px;
-  font-weight: 650; text-decoration: none; white-space: nowrap; letter-spacing: -0.02em;
-}
-.brand-icon {
-  width: 34px; height: 34px; display: grid; place-items: center; color: #fff;
-  background: var(--gradient); border-radius: 11px;
-}
-.project-picker {
-  position: relative; display: flex; align-items: center; gap: 8px;
-  padding-inline: 12px; border: 1px solid var(--line); border-radius: 12px; color: var(--ink-3); min-width: 0;
-}
-.project-picker select {
-  appearance: none; color: var(--ink); background: none; border: 0;
-  padding: 11px 22px 11px 0; width: min(180px, 24vw); min-height: 42px; cursor: pointer; text-overflow: ellipsis;
-}
-.select-arrow { position: absolute; inset-inline-end: 9px; pointer-events: none; }
-.top-actions { margin-inline-start: auto; display: flex; gap: 8px; align-items: center; }
-
 .dashboard { width: min(1120px, calc(100% - 48px)); margin: 0 auto; padding: 48px 0 116px; }
 .app-body.ho.v2 { min-height: calc(100dvh - 64px); }
 .v2-cta-row { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 8px; }
@@ -81,7 +58,6 @@ a { color: inherit; }
 .v2-empty-screen .v2-in { gap: 16px; }
 .v2-tile-us svg { width: 34px; height: 34px; color: var(--ink); }
 body { background: var(--v2-page, var(--bg)); }
-.top { background: color-mix(in srgb, var(--v2-page, var(--bg)) 88%, white); border-bottom-color: var(--v2-line, var(--line)); }
 .page-head { margin-bottom: 28px; }
 .page-head h1 { margin: 0; font-size: 32px; font-weight: 630; letter-spacing: -0.03em; }
 .page-head p { margin: 8px 0 0; color: var(--ink-2); font-size: var(--fs-base); }
@@ -144,10 +120,5 @@ body { background: var(--v2-page, var(--bg)); }
 }
 
 @media (max-width: 520px) {
-  .top-inner, .dashboard { width: calc(100% - 32px); }
-  .top-inner { flex-wrap: wrap; gap: 8px 12px; padding-block: 12px; }
-  .project-picker { order: 3; width: 100%; }
-  .project-picker select { width: 100%; }
-  .top-actions { margin-inline-start: 0; }
-  .dock { position: sticky; width: max-content; margin: 0 auto 20px; inset-inline-start: auto; transform: none; }
+  .dashboard { width: calc(100% - 32px); }
 }

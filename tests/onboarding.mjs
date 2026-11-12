@@ -92,11 +92,20 @@ try {
       await page.getByRole('button', { name: 'Check installation' }).click();
     }
   }
-  await page.getByRole('heading', { name: /First event received|Watching / }).waitFor();
+  await page.getByRole('heading', { name: /First event received|Dashboard/ }).waitFor();
+  const goToDashboard = page.getByRole('button', { name: 'Go to my dashboard' });
+  if (await goToDashboard.isVisible()) await goToDashboard.click();
+  await page.getByRole('heading', { name: 'Dashboard' }).waitFor();
+  await page.locator('.v2-map-stage.is-ready canvas').waitFor();
   const before = await page.evaluate(async () => (await (await fetch('/api/projects')).json()).projects[0].firstEventAt);
   await fetch(`${base}/v1/collect/install`, { method: 'POST', headers: { Origin: demoOrigin }, body: key });
   const after = await page.evaluate(async () => (await (await fetch('/api/projects')).json()).projects[0].firstEventAt);
   assert.equal(before, after);
+  const activity = await page.evaluate(async () => (await (await fetch('/api/projects')).json()).projects[0].pageViews);
+  assert.equal(activity.reduce((sum, day) => sum + day.count, 0), 2);
+  await page.getByRole('button', { name: 'Open visitor globe' }).click();
+  await page.getByRole('heading', { name: 'Visitor globe' }).waitFor();
+  await page.locator('.v2-map-stage.is-ready canvas').waitFor();
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 844 });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));

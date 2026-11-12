@@ -4,6 +4,7 @@ export type Project = {
   origin: string;
   writeKey: string;
   firstEventAt: string | null;
+  pageViews?: { day: string; count: number }[];
 };
 
 export function installSnippet(project: Project, appOrigin: string) {
