@@ -123,31 +123,39 @@
 .omer-dock { position: fixed; z-index: 6; inset: auto 0 max(16px, env(safe-area-inset-bottom)); display: flex; justify-content: center; pointer-events: none; }
 .omer-dock .dock { position: relative; inset: auto; transform: none; pointer-events: auto; margin: 0; }
 .omer-dock .dock-bar { flex-direction: row; }
-.omer-metrics .v2-m { opacity: 1; cursor: default; }
-.omer-metrics .v2-m-v b { font-size: clamp(22px, 5vw, 38px); }
-.omer-metrics .v2-m-k { white-space: normal; }
-.omer-activity { width: var(--v2-rail); margin: 16px auto 28px; }
-.omer-plot { position: relative; height: clamp(150px, 24vh, 240px); display: flex; align-items: end; gap: clamp(3px, 1vw, 12px); padding: 16px 4px 0; border-bottom: 1px solid var(--v2-line); background: repeating-linear-gradient(to top, transparent 0 calc(25% - 1px), var(--v2-line) calc(25% - 1px) 25%); }
-.omer-chart-fill { fill: color-mix(in srgb, var(--v2-chart) 12%, transparent); }
-.omer-chart-point { fill: var(--v2-chart); }
-.omer-plot .v2-ln { stroke: var(--v2-chart); stroke-width: 2.5px; stroke-linecap: round; stroke-linejoin: round; }
-.omer-plot p { position: absolute; inset: 0; display: grid; place-content: center; color: var(--ink-2); margin: 0; }
-.omer-axis { display: flex; justify-content: space-between; padding-top: 8px; color: var(--ink-2); font-size: 12px; }
+.ho-link {
+  flex: none; display: inline-flex; align-items: center; gap: 2px; margin-inline-start: auto;
+  height: 26px; padding: 0; border: 0; background: none;
+  font: inherit; font-size: var(--fs-sm); color: var(--ink-3); cursor: pointer;
+  transition: color var(--t-fast);
+}
+.ho-link:hover { color: var(--ink); }
 .omer-card-action { margin-inline-start: auto; }
 .omer-map-card { padding: 0; min-height: 250px; }
 .v2-map-stage { position: relative; flex: 1; min-height: 232px; }
 .omer-map-card > p { margin: 0; padding: 0 12px 12px; text-align: center; font-size: 13px; color: var(--ink-2); }
-.omer-site-card { align-items: flex-start; justify-content: center; gap: 12px; }
+.omer-site-card { display: grid; align-items: flex-start; justify-content: center; gap: 12px; }
 .omer-site-card a { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; overflow-wrap: anywhere; text-decoration: none; font-weight: 600; }
 .omer-site-card a svg { flex: none; }
 .omer-site-card p { margin: 0; color: var(--ink-2); }
+.omer-empty-note { margin: 12px 0 0; font-size: 13px; color: var(--ink-3); }
+.omer-empty-block {
+  display: grid; gap: 8px; justify-items: start; padding: 8px 0;
+  color: var(--ink-3); font-size: 13.5px;
+}
+.omer-empty-block p { margin: 0; }
+.omer-empty-bars .v2-col { pointer-events: none; opacity: 0.35; }
+.omer-needs { display: grid; gap: 14px; }
+.omer-needs p { margin: 0; color: var(--ink-2); line-height: 1.45; }
+.omer-needs-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.app-body.ho.v2 { padding-top: calc(var(--app-shelf-h) + 8px); }
 .omer-globe-page { width: var(--v2-rail); margin: auto; display: flex; flex-direction: column; min-height: calc(100dvh - 150px); padding-top: 20px; }
 .omer-globe-heading h1 { margin: 0; font-size: 26px; font-weight: 500; }
 .omer-globe-heading p, .v2-map-fallback { color: var(--ink-2); }
 .omer-globe-page .v2-map-stage { min-height: min(65vh, 610px); }
 @media (max-width: 600px) {
   .app-shelf-where { display: none; }
-  .omer-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .v2-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
   .omer-dock .dock-bar { gap: 0; }
   .omer-dock .dock-item { min-width: 36px; padding-inline: 6px; }
 }

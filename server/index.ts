@@ -27,6 +27,7 @@ app.all('/api/auth/*', (c) => auth.handler(c.req.raw));
 app.get('/api/config', (c) => c.json({ googleAuth: googleAuthEnabled }));
 app.all('/api/projects', (c) => projects.fetch(c.req.raw, env));
 app.all('/v1/collect/install', (c) => projects.fetch(c.req.raw, env));
+app.all('/v1/collect/event', (c) => projects.fetch(c.req.raw, env));
 app.get('/health', async (c) => { await pool.query('select 1'); return c.json({ status: 'ready' }); });
 app.all('/api/*', (c) => c.json({ error: 'Not found' }, 404));
 app.all('/v1/*', (c) => c.json({ error: 'Not found' }, 404));

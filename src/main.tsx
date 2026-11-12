@@ -79,6 +79,11 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const inSetup = !loading && !loadError && (!setupComplete || forceSetup);
 
   useEffect(() => {
+    document.documentElement.dataset.dash = '2';
+    return () => { delete document.documentElement.dataset.dash; };
+  }, []);
+
+  useEffect(() => {
     if (!setupComplete) return;
     const timer = window.setInterval(() => {
       if (!document.hidden) void getProjects().then(setProjects).catch(() => undefined);
@@ -456,7 +461,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
           </div>
         </main>
       ) : (
-        <main id="dashboard" className={`app-body ${screen === 'home' ? 'ho v2' : 'v2-screen'}`}>
+        <main id="dashboard" className={`app-body ${screen === 'home' ? 'ho v2 is-in' : 'v2-screen'}`}>
           {screen === 'home' && project ? (
             <DashboardV2 key={project.id} project={project} headingRef={dashboardHeading}
               onGlobe={() => setScreen('globe')} onSetup={() => {
@@ -559,7 +564,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
             </li>
             <li>
               <strong>Check your installation</strong>
-              <p>Visit the exact website address in your project and grant analytics consent. Return here to see your first event. The tracker sends a single installation signal without cookies or form data.</p>
+              <p>Visit the exact website address in your project and grant analytics consent. Return here to see visitors, page views, sources, pages, and visit duration. The tracker only runs after consent and does not send form or identity data.</p>
             </li>
           </ol>
           {project && (

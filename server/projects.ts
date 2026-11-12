@@ -1,7 +1,6 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
-import pg from 'pg';
-import { pageViews, projects } from './schema';
+import { dailyVisitors, dwell, pageViews, pathViews, projects, referrerViews } from './schema';
 import { auth, pool, appURL } from './auth';
 
 type RateLimit = { limit(input: { key: string }): Promise<{ success: boolean }> };
@@ -13,8 +12,8 @@ type Env = {
   COLLECT_LIMIT: RateLimit;
 };
 
-
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+const visitorId = /^[A-Za-z0-9_-]{8,80}$/;
 const projectFields = {
   id: projects.id,
   name: projects.name,
@@ -27,6 +26,10 @@ function json(data: unknown, status = 200, headers?: HeadersInit) {
   const responseHeaders = new Headers(headers);
   responseHeaders.set('Cache-Control', 'no-store');
   return Response.json(data, { status, headers: responseHeaders });
+}
+
+function cors(origin: string) {
+  return { 'Access-Control-Allow-Origin': origin, Vary: 'Origin', 'Cache-Control': 'no-store' };
 }
 
 async function readText(request: Request, limit: number) {
@@ -68,6 +71,20 @@ function siteOrigin(value: unknown, allowLocal: boolean) {
   }
 }
 
+function cleanPath(value: unknown) {
+  if (typeof value !== 'string' || !value.startsWith('/') || value.length > 300) return null;
+  if (/[\u0000-\u001f]/.test(value)) return null;
+  return value;
+}
+
+function cleanReferrer(value: unknown) {
+  if (typeof value !== 'string' || value.length > 120) return '(direct)';
+  const trimmed = value.trim().toLowerCase() || '(direct)';
+  if (trimmed === '(direct)') return trimmed;
+  if (!/^[a-z0-9.-]+$/.test(trimmed)) return '(direct)';
+  return trimmed;
+}
+
 async function withDatabase<T>(_env: Env, action: (db: NodePgDatabase) => Promise<T>) {
   return action(drizzle(pool));
 }
@@ -81,14 +98,61 @@ async function listProjects(request: Request, env: Env) {
   const owner = await ownerID(request);
   if (!owner) return json({ error: 'Sign in to view projects.' }, 401);
   const records = await withDatabase(env, (db) => db.select({
-      ...projectFields,
-      pageViews: sql<{ day: string; count: number }[]>`coalesce((
-        select json_agg(json_build_object('day', ${pageViews.day}, 'count', ${pageViews.count}) order by ${pageViews.day})
+    ...projectFields,
+    pageViews: sql<{ day: string; count: number }[]>`coalesce((
+      select json_agg(json_build_object('day', day, 'count', count) order by day)
+      from (
+        select ${pageViews.day} as day, ${pageViews.count}::float8 as count
         from ${pageViews}
         where ${pageViews.projectId} = ${projects.id}
-          and ${pageViews.day} >= (now() at time zone 'UTC')::date - 29
-      ), '[]'::json)`,
-    })
+          and ${pageViews.day} >= (now() at time zone 'UTC')::date - 59
+      ) q
+    ), '[]'::json)`,
+    visitors: sql<{ day: string; count: number }[]>`coalesce((
+      select json_agg(json_build_object('day', day, 'count', count) order by day)
+      from (
+        select ${dailyVisitors.day} as day, count(*)::float8 as count
+        from ${dailyVisitors}
+        where ${dailyVisitors.projectId} = ${projects.id}
+          and ${dailyVisitors.day} >= (now() at time zone 'UTC')::date - 59
+        group by ${dailyVisitors.day}
+      ) q
+    ), '[]'::json)`,
+    dwell: sql<{ day: string; avgMs: number }[]>`coalesce((
+      select json_agg(json_build_object('day', day, 'avgMs', "avgMs") order by day)
+      from (
+        select ${dwell.day} as day,
+          case when ${dwell.samples} > 0 then (${dwell.totalMs}::float8 / ${dwell.samples}::float8) else 0 end as "avgMs"
+        from ${dwell}
+        where ${dwell.projectId} = ${projects.id}
+          and ${dwell.day} >= (now() at time zone 'UTC')::date - 59
+      ) q
+    ), '[]'::json)`,
+    sources: sql<{ name: string; count: number }[]>`coalesce((
+      select json_agg(json_build_object('name', name, 'count', count) order by count desc)
+      from (
+        select ${referrerViews.referrer} as name, sum(${referrerViews.count})::float8 as count
+        from ${referrerViews}
+        where ${referrerViews.projectId} = ${projects.id}
+          and ${referrerViews.day} >= (now() at time zone 'UTC')::date - 29
+        group by ${referrerViews.referrer}
+        order by count desc
+        limit 8
+      ) q
+    ), '[]'::json)`,
+    pages: sql<{ path: string; count: number }[]>`coalesce((
+      select json_agg(json_build_object('path', path, 'count', count) order by count desc)
+      from (
+        select ${pathViews.path} as path, sum(${pathViews.count})::float8 as count
+        from ${pathViews}
+        where ${pathViews.projectId} = ${projects.id}
+          and ${pathViews.day} >= (now() at time zone 'UTC')::date - 29
+        group by ${pathViews.path}
+        order by count desc
+        limit 8
+      ) q
+    ), '[]'::json)`,
+  })
     .from(projects).where(eq(projects.owner, owner)).orderBy(desc(projects.createdAt)));
   return json({ projects: records });
 }
@@ -114,7 +178,7 @@ async function createProject(request: Request, env: Env, url: URL) {
   return json({ project }, 201);
 }
 
-async function receiveFirstEvent(request: Request, env: Env) {
+async function receiveInstall(request: Request, env: Env) {
   const origin = request.headers.get('Origin');
   if (!origin || origin === 'null') return new Response(null, { status: 403 });
   const ip = request.headers.get('CF-Connecting-IP') ?? 'local';
@@ -122,23 +186,81 @@ async function receiveFirstEvent(request: Request, env: Env) {
   const writeKey = await readText(request, 36);
   if (!writeKey || !uuid.test(writeKey)) return new Response(null, { status: 400 });
 
+  const accepted = await withDatabase(env, (db) => db.update(projects)
+    .set({ firstEventAt: sql`coalesce(${projects.firstEventAt}, now())` })
+    .where(and(eq(projects.writeKey, writeKey), eq(projects.origin, origin)))
+    .returning({ id: projects.id }));
+
+  return accepted[0]
+    ? new Response(null, { status: 204, headers: cors(origin) })
+    : new Response(null, { status: 403 });
+}
+
+async function receiveEvent(request: Request, env: Env) {
+  const origin = request.headers.get('Origin');
+  if (!origin || origin === 'null') return new Response(null, { status: 403 });
+  const ip = request.headers.get('CF-Connecting-IP') ?? 'local';
+  if (!(await env.COLLECT_LIMIT.limit({ key: `${ip}:event` })).success) return new Response(null, { status: 429 });
+
+  const raw = await readText(request, 1024);
+  let body: { key?: unknown; type?: unknown; vid?: unknown; path?: unknown; ref?: unknown; ms?: unknown } | null;
+  try { body = raw === null ? null : JSON.parse(raw); } catch { body = null; }
+  const writeKey = typeof body?.key === 'string' ? body.key : '';
+  const type = body?.type === 'pageview' || body?.type === 'dwell' ? body.type : null;
+  const vid = typeof body?.vid === 'string' && visitorId.test(body.vid) ? body.vid : null;
+  const path = cleanPath(body?.path);
+  if (!uuid.test(writeKey) || !type || !vid || !path) return new Response(null, { status: 400 });
+
   const accepted = await withDatabase(env, (db) => db.transaction(async (tx) => {
-    const match = and(eq(projects.writeKey, writeKey), eq(projects.origin, origin));
     const [project] = await tx.update(projects)
       .set({ firstEventAt: sql`coalesce(${projects.firstEventAt}, now())` })
-      .where(match).returning({ id: projects.id });
+      .where(and(eq(projects.writeKey, writeKey), eq(projects.origin, origin)))
+      .returning({ id: projects.id });
     if (!project) return false;
+    const day = sql`(now() at time zone 'UTC')::date`;
+
+    if (type === 'dwell') {
+      const ms = typeof body?.ms === 'number' && Number.isFinite(body.ms) ? Math.round(body.ms) : 0;
+      if (ms < 1000 || ms > 1_800_000) return true;
+      await tx.insert(dwell)
+        .values({ projectId: project.id, day, totalMs: ms, samples: 1 })
+        .onConflictDoUpdate({
+          target: [dwell.projectId, dwell.day],
+          set: {
+            totalMs: sql`${dwell.totalMs} + ${ms}`,
+            samples: sql`${dwell.samples} + 1`,
+          },
+        });
+      return true;
+    }
+
+    const referrer = cleanReferrer(body?.ref);
     await tx.insert(pageViews)
-      .values({ projectId: project.id, day: sql`(now() at time zone 'UTC')::date`, count: 1 })
+      .values({ projectId: project.id, day, count: 1 })
       .onConflictDoUpdate({
         target: [pageViews.projectId, pageViews.day],
         set: { count: sql`${pageViews.count} + 1` },
+      });
+    await tx.insert(dailyVisitors)
+      .values({ projectId: project.id, day, visitorId: vid })
+      .onConflictDoNothing();
+    await tx.insert(pathViews)
+      .values({ projectId: project.id, day, path, count: 1 })
+      .onConflictDoUpdate({
+        target: [pathViews.projectId, pathViews.day, pathViews.path],
+        set: { count: sql`${pathViews.count} + 1` },
+      });
+    await tx.insert(referrerViews)
+      .values({ projectId: project.id, day, referrer, count: 1 })
+      .onConflictDoUpdate({
+        target: [referrerViews.projectId, referrerViews.day, referrerViews.referrer],
+        set: { count: sql`${referrerViews.count} + 1` },
       });
     return true;
   }));
 
   return accepted
-    ? new Response(null, { status: 204, headers: { 'Access-Control-Allow-Origin': origin, 'Vary': 'Origin', 'Cache-Control': 'no-store' } })
+    ? new Response(null, { status: 204, headers: cors(origin) })
     : new Response(null, { status: 403 });
 }
 
@@ -152,7 +274,24 @@ export default {
         return json({ error: 'Method not allowed.' }, 405);
       }
       if (url.pathname === '/v1/collect/install') {
-        if (request.method === 'POST') return await receiveFirstEvent(request, env);
+        if (request.method === 'POST') return await receiveInstall(request, env);
+        return new Response(null, { status: 405 });
+      }
+      if (url.pathname === '/v1/collect/event') {
+        if (request.method === 'OPTIONS') {
+          const origin = request.headers.get('Origin');
+          if (!origin || origin === 'null') return new Response(null, { status: 403 });
+          return new Response(null, {
+            status: 204,
+            headers: {
+              ...cors(origin),
+              'Access-Control-Allow-Methods': 'POST, OPTIONS',
+              'Access-Control-Allow-Headers': 'content-type',
+              'Access-Control-Max-Age': '86400',
+            },
+          });
+        }
+        if (request.method === 'POST') return await receiveEvent(request, env);
         return new Response(null, { status: 405 });
       }
       return json({ error: 'Page not found.' }, 404);
