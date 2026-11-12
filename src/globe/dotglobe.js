@@ -14,9 +14,9 @@
 //   g.focus((person) => person.seed === 'live-3');
 //   g.destroy();
 
-import { geoEquirectangular, geoPath, feature } from '../vendor/globe/geo.js';
+import { geoEquirectangular, geoPath, feature } from './geo.js';
 
-const LAND_URL = new URL('../vendor/globe/land-50m.json', import.meta.url).href;
+const LAND_URL = '/vendor/globe/land-50m.json';
 const DEG = Math.PI / 180;
 const HOME = { lambda: -10.8 * DEG, phi: 18 * DEG };
 const PHI_MIN = -55 * DEG;

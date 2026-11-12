@@ -6,7 +6,7 @@ const demoOrigin = process.env.DEMO_ORIGIN ?? 'http://127.0.0.1:5180';
 let key;
 const site = createServer((req, res) => {
   res.setHeader('Content-Type', 'text/html');
-  res.end(`<html><head><script src="${base}/tracker.js" data-site="${key}" defer></script></head><body><h1>Owned demo site</h1><button onclick="window.unfairweekend.consent({analytics:true})">Allow analytics</button></body></html>`);
+  res.end(`<html><head><script src="${base}/tracker.js?v=2" data-site="${key}" defer></script></head><body><h1>Owned demo site</h1><button onclick="window.unfairweekend.consent({analytics:true})">Allow analytics</button></body></html>`);
 }).listen(5180, '127.0.0.1');
 const browser = await chromium.launch({
   executablePath: process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -73,7 +73,7 @@ try {
   if (process.env.DEMO_ORIGIN) {
     await visitor.route(`${demoOrigin}/**`, (route) => route.fulfill({
       contentType: 'text/html',
-      body: `<html><head><script src="${base}/tracker.js" data-site="${key}" defer></script></head><body><button onclick="window.unfairweekend.consent({analytics:true})">Allow analytics</button></body></html>`,
+      body: `<html><head><script src="${base}/tracker.js?v=2" data-site="${key}" defer></script></head><body><button onclick="window.unfairweekend.consent({analytics:true})">Allow analytics</button></body></html>`,
     }));
   }
   await visitor.goto(demoOrigin);

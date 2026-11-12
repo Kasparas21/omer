@@ -5,7 +5,7 @@ import {
 import type { Project } from './project';
 
 type Metric = 'people' | 'views' | 'dwell';
-const RANGES = [1, 7, 30] as const;
+const RANGES = [1, 7, 14, 30] as const;
 const METRICS: { key: Metric; label: string }[] = [
   { key: 'people', label: 'Visitors' },
   { key: 'views', label: 'Pageviews' },
@@ -46,7 +46,7 @@ function pctChange(now: number, prev: number) {
 
 function chip(now: number, prev: number) {
   const pct = pctChange(now, prev);
-  if (pct == null) return <span className="v2-chip">New</span>;
+  if (pct == null) return now > 0 ? <span className="v2-chip">New</span> : null;
   const dir = pct > 0 ? 'up' : pct < 0 ? 'down' : '';
   return <span className={`v2-chip ${dir}`}>{pct > 0 ? '+' : ''}{pct}%</span>;
 }

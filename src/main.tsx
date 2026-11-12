@@ -127,7 +127,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
     let last = window.scrollY;
     function onScroll() {
       const y = window.scrollY;
-      if (y <= 80) setCollapsed(false);
+      if (y <= 80 || document.activeElement?.closest('.app-dock')) setCollapsed(false);
       else if (Math.abs(y - last) >= 10) setCollapsed(y > last);
       if (Math.abs(y - last) >= 10 || y <= 80) last = y;
     }

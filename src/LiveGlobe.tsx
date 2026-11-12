@@ -60,6 +60,7 @@ export function LiveGlobe({ data, loading, failed: connectionFailed }: { data: L
   const globe = useRef<GlobeApi | null>(null);
   const [now, setNow] = useState(Date.now());
   const [sound, setSound] = useState(false);
+  const audio = useRef<AudioContext | null>(null);
   const [failed, setFailed] = useState(false);
   const [focus, setFocus] = useState<string>();
   const peak = Math.max(1, ...data.minutes.slice(-30));
@@ -73,15 +74,14 @@ export function LiveGlobe({ data, loading, failed: connectionFailed }: { data: L
 
   useEffect(() => {
     const tick = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(tick);
+    return () => { window.clearInterval(tick); if (audio.current) void audio.current.close().catch(() => {}); };
   }, []);
 
   useEffect(() => {
     const host = stage.current;
     if (!host) return;
     let disposed = false;
-    const moduleUrl = '/globe/dotglobe.js';
-    void import(/* @vite-ignore */ moduleUrl).then(async ({ createDotGlobe, preloadDotGlobe }) => {
+    void import('./globe/dotglobe.js').then(async ({ createDotGlobe, preloadDotGlobe }) => {
       await preloadDotGlobe();
       if (disposed || !stage.current) return;
       globe.current?.destroy();
@@ -105,6 +105,18 @@ export function LiveGlobe({ data, loading, failed: connectionFailed }: { data: L
     globe.current?.setPeople(JSON.parse(peopleKey));
     if (newest && newest.id !== seenLive) {
       setSeenLive(newest.id);
+      if (seenLive && sound && audio.current?.state === 'running') {
+        const context = audio.current;
+        const tone = context.createOscillator();
+        const volume = context.createGain();
+        const start = context.currentTime;
+        tone.frequency.setValueAtTime(620, start);
+        volume.gain.setValueAtTime(0.035, start);
+        volume.gain.exponentialRampToValueAtTime(0.001, start + 0.14);
+        tone.connect(volume).connect(context.destination);
+        tone.start(start);
+        tone.stop(start + 0.14);
+      }
       if (!seenLive && Date.now() - Date.parse(newest.seenAt) < 20000) globe.current?.focus((person) => person.seed === newest.seed);
       globe.current?.ping((person) => person.seed === newest.seed);
     }
@@ -191,7 +203,12 @@ export function LiveGlobe({ data, loading, failed: connectionFailed }: { data: L
       </div>
 
       <div className="live-ctl">
-        <button type="button" className="live-ctl-btn" aria-pressed={sound} aria-label={sound ? 'Mute visit sounds' : 'Enable visit sounds'} onClick={() => setSound((value) => !value)}>
+        <button type="button" className="live-ctl-btn" aria-pressed={sound} aria-label={sound ? 'Mute visit sounds' : 'Enable visit sounds'} onClick={() => {
+          if (sound) { setSound(false); return; }
+          if (typeof AudioContext === 'undefined') return;
+          audio.current ??= new AudioContext();
+          void audio.current.resume().then(() => setSound(true)).catch(() => {});
+        }}>
           {sound ? <Volume2 size={19} aria-hidden="true" /> : <VolumeX size={19} aria-hidden="true" />}
         </button>
         <button type="button" className="live-ctl-btn" aria-label="Toggle full screen" onClick={() => {
