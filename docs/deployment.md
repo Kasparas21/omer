@@ -1,8 +1,8 @@
 # VPS deployment · app.tryomer.com
 
-Target production hostname: **https://app.tryomer.com** via a named Cloudflare Tunnel to the Hostinger VPS. The earlier temporary `trycloudflare.com` Quick Tunnel is only for throwaway demos.
+Target production hostname: **https://app.tryomer.com** via a named Cloudflare Tunnel to the Hostinger VPS. Until the named tunnel is connected and verified, use the current temporary Quick Tunnel: https://commission-big-gathered-activation.trycloudflare.com. Keep Google OAuth disabled there; its production callback is registered for the permanent hostname.
 
-Host: Hostinger VPS. Source at `/opt/omer/app`. Containers: `omer-app`, `omer-tunnel` (named tunnel), and existing `unfairweekend-db-postgres-1`. Database: `omer`; schema/migration owner: `omer_owner`; runtime role: `omer_app`. App listens only on `127.0.0.1:3000`; PostgreSQL only on `127.0.0.1:5432`. Cloudflare Tunnel makes outbound connections; no public database port is opened.
+Host: Hostinger VPS. Release sources live under `/opt/omer/releases/`. Containers: `omer-app`, `omer-tunnel` (temporary tunnel until cutover), and existing `unfairweekend-db-postgres-1`. Database: `omer`; schema/migration owner: `omer_owner`; runtime role: `omer_app`. App listens only on `127.0.0.1:3000`; PostgreSQL only on `127.0.0.1:5432`. Cloudflare Tunnel makes outbound connections; no public database port is opened.
 
 Secrets live in mode-600 `/opt/omer/runtime.env` and `/opt/omer/migration.env` inside a root-only directory. Never paste these into chat or Git.
 
@@ -53,7 +53,7 @@ ingress:
   - service: http_status:404
 ```
 
-6. Run the tunnel as the `omer-tunnel` container or a host service with restart policy. Stop any Quick Tunnel container so hostnames do not fight.
+6. On the VPS, run the named connector in a separate container with host networking and a restart policy. Mount only its tunnel JSON and config read-only; keep the account-level `cert.pem` on the Mac. Verify the named hostname before retiring the temporary connector.
 7. Set `APP_URL=https://app.tryomer.com` in both env files, rebuild/recreate `omer-app`, then verify `curl --fail https://app.tryomer.com/health`.
 
 Tracker snippets use `APP_URL` / the page origin. After the hostname change, re-copy install scripts for any demo sites.
@@ -62,10 +62,10 @@ Tracker snippets use `APP_URL` / the page origin. After the hostname change, re-
 
 ## Update app image
 
-Upload reviewed source without `.git`, `.env*`, `.dev.vars*`, `node_modules` or build artifacts into `/opt/omer/app`. Keep env files outside the source directory. Build before stopping the running app:
+Create a release archive with `git archive` from the reviewed commit. Extract it under `/opt/omer/releases/<release>` on the VPS so only committed source is deployed. Keep env files outside that directory. Build before stopping the running app:
 
 ```sh
-cd /opt/omer/app
+cd /opt/omer/releases/<release>
 docker build -t omer:next .
 docker run --rm --network host --env-file /opt/omer/migration.env omer:next npx tsx server/migrate.ts
 ```
