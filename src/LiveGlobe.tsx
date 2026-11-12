@@ -1,28 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Maximize2, Radio, Volume2, VolumeX } from 'lucide-react';
 
-export type LiveVisit = {
-  id: string;
-  seed: string;
-  path: string;
-  referrer: string;
-  cc: string | null;
-  city: string | null;
-  place: string | null;
-  lat: number | null;
-  lng: number | null;
-  seenAt: string;
-};
-
-type LivePayload = {
-  online: number;
-  minutes: number[];
-  sources: { name: string; count: number }[];
-  visits: LiveVisit[];
-};
+import { isOnline, type LiveVisit, type LivePayload } from './live';
 
 type GlobeApi = {
   destroy(): void;
+  setPeople(people: ReturnType<typeof peopleFromVisits>): void;
   ping(match: (person: { seed?: string }) => boolean): void;
   focus(match: (person: { seed?: string }) => boolean): void;
 };
@@ -59,55 +42,44 @@ function ago(iso: string, now: number) {
   return `${Math.floor(minutes / 60)}h`;
 }
 
-function peopleFromVisits(visits: LiveVisit[]) {
+function peopleFromVisits(visits: LiveVisit[], now: number) {
   const seen = new Map<string, LiveVisit>();
   for (const visit of visits) {
-    if (visit.lat == null || visit.lng == null || !visit.place || !visit.cc) continue;
+    if (!isOnline(visit, now) || visit.lat == null || visit.lng == null || !visit.place || !visit.cc) continue;
     if (!seen.has(visit.seed)) seen.set(visit.seed, visit);
   }
   return [...seen.values()].map((visit) => ({
     seed: visit.seed,
     cc: visit.cc!,
-    page: visit.path,
     place: { name: visit.place!, lat: visit.lat!, lng: visit.lng! },
   }));
 }
 
-export function LiveGlobe({ projectId }: { projectId: string }) {
+export function LiveGlobe({ data, loading, failed: connectionFailed }: { data: LivePayload; loading: boolean; failed: boolean }) {
   const stage = useRef<HTMLDivElement>(null);
   const globe = useRef<GlobeApi | null>(null);
-  const [data, setData] = useState<LivePayload>({ online: 0, minutes: Array(60).fill(0), sources: [], visits: [] });
   const [now, setNow] = useState(Date.now());
   const [sound, setSound] = useState(false);
   const [failed, setFailed] = useState(false);
   const [focus, setFocus] = useState<string>();
-  const peak = Math.max(1, ...data.minutes);
+  const peak = Math.max(1, ...data.minutes.slice(-30));
   const sourceTotal = data.sources.reduce((sum, row) => sum + row.count, 0) || 1;
-  const peopleKey = useMemo(() => peopleFromVisits(data.visits).map((p) => `${p.seed}:${p.place.name}`).join('|'), [data.visits]);
+  const [showVisits, setShowVisits] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [seenLive, setSeenLive] = useState<string>();
+  const people = useMemo(() => peopleFromVisits(data.visits, now), [data.visits, now]);
+  const peopleKey = JSON.stringify(people);
+  const newest = data.visits[0];
 
   useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const response = await fetch(`/api/projects/${projectId}/live`, { cache: 'no-store' });
-        if (!response.ok) return;
-        const payload: LivePayload = await response.json();
-        if (!cancelled) setData(payload);
-      } catch {
-        /* keep last good snapshot */
-      }
-    }
-    void load();
-    const poll = window.setInterval(() => { if (!document.hidden) void load(); }, 4000);
     const tick = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => { cancelled = true; window.clearInterval(poll); window.clearInterval(tick); };
-  }, [projectId]);
+    return () => window.clearInterval(tick);
+  }, []);
 
   useEffect(() => {
     const host = stage.current;
     if (!host) return;
     let disposed = false;
-    const people = peopleFromVisits(data.visits);
     const moduleUrl = '/globe/dotglobe.js';
     void import(/* @vite-ignore */ moduleUrl).then(async ({ createDotGlobe, preloadDotGlobe }) => {
       await preloadDotGlobe();
@@ -115,28 +87,38 @@ export function LiveGlobe({ projectId }: { projectId: string }) {
       globe.current?.destroy();
       stage.current.replaceChildren();
       const next = createDotGlobe(stage.current, {
-        people,
         face: flagFace,
         autoSpin: true,
         quietIntro: true,
+        openOnFocus: false,
         maxZoom: 1.35,
         radiusScale: 1.12,
       }) as GlobeApi;
       globe.current = next;
-      if (people[0]) next.ping((person) => person.seed === people[0].seed);
+      setReady(true);
     }).catch(() => { if (!disposed) setFailed(true); });
     return () => { disposed = true; globe.current?.destroy(); globe.current = null; };
-  }, [projectId, peopleKey]);
+  }, []);
 
   useEffect(() => {
-    if (!focus) return;
-    globe.current?.focus((person) => person.seed === focus);
-    globe.current?.ping((person) => person.seed === focus);
-  }, [focus, peopleKey]);
+    if (!ready) return;
+    globe.current?.setPeople(JSON.parse(peopleKey));
+    if (newest && newest.id !== seenLive) {
+      setSeenLive(newest.id);
+      if (!seenLive && Date.now() - Date.parse(newest.seenAt) < 20000) globe.current?.focus((person) => person.seed === newest.seed);
+      globe.current?.ping((person) => person.seed === newest.seed);
+    }
+  }, [peopleKey, newest?.id, ready]);
+
+  function focusVisit(visit: LiveVisit) {
+    setFocus(visit.seed);
+    globe.current?.focus((person) => person.seed === visit.seed);
+    globe.current?.ping((person) => person.seed === visit.seed);
+  }
 
   return (
     <div className="globe-wrap has-panel" data-style="dots" id="globeWrap">
-      <aside className="live-panel" id="livePanel">
+      <aside className={`live-panel${showVisits ? ' visits-open' : ''}`} id="livePanel">
         <section className="v2-card lvp-now">
           <header><Radio size={16} aria-hidden="true" /><h3>Right now</h3></header>
           <div className="v2-in">
@@ -145,30 +127,31 @@ export function LiveGlobe({ projectId }: { projectId: string }) {
               <span><i className="lvp-dot" aria-hidden="true" />{data.online === 1 ? 'person on the site' : 'people on the site'}</span>
             </div>
             <div className="lvp-bars" aria-hidden="true">
-              {data.minutes.map((count, index) => (
-                <i key={index} className={index === data.minutes.length - 1 ? 'now' : undefined} style={{ ['--h' as string]: `${Math.max(8, (count / peak) * 100)}%` }} />
+              {data.minutes.slice(-30).map((count, index) => (
+                <i key={index} className={index === 29 ? 'now' : undefined} style={{ ['--h' as string]: `${Math.max(8, (count / peak) * 100)}%` }} />
               ))}
             </div>
-            <div className="lvp-foot"><span>Last hour</span><b>{data.minutes.reduce((a, b) => a + b, 0)} views</b></div>
+            <div className="lvp-foot"><span>Last 30 min</span><b>{data.minutes.slice(-30).reduce((a, b) => a + b, 0)} views</b></div>
           </div>
         </section>
 
+        <button className="btn btn-secondary lvp-visits-toggle" type="button" aria-expanded={showVisits} aria-controls="liveVisits" onClick={() => setShowVisits(!showVisits)}>{showVisits ? 'Hide recent visits' : 'Show recent visits'}</button>
         <section className="v2-card lvp-feed" id="liveVisits">
           <header><h3>Recent visits</h3></header>
           <div className="v2-in">
             {data.visits.length === 0 ? (
-              <p className="omer-empty-note">Waiting for consented page views with location.</p>
+              <p className="omer-empty-note">{loading ? 'Loading visits…' : connectionFailed ? 'Live connection interrupted. Reconnecting…' : 'Waiting for a visit with analytics consent.'}</p>
             ) : (
               <ol id="lpFeed">
                 {data.visits.slice(0, 24).map((visit) => (
                   <li key={visit.id}>
-                    <button type="button" data-livego={visit.seed} aria-current={focus === visit.seed ? 'true' : undefined} onClick={() => setFocus(visit.seed)}>
+                    <button type="button" data-livego={visit.seed} aria-current={focus === visit.seed ? 'true' : undefined} disabled={!isOnline(visit, now) || visit.lat == null || visit.lng == null} onClick={() => focusVisit(visit)}>
                       <i className="lvp-dot" aria-hidden="true" />
                       {visit.cc
                         ? <img className="flag" src={`/assets/flags/${visit.cc}.svg`} alt="" width={16} height={16} draggable={false} />
                         : <span className="flag" aria-hidden="true" />}
                       <span className="lvp-page">{visit.path}</span>
-                      <span className="lvp-city">{visit.city || visit.place || '—'}</span>
+                      <span className="lvp-city">{visit.city || visit.place || 'Location unavailable'}</span>
                       <time dateTime={visit.seenAt}>{ago(visit.seenAt, now)}</time>
                     </button>
                   </li>
@@ -186,7 +169,7 @@ export function LiveGlobe({ projectId }: { projectId: string }) {
                 <p className="omer-empty-note">Sources fill in from referrers.</p>
               ) : (
                 <table className="lvp-table">
-                  <thead><tr><th scope="col">Source</th><th scope="col">Visitors</th><th scope="col">Share</th></tr></thead>
+                  <thead><tr><th scope="col">Source</th><th scope="col">Views</th><th scope="col">Share</th></tr></thead>
                   <tbody>
                     {data.sources.map((row) => (
                       <tr key={row.name}>

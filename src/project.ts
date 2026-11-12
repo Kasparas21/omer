@@ -17,7 +17,7 @@ export type Project = {
 };
 
 export function installSnippet(project: Project, appOrigin: string) {
-  return `<script src="${appOrigin}/tracker.js" data-site="${project.writeKey}" defer></script>`;
+  return `<script src="${appOrigin}/tracker.js?v=2" data-site="${project.writeKey}" defer></script>`;
 }
 
 export function installPrompt(project: Project, appOrigin: string) {

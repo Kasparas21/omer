@@ -10,22 +10,24 @@
   let installSent = false;
   let pageAt = 0;
   let path = '';
+  let cachedId;
 
   function visitorId() {
+    if (cachedId) return cachedId;
     try {
       let id = localStorage.getItem(storeKey);
       if (!id) {
         id = (crypto.randomUUID && crypto.randomUUID()) || `v_${Math.random().toString(36).slice(2)}_${Date.now()}`;
         localStorage.setItem(storeKey, id);
       }
-      return id;
+      return (cachedId = id);
     } catch {
-      return `session_${Math.random().toString(36).slice(2)}`;
+      return (cachedId = `session_${Math.random().toString(36).slice(2)}_${Date.now()}`);
     }
   }
 
   function pagePath() {
-    const value = `${location.pathname || '/'}${location.search || ''}`;
+    const value = location.pathname || '/';
     return value.length > 300 ? value.slice(0, 300) : value;
   }
 
@@ -58,8 +60,13 @@
     void post(eventURL, JSON.stringify({ key, type: 'dwell', vid: visitorId(), path, ms }));
   }
 
+  function sendPresence() {
+    if (!consented || !path || document.visibilityState !== 'visible') return;
+    void post(eventURL, JSON.stringify({ key, type: 'presence', vid: visitorId(), path }));
+  }
+
   function trackPage() {
-    if (!consented) return;
+    if (!consented || path === pagePath()) return;
     sendDwell();
     path = pagePath();
     pageAt = Date.now();
@@ -74,9 +81,12 @@
 
   function onConsent(preferences) {
     if (preferences?.analytics !== true) {
-      if (preferences?.analytics === false) {
+      if (preferences?.analytics === false && consented) {
         consented = false;
-        sendDwell();
+        pageAt = 0;
+        path = '';
+        cachedId = undefined;
+        try { localStorage.removeItem(storeKey); } catch { /* storage unavailable */ }
       }
       return;
     }
@@ -91,9 +101,14 @@
 
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') sendDwell();
-    else if (consented && !pageAt) pageAt = Date.now();
+    else if (consented && !pageAt) {
+      pageAt = Date.now();
+      sendPresence();
+    }
   });
   window.addEventListener('pagehide', sendDwell);
+  window.addEventListener('pageshow', (event) => { if (event.persisted) sendPresence(); });
+  window.setInterval(sendPresence, 45000);
 
   const push = history.pushState;
   const replace = history.replaceState;

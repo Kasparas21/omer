@@ -1,6 +1,6 @@
 /** Coarse place from Cloudflare edge headers — never stores IP. */
 
-type Place = { cc: string; city: string; place: string; lat: number; lng: number };
+type Place = { cc: string; city: string; place: string; lat: number | null; lng: number | null };
 
 const COUNTRY: Record<string, { name: string; lat: number; lng: number }> = {
   us: { name: 'United States', lat: 39.8, lng: -98.5 },
@@ -70,12 +70,14 @@ function parseCoord(value: string | null) {
 export function placeFromRequest(request: Request): Place | null {
   const rawCc = (request.headers.get('CF-IPCountry') || request.headers.get('cf-ipcountry') || '').trim().toLowerCase();
   if (!rawCc || rawCc === 'xx' || rawCc === 't1' || rawCc.length !== 2) return null;
-  const country = COUNTRY[rawCc] ?? { name: rawCc.toUpperCase(), lat: 20, lng: 0 };
+  if (!/^[a-z]{2}$/.test(rawCc)) return null;
+  const country = COUNTRY[rawCc];
+  const countryName = country?.name ?? (new Intl.DisplayNames(['en'], { type: 'region' }).of(rawCc.toUpperCase()) || rawCc.toUpperCase());
   const city = cleanCity(request.headers.get('CF-IPCity') || request.headers.get('cf-ipcity'));
-  const lat = parseCoord(request.headers.get('CF-IPLatitude') || request.headers.get('cf-iplatitude')) ?? country.lat;
-  const lng = parseCoord(request.headers.get('CF-IPLongitude') || request.headers.get('cf-iplongitude')) ?? country.lng;
-  const place = city ? `${city}, ${country.name}` : country.name;
-  return { cc: rawCc, city: city || country.name, place, lat, lng };
+  const lat = parseCoord(request.headers.get('CF-IPLatitude') || request.headers.get('cf-iplatitude')) ?? country?.lat ?? null;
+  const lng = parseCoord(request.headers.get('CF-IPLongitude') || request.headers.get('cf-iplongitude')) ?? country?.lng ?? null;
+  const place = city ? `${city}, ${countryName}` : countryName;
+  return { cc: rawCc, city: city || countryName, place, lat, lng };
 }
 
 /** Local/dev only: deterministic coarse place so Live can be exercised without Cloudflare. */

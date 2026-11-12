@@ -117,20 +117,7 @@ export function createDotGlobe(container, {
   const homePhi = lookAt ? clamp(lookAt.lat * DEG, PHI_MIN, PHI_MAX) : HOME.phi;
   const introMs = quietIntro ? 620 : INTRO_MS;
 
-  // One pin per place.
-  const byPlace = new Map();
-  for (const p of people) {
-    const key = p.place.name;
-    if (!byPlace.has(key)) byPlace.set(key, { lat: p.place.lat, lng: p.place.lng, cc: p.cc, name: key, count: 0, people: [] });
-    const place = byPlace.get(key);
-    place.count++;
-    place.people.push(p);
-  }
-  const places = [...byPlace.values()];
-  const mk = places.map((m) => {
-    const cl = Math.cos(m.lat * DEG);
-    return { x: cl * Math.sin(m.lng * DEG), y: Math.sin(m.lat * DEG), z: cl * Math.cos(m.lng * DEG) };
-  });
+  let places = [], mk = [], markerEls = [];
 
   // --- DOM
   container.classList.add('dg');
@@ -158,7 +145,7 @@ export function createDotGlobe(container, {
     });
   // Hover a flag (or tap it on touch, or Enter) to see the exact city; one shown at a time.
   // Profile crops can hide flags and keep only the surface pulse.
-  const markerEls = places.map((m, k) => {
+  const makeMarker = (m, k) => {
     const node = el('div', 'dg-pin');
     node.dataset.k = k;
     node.append(el('span', 'dg-dot'));
@@ -191,7 +178,7 @@ export function createDotGlobe(container, {
     node.append(where);
     container.append(node);
     return node;
-  });
+  };
   let openK = -1; // opened by a tap, Enter or focus(); stays until closed
   let hoverK = -1; // under the mouse right now; wins over openK while it lasts
   let shownK = -1; // the one whose city chip is on screen
@@ -735,7 +722,41 @@ export function createDotGlobe(container, {
     requestRender();
   });
 
+  function setPeople(people) {
+    const selected = places[shownK]?.name;
+    const glowing = places[pulseK]?.name;
+    const focused = container.contains(document.activeElement) && document.activeElement?.classList.contains('dg-flag');
+    for (const node of markerEls) node.remove();
+    openK = hoverK = shownK = -1;
+    pulseNext = -1;
+    // One pin per place.
+    const byPlace = new Map();
+    for (const p of people) {
+      const key = p.place.name;
+      if (!byPlace.has(key)) byPlace.set(key, { lat: p.place.lat, lng: p.place.lng, cc: p.cc, name: key, count: 0, people: [] });
+      const place = byPlace.get(key);
+      place.count++;
+      place.people.push(p);
+    }
+    places = [...byPlace.values()];
+    mk = places.map((m) => {
+      const cl = Math.cos(m.lat * DEG);
+      return { x: cl * Math.sin(m.lng * DEG), y: Math.sin(m.lat * DEG), z: cl * Math.cos(m.lng * DEG) };
+    });
+
+    markerEls = places.map(makeMarker);
+    pulseK = places.findIndex((place) => place.name === glowing);
+    if (pulseK < 0) pulseTo = 0;
+    if (selected) openK = places.findIndex((place) => place.name === selected);
+    container.classList.remove('has-open');
+    syncOpen();
+    if (focused) container.focus({ preventScroll: true });
+    requestRender();
+  }
+  setPeople(people);
+
   return {
+    setPeople,
     // Move the glow to the place of the first visitor that matches (fading out, then in).
     ping(match) {
       const k = places.findIndex((m) => m.people.some(match));

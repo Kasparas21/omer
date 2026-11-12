@@ -89,3 +89,16 @@ Check health through `https://app.tryomer.com`, then run the browser smoke test 
 Production email verification/recovery and team membership are still pending. Database backup/restore must be established before real customer use.
 
 Source references: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/ and https://www.better-auth.com/docs/authentication/google
+
+The public tracker is served with `no-store` so the same URL can pick up collector fixes.
+The install snippet includes a version query to bypass older copies cached before that
+policy. When moving from a release that cached the bare URL, purge only
+`https://app.tryomer.com/tracker.js` in Cloudflare. Browsers still holding the old
+response need to revalidate it or load the versioned snippet. Verify by granting
+analytics consent in a fresh browser and checking for a successful
+`POST /v1/collect/event`, not just the legacy install receipt.
+
+Live uses one authenticated event stream per active project and refreshes the shared
+snapshot after a recorded page view. It falls back to polling when the stream is
+unavailable. Visible consented tabs send a presence signal that does not increase
+page-view counts; visitors age out after five minutes without activity.

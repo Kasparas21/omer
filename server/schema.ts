@@ -54,5 +54,7 @@ export const visits = pgTable('project_visits', {
   place: text('place'),
   lat: doublePrecision('lat'),
   lng: doublePrecision('lng'),
+  activeAt: timestamp('active_at', { withTimezone: true }),
   seenAt: timestamp('seen_at', { withTimezone: true }).defaultNow().notNull(),
-}, (table) => [index('project_visits_project_seen_idx').on(table.projectId, table.seenAt)]);
+}, (table) => [index('project_visits_project_seen_idx').on(table.projectId, table.seenAt),
+  index('project_visits_browser_seen_idx').on(table.projectId, table.visitorId, table.seenAt)]);

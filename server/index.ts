@@ -26,14 +26,26 @@ app.use('/api/*', async (c, next) => { c.header('Cache-Control', 'no-store'); aw
 app.all('/api/auth/*', (c) => auth.handler(c.req.raw));
 app.get('/api/config', (c) => c.json({ googleAuth: googleAuthEnabled }));
 app.all('/api/projects', (c) => projects.fetch(c.req.raw, env));
+app.get('/api/projects/:id/live/stream', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/live', (c) => projects.fetch(c.req.raw, env));
 app.all('/v1/collect/install', (c) => projects.fetch(c.req.raw, env));
 app.all('/v1/collect/event', (c) => projects.fetch(c.req.raw, env));
 app.get('/health', async (c) => { await pool.query('select 1'); return c.json({ status: 'ready' }); });
 app.all('/api/*', (c) => c.json({ error: 'Not found' }, 404));
 app.all('/v1/*', (c) => c.json({ error: 'Not found' }, 404));
+app.get('/tracker.js', async (c, next) => {
+  c.header('Cache-Control', 'no-store');
+  c.header('Cloudflare-CDN-Cache-Control', 'no-store');
+  await next();
+});
 app.get('*', serveStatic({ root: './dist' }));
 app.get('*', serveStatic({ path: './dist/index.html' }));
 app.onError((_error, c) => c.json({ error: 'Service unavailable. Try again.' }, 503));
 const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: Number(process.env.PORT ?? 3000) });
+// Delete expired visit records in the background instead of on every page view.
+const prune = () => void pool.query("delete from project_visits where seen_at < now() - interval '7 days'")
+  .catch(() => console.error('Unable to prune expired visit records'));
+const retentionTimer = setInterval(prune, 60 * 60 * 1000);
+retentionTimer.unref();
+prune();
 process.on('SIGTERM', () => { server.close(async () => { await pool.end(); process.exit(0); }); });

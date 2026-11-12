@@ -10,6 +10,7 @@ import { AuthGate } from './auth';
 import { DashboardV2 } from './DashboardV2';
 import { LiveGlobe } from './LiveGlobe';
 import { People } from './People';
+import { useLive } from './live';
 
 type ProjectError = { field?: 'name' | 'website'; error: string };
 type SetupStep = 'site' | 'brand' | 'install' | 'check' | 'sender';
@@ -53,8 +54,8 @@ function Ghost({ size = 24 }: { size?: number }) {
   );
 }
 
-async function getProjects(signal?: AbortSignal) {
-  const response = await fetch('/api/projects', { signal, cache: 'no-store' });
+async function getProjects(signal?: AbortSignal, projectId?: string) {
+  const response = await fetch(projectId ? `/api/projects?project=${projectId}` : '/api/projects?view=summary', { signal, cache: 'no-store' });
   if (response.status === 401) window.dispatchEvent(new Event('session-expired'));
   if (!response.ok) throw new Error('Unable to load projects.');
   const data: { projects: Project[] } = await response.json();
@@ -79,7 +80,8 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [reached, setReached] = useState(0);
   const [forceSetup, setForceSetup] = useState(false);
   const [screen, setScreen] = useState<AppScreen>('home');
-  const [liveCount, setLiveCount] = useState(0);
+  const [collapsed, setCollapsed] = useState(false);
+  const [analytics, setAnalytics] = useState<Project>();
   const createDialog = useRef<HTMLDialogElement>(null);
   const guideDialog = useRef<HTMLDialogElement>(null);
   const dashboardHeading = useRef<HTMLHeadingElement>(null);
@@ -89,39 +91,49 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const project = projects.find(({ id }) => id === selection) ?? projects[0];
   const snippet = project ? installSnippet(project, window.location.origin) : '';
   const setupComplete = Boolean(project?.firstEventAt);
+  const live = useLive(setupComplete ? project?.id : undefined);
+  const liveCount = live.data.online;
   const inSetup = !loading && !loadError && (!setupComplete || forceSetup);
 
   useEffect(() => {
     document.documentElement.dataset.dash = '2';
-    return () => { delete document.documentElement.dataset.dash; };
+    document.documentElement.dataset.dock = 'light';
+    return () => { delete document.documentElement.dataset.dash; delete document.documentElement.dataset.dock; };
   }, []);
 
   useEffect(() => {
-    if (!project?.id || !setupComplete) return;
-    let cancelled = false;
-    async function loadLive() {
+    const id = project?.id;
+    if (!id || !setupComplete || screen !== 'home') return;
+    const controller = new AbortController();
+    let pending = false;
+    async function update() {
+      if (document.hidden || pending || controller.signal.aborted) return;
+      pending = true;
       try {
-        const response = await fetch(`/api/projects/${project!.id}/live`, { cache: 'no-store' });
-        if (!response.ok) return;
-        const data: { online: number } = await response.json();
-        if (!cancelled) setLiveCount(data.online);
-      } catch {
-        /* ignore */
-      }
+        const [current] = await getProjects(controller.signal, id);
+        if (current && !controller.signal.aborted) setAnalytics(current);
+      } catch { /* keep the last snapshot */ }
+      finally { pending = false; }
     }
-    void loadLive();
-    const timer = window.setInterval(() => { if (!document.hidden) void loadLive(); }, 8000);
-    return () => { cancelled = true; window.clearInterval(timer); };
-  }, [project?.id, setupComplete]);
+    void update();
+    const timer = window.setInterval(update, 10000);
+    document.addEventListener('visibilitychange', update);
+    return () => { controller.abort(); clearInterval(timer); document.removeEventListener('visibilitychange', update); };
+  }, [project?.id, setupComplete, screen]);
 
   useEffect(() => {
-    if (!setupComplete) return;
-    const timer = window.setInterval(() => {
-      if (!document.hidden) void getProjects().then(setProjects).catch(() => undefined);
-    }, 15000);
-    return () => window.clearInterval(timer);
-  }, [setupComplete]);
-
+    setCollapsed(false);
+    if (inSetup || screen === 'globe') return;
+    let last = window.scrollY;
+    function onScroll() {
+      const y = window.scrollY;
+      if (y <= 80) setCollapsed(false);
+      else if (Math.abs(y - last) >= 10) setCollapsed(y > last);
+      if (Math.abs(y - last) >= 10 || y <= 80) last = y;
+    }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [screen, inSetup]);
 
   async function refresh(interactive = false) {
     pending.current?.abort();
@@ -494,16 +506,16 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
       ) : (
         <main id="dashboard" className={`app-body ${screen === 'home' ? 'ho v2 is-in' : screen === 'globe' ? 'globe-body' : 'v2-screen'}`}>
           {screen === 'home' && project ? (
-            <DashboardV2 key={project.id} project={project} headingRef={dashboardHeading}
+            <DashboardV2 key={project.id} project={analytics?.id === project.id ? analytics : project} headingRef={dashboardHeading}
               onGlobe={() => setScreen('globe')} onSetup={() => {
                 setForceSetup(true);
                 setStep('check');
                 setReached(stepIndex('check'));
               }} />
           ) : screen === 'globe' && project ? (
-            <LiveGlobe key={project.id} projectId={project.id} />
+            <LiveGlobe key={project.id} {...live} />
           ) : screen === 'visitors' && project ? (
-            <People projectId={project.id} />
+            <People key={project.id} {...live} />
           ) : screen === 'settings' && project ? (
             <div className="v2-empty-screen">
               <h1>Settings</h1>
@@ -543,8 +555,12 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
       )}
 
       {!inSetup && (
-        <div className="app-dock dock-host">
-          <div className="dock-frame">
+        <div className="app-dock">
+          {collapsed && <button type="button" className="omer-dock-pill" aria-label={`Expand navigation, ${WHERE[screen] || 'Dashboard'}`} onPointerEnter={(event) => { if (event.pointerType === 'mouse') setCollapsed(false); }} onClick={() => { setCollapsed(false); requestAnimationFrame(() => document.querySelector<HTMLElement>('.app-dock [aria-current="page"]')?.focus()); }}>
+            {(() => { const Icon = DOCK.find(({ id }) => id === screen)!.icon; return <Icon size={16} aria-hidden="true" />; })()}
+            {WHERE[screen] || 'Dashboard'}
+          </button>}
+          <div className="dock-frame" hidden={collapsed}>
             <nav className="dock" aria-label="Main navigation">
               <div className="dock-bar">
                 {DOCK.map(({ id, label, icon: Icon, live }) => (

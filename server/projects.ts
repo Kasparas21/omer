@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, sql } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { localDemoPlace, placeFromRequest } from './geo';
 import { dailyVisitors, dwell, pageViews, pathViews, projects, referrerViews, visits } from './schema';
@@ -14,6 +14,8 @@ type Env = {
 };
 
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+const liveListeners = new Map<string, Set<() => void>>();
+
 const visitorId = /^[A-Za-z0-9_-]{8,80}$/;
 const projectFields = {
   id: projects.id,
@@ -73,9 +75,10 @@ function siteOrigin(value: unknown, allowLocal: boolean) {
 }
 
 function cleanPath(value: unknown) {
-  if (typeof value !== 'string' || !value.startsWith('/') || value.length > 300) return null;
-  if (/[\u0000-\u001f]/.test(value)) return null;
-  return value;
+  if (typeof value !== 'string' || !value.startsWith('/')) return null;
+  const path = value.split(/[?#]/, 1)[0];
+  if (/[\u0000-\u001f]/.test(path)) return null;
+  return path.slice(0, 300);
 }
 
 function cleanReferrer(value: unknown) {
@@ -98,6 +101,15 @@ async function ownerID(request: Request) {
 async function listProjects(request: Request, env: Env) {
   const owner = await ownerID(request);
   if (!owner) return json({ error: 'Sign in to view projects.' }, 401);
+  const url = new URL(request.url);
+  const summary = url.searchParams.get('view') === 'summary';
+  const selected = url.searchParams.get('project');
+  if (selected && !uuid.test(selected)) return json({ error: 'Project not found.' }, 404);
+  if (summary) {
+    const records = await withDatabase(env, (db) => db.select(projectFields)
+      .from(projects).where(eq(projects.owner, owner)).orderBy(desc(projects.createdAt)));
+    return json({ projects: records });
+  }
   const records = await withDatabase(env, (db) => db.select({
     ...projectFields,
     pageViews: sql<{ day: string; count: number }[]>`coalesce((
@@ -144,17 +156,17 @@ async function listProjects(request: Request, env: Env) {
     pages: sql<{ path: string; count: number }[]>`coalesce((
       select json_agg(json_build_object('path', path, 'count', count) order by count desc)
       from (
-        select ${pathViews.path} as path, sum(${pathViews.count})::float8 as count
+        select split_part(split_part(${pathViews.path}, '?', 1), '#', 1) as path, sum(${pathViews.count})::float8 as count
         from ${pathViews}
         where ${pathViews.projectId} = ${projects.id}
           and ${pathViews.day} >= (now() at time zone 'UTC')::date - 29
-        group by ${pathViews.path}
+        group by 1
         order by count desc
         limit 8
       ) q
     ), '[]'::json)`,
   })
-    .from(projects).where(eq(projects.owner, owner)).orderBy(desc(projects.createdAt)));
+    .from(projects).where(and(eq(projects.owner, owner), selected ? eq(projects.id, selected) : undefined)).orderBy(desc(projects.createdAt)));
   return json({ projects: records });
 }
 
@@ -187,12 +199,16 @@ async function receiveInstall(request: Request, env: Env) {
   const writeKey = await readText(request, 36);
   if (!writeKey || !uuid.test(writeKey)) return new Response(null, { status: 400 });
 
-  const accepted = await withDatabase(env, (db) => db.update(projects)
-    .set({ firstEventAt: sql`coalesce(${projects.firstEventAt}, now())` })
-    .where(and(eq(projects.writeKey, writeKey), eq(projects.origin, origin)))
-    .returning({ id: projects.id }));
+  const accepted = await withDatabase(env, async (db) => {
+    const match = and(eq(projects.writeKey, writeKey), eq(projects.origin, origin));
+    const [project] = await db.select({ id: projects.id, firstEventAt: projects.firstEventAt }).from(projects).where(match).limit(1);
+    if (!project) return false;
+    if (!project.firstEventAt) await db.update(projects).set({ firstEventAt: sql`now()` })
+      .where(and(eq(projects.id, project.id), isNull(projects.firstEventAt)));
+    return true;
+  });
 
-  return accepted[0]
+  return accepted
     ? new Response(null, { status: 204, headers: cors(origin) })
     : new Response(null, { status: 403 });
 }
@@ -207,22 +223,30 @@ async function receiveEvent(request: Request, env: Env) {
   let body: { key?: unknown; type?: unknown; vid?: unknown; path?: unknown; ref?: unknown; ms?: unknown } | null;
   try { body = raw === null ? null : JSON.parse(raw); } catch { body = null; }
   const writeKey = typeof body?.key === 'string' ? body.key : '';
-  const type = body?.type === 'pageview' || body?.type === 'dwell' ? body.type : null;
+  const type = body?.type === 'pageview' || body?.type === 'dwell' || body?.type === 'presence' ? body.type : null;
   const vid = typeof body?.vid === 'string' && visitorId.test(body.vid) ? body.vid : null;
   const path = cleanPath(body?.path);
   if (!uuid.test(writeKey) || !type || !vid || !path) return new Response(null, { status: 400 });
 
   const accepted = await withDatabase(env, (db) => db.transaction(async (tx) => {
-    const [project] = await tx.update(projects)
-      .set({ firstEventAt: sql`coalesce(${projects.firstEventAt}, now())` })
-      .where(and(eq(projects.writeKey, writeKey), eq(projects.origin, origin)))
-      .returning({ id: projects.id });
-    if (!project) return false;
+    const [project] = await tx.select({ id: projects.id, firstEventAt: projects.firstEventAt }).from(projects)
+      .where(and(eq(projects.writeKey, writeKey), eq(projects.origin, origin))).limit(1);
+    if (!project) return null;
+    if (!project.firstEventAt && type === 'pageview') await tx.update(projects).set({ firstEventAt: sql`now()` })
+      .where(and(eq(projects.id, project.id), isNull(projects.firstEventAt)));
     const day = sql`(now() at time zone 'UTC')::date`;
+
+    if (type === 'presence') {
+      await tx.update(visits).set({ activeAt: sql`now()` }).where(eq(visits.id, sql`(
+        select id from project_visits where project_id = ${project.id} and visitor_id = ${vid}
+          and seen_at > now() - interval '24 hours' order by seen_at desc limit 1
+      )`));
+      return project.id;
+    }
 
     if (type === 'dwell') {
       const ms = typeof body?.ms === 'number' && Number.isFinite(body.ms) ? Math.round(body.ms) : 0;
-      if (ms < 1000 || ms > 1_800_000) return true;
+      if (ms < 1000 || ms > 1_800_000) return project.id;
       await tx.insert(dwell)
         .values({ projectId: project.id, day, totalMs: ms, samples: 1 })
         .onConflictDoUpdate({
@@ -232,7 +256,7 @@ async function receiveEvent(request: Request, env: Env) {
             samples: sql`${dwell.samples} + 1`,
           },
         });
-      return true;
+      return project.id;
     }
 
     const referrer = cleanReferrer(body?.ref);
@@ -269,19 +293,16 @@ async function receiveEvent(request: Request, env: Env) {
       lat: geo?.lat ?? null,
       lng: geo?.lng ?? null,
     });
-    await tx.delete(visits).where(and(
-      eq(visits.projectId, project.id),
-      sql`${visits.seenAt} < now() - interval '7 days'`,
-    ));
-    return true;
+    return project.id;
   }));
 
+  if (accepted && type !== 'presence') for (const notify of liveListeners.get(accepted) ?? []) notify();
   return accepted
     ? new Response(null, { status: 204, headers: cors(origin) })
     : new Response(null, { status: 403 });
 }
 
-async function liveFeed(request: Request, env: Env, projectId: string) {
+async function liveFeed(request: Request, env: Env, projectId: string, stream: boolean) {
   if (!uuid.test(projectId)) return json({ error: 'Project not found.' }, 404);
   const owner = await ownerID(request);
   if (!owner) return json({ error: 'Sign in to view live visitors.' }, 401);
@@ -292,6 +313,7 @@ async function liveFeed(request: Request, env: Env, projectId: string) {
       .where(and(eq(projects.id, projectId), eq(projects.owner, owner)))
       .limit(1);
     if (!project) return json({ error: 'Project not found.' }, 404);
+    if (stream) return openLiveStream(projectId);
 
     const recent = await db.select({
       id: visits.id,
@@ -304,6 +326,7 @@ async function liveFeed(request: Request, env: Env, projectId: string) {
       lat: visits.lat,
       lng: visits.lng,
       seenAt: visits.seenAt,
+      activeAt: sql<string>`coalesce(${visits.activeAt}, ${visits.seenAt})`,
     })
       .from(visits)
       .where(and(eq(visits.projectId, projectId), gt(visits.seenAt, sql`now() - interval '24 hours'`)))
@@ -314,7 +337,8 @@ async function liveFeed(request: Request, env: Env, projectId: string) {
       online: sql<number>`count(distinct ${visits.visitorId})::int`,
     })
       .from(visits)
-      .where(and(eq(visits.projectId, projectId), gt(visits.seenAt, sql`now() - interval '5 minutes'`)));
+      .where(and(eq(visits.projectId, projectId), gt(visits.seenAt, sql`now() - interval '24 hours'`),
+        sql`coalesce(${visits.activeAt}, ${visits.seenAt}) > now() - interval '5 minutes'`));
 
     const hourVisits = await db.select({ seenAt: visits.seenAt })
       .from(visits)
@@ -347,7 +371,7 @@ async function liveFeed(request: Request, env: Env, projectId: string) {
       visits: recent.map((row) => ({
         id: row.id,
         seed: row.visitorId,
-        path: row.path,
+        path: cleanPath(row.path) ?? '/',
         referrer: row.referrer,
         cc: row.cc,
         city: row.city,
@@ -355,18 +379,52 @@ async function liveFeed(request: Request, env: Env, projectId: string) {
         lat: row.lat,
         lng: row.lng,
         seenAt: row.seenAt,
+        activeAt: row.activeAt,
       })),
     });
   });
+}
+
+// One app process serves the VPS. Signals only invalidate; the authenticated
+// snapshot remains the source of truth on reconnect or across app restarts.
+function openLiveStream(projectId: string) {
+  const listeners = liveListeners.get(projectId) ?? new Set<() => void>();
+  if (listeners.size >= 20 || (!liveListeners.has(projectId) && liveListeners.size >= 200)) {
+    return json({ error: 'Live stream busy.' }, 503);
+  }
+  liveListeners.set(projectId, listeners);
+  let cleanup = () => {};
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      function write(value: string) {
+        if ((controller.desiredSize ?? 0) > 0) controller.enqueue(encoder.encode(value));
+      }
+      const notify = () => write('event: activity\ndata: 1\n\n');
+      const keepalive = setInterval(() => write(': keepalive\n\n'), 12000);
+      // Reauthorize periodically, and let rolling restarts drain open connections.
+      const expire = setTimeout(() => { cleanup(); controller.close(); }, 55000);
+      cleanup = () => {
+        clearInterval(keepalive);
+        clearTimeout(expire);
+        listeners.delete(notify);
+        if (!listeners.size) liveListeners.delete(projectId);
+      };
+      listeners.add(notify);
+      write('retry: 1500\nevent: ready\ndata: 1\n\n');
+    },
+    cancel() { cleanup(); },
+  });
+  return new Response(body, { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store, no-transform' } });
 }
 
 export default {
   async fetch(request: Request, env: Env) {
     const url = new URL(request.url);
     try {
-      const liveMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/live$/i);
+      const liveMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/live(\/stream)?$/i);
       if (liveMatch) {
-        if (request.method === 'GET') return await liveFeed(request, env, liveMatch[1]);
+        if (request.method === 'GET') return await liveFeed(request, env, liveMatch[1], Boolean(liveMatch[2]));
         return json({ error: 'Method not allowed.' }, 405);
       }
       if (url.pathname === '/api/projects') {

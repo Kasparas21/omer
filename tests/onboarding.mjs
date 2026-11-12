@@ -81,9 +81,11 @@ try {
   assert.equal(captures, 0);
   await visitor.evaluate(() => window.unfairweekend.consent({ analytics: false }));
   assert.equal(captures, 0);
+  const pageView = visitor.waitForResponse((r) => r.url().endsWith('/v1/collect/event') && r.request().method() === 'POST');
   const receipt = visitor.waitForResponse((r) => r.url().includes('/v1/collect/install'));
   await visitor.getByRole('button', { name: 'Allow analytics' }).click();
   assert.equal((await receipt).status(), 204);
+  assert.equal((await pageView).status(), 204);
   const checkInstall = page.getByRole('button', { name: 'Check installation' });
   if (await checkInstall.count()) {
     await checkInstall.first().click();
@@ -96,22 +98,70 @@ try {
   const goToDashboard = page.getByRole('button', { name: 'Go to my dashboard' });
   if (await goToDashboard.isVisible()) await goToDashboard.click();
   await page.getByRole('heading', { name: 'Dashboard' }).waitFor();
-  await page.locator('.v2-map-stage.is-ready canvas').waitFor();
   const before = await page.evaluate(async () => (await (await fetch('/api/projects')).json()).projects[0].firstEventAt);
   await fetch(`${base}/v1/collect/install`, { method: 'POST', headers: { Origin: demoOrigin }, body: key });
   const after = await page.evaluate(async () => (await (await fetch('/api/projects')).json()).projects[0].firstEventAt);
   assert.equal(before, after);
+  const endpoint = `${base}/api/projects/${projects[0].id}/live`;
+  assert.equal((await outsider.request.get(endpoint)).status(), 404);
+  assert.equal((await outsider.request.get(`${endpoint}/stream`)).status(), 404);
+  await page.getByRole('button', { name: /^Live,/ }).click();
+  const canvas = page.locator('#globeStage.is-ready canvas');
+  await canvas.waitFor();
+  const beforeCanvas = await canvas.elementHandle();
+  await page.locator('.lvp-feed').getByText('/', { exact: true }).waitFor();
+
+  // The authenticated stream must signal new events without relying on the fallback timer.
+  const abort = new AbortController();
+  const stream = await fetch(`${endpoint}/stream`, {
+    headers: { Cookie: (await context.cookies()).map(({ name, value }) => `${name}=${value}`).join('; ') },
+    signal: abort.signal,
+  });
+  assert.equal(stream.status, 200);
+  assert.match(stream.headers.get('content-type') ?? '', /text\/event-stream/);
+  const reader = stream.body.pipeThrough(new TextDecoderStream()).getReader();
+  const streamEvent = async (name) => {
+    let output = '';
+    while (!output.includes(`event: ${name}`)) {
+      const { done, value } = await reader.read();
+      assert.ok(!done, 'live stream closed before sending an update');
+      output += value;
+    }
+  };
+  const guard = setTimeout(() => abort.abort(), 6500);
+  try {
+    await streamEvent('ready');
+    await visitor.evaluate(() => history.pushState({}, '', '/test-live?private=hidden#section'));
+    await streamEvent('activity');
+    await page.locator('.lvp-feed').getByText('/test-live', { exact: true }).waitFor({ timeout: 3500 });
+    assert.equal(await beforeCanvas.evaluate((node) => node.isConnected), true);
+  } finally {
+    clearTimeout(guard);
+    abort.abort();
+  }
+  const snapshot = await (await context.request.get(endpoint)).json();
+  assert.equal(snapshot.online, 1);
+  assert.equal(snapshot.visits[0].path, '/test-live');
+  const visitorId = await visitor.evaluate((siteKey) => localStorage.getItem(`uw_vid_${siteKey}`), key);
+  const presence = await fetch(`${base}/v1/collect/event`, { method: 'POST', headers: { Origin: demoOrigin, 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'presence', key, vid: visitorId, path: '/test-live' }) });
+  assert.equal(presence.status, 204);
+  const active = await (await context.request.get(endpoint)).json();
+  assert.equal(active.visits.length, snapshot.visits.length);
+  assert.equal(active.visits[0].seenAt, snapshot.visits[0].seenAt);
+  assert.ok(Date.parse(active.visits[0].activeAt) >= Date.parse(active.visits[0].seenAt));
   const activity = await page.evaluate(async () => (await (await fetch('/api/projects')).json()).projects[0].pageViews);
   assert.equal(activity.reduce((sum, day) => sum + day.count, 0), 2);
-  await page.getByRole('button', { name: 'Open visitor globe' }).click();
-  await page.getByRole('heading', { name: 'Visitor globe' }).waitFor();
-  await page.locator('.v2-map-stage.is-ready canvas').waitFor();
+  await page.getByRole('button', { name: 'People', exact: true }).click();
+  await page.getByRole('button', { name: /Online now/ }).click();
+  await page.getByRole('table').getByText('/test-live').waitFor();
+  await page.getByRole('searchbox').fill('no-match');
+  await page.getByText('No visitors match your filters.').waitFor();
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 844 });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
   }
   assert.deepEqual(errors, []);
-  console.log('PASS: account registration, google button config, cross-browser sign-in, sign-out, account isolation, project creation, setup wizard, reload persistence, prompt clipboard, guide, browser isolation, origin/size rejection, consent gating, real receipt, duplicate receipt, mobile overflow, no browser errors');
+  console.log('PASS: account registration, google button config, cross-browser sign-in, sign-out, account isolation, project creation, setup wizard, reload persistence, prompt clipboard, guide, browser isolation, origin/size rejection, consent gating, real receipt, stream authorization, live update without reload, stable globe canvas, URL minimization, heartbeat, People filters, mobile overflow, no browser errors');
 } finally {
   await browser.close();
   site.close();
