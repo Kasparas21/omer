@@ -1,0 +1,2 @@
+DATABASE_URL=postgres://unfairweekend:local-only@127.0.0.1:5432/unfairweekend
+ALLOW_LOCAL_SITES=true

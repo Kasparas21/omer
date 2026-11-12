@@ -1,0 +1,19 @@
+# Local development only.
+services:
+  postgres:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: unfairweekend
+      POSTGRES_USER: unfairweekend
+      POSTGRES_PASSWORD: local-only
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "unfairweekend", "-d", "unfairweekend"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+volumes:
+  pgdata:
