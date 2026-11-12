@@ -3,6 +3,11 @@ import pg from 'pg';
 
 export const appURL = process.env.APP_URL ?? 'http://localhost:5173';
 if (!process.env.DATABASE_URL || !process.env.BETTER_AUTH_SECRET) throw new Error('DATABASE_URL and BETTER_AUTH_SECRET are required');
+
+const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim() ?? '';
+const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim() ?? '';
+export const googleAuthEnabled = Boolean(googleClientId && googleClientSecret);
+
 export const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000, statement_timeout: 5000 });
 export const auth = betterAuth({
   appName: 'Omer',
@@ -11,6 +16,9 @@ export const auth = betterAuth({
   database: pool,
   trustedOrigins: [appURL],
   emailAndPassword: { enabled: true, minPasswordLength: 12 },
+  ...(googleAuthEnabled
+    ? { socialProviders: { google: { clientId: googleClientId, clientSecret: googleClientSecret } } }
+    : {}),
   rateLimit: { enabled: true, storage: 'database', window: 60, max: 60 },
   advanced: { ipAddress: { ipAddressHeaders: ['cf-connecting-ip'] } },
 });

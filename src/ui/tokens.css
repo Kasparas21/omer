@@ -1,0 +1,231 @@
+/* unfairweekend UI — design tokens
+   Every component reads from these variables. The customizer only changes
+   variables and data-attributes on <html>, so whatever you pick here is
+   exactly what ships.
+
+   Brand lock: one iris-periwinkle family for actions + charts. Punchy green
+   for live/success. Cool slate neutrals. No stray sky-blue vs magenta fight. */
+
+@font-face {
+  font-family: Inter;
+  src: url("/fonts/InterVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  /* ---- Brand (locked iris family) ---- */
+  --accent: #6360F0;            /* primary actions, charts, focus, active */
+  --on-accent: #ffffff;
+  --accent-hover: #4F4BE0;
+  --accent-wash: color-mix(in oklab, var(--accent) 9%, var(--surface));
+  --accent-soft: color-mix(in oklab, var(--accent) 16%, var(--surface));
+  --accent-line: color-mix(in oklab, var(--accent) 32%, var(--surface));
+  /* accent used as TEXT (links, soft buttons, accent badges). library.js recomputes it for any
+     picked accent so it stays ≥4.5:1 on --accent-wash and --accent-soft; this is the fallback. */
+  --accent-text: #4A46C8;
+
+  --ice: #eeefff;
+  --cobalt: #6360F0;            /* legacy alias — same as accent */
+  --violet: #4F4BE0;            /* deeper sibling in the same hue */
+  --lavender: #d5d3ff;
+  /* orb avatars only: the pop colour in every orb's gradient (iris, pop, deep, indigo).
+     Picked in the Customize panel; options live in kit.js ORB_POPS. */
+  --orb-pop: #ff9a5c;
+  --gradient: linear-gradient(135deg, #eeefff 0%, #6360F0 44%, #4F4BE0 78%, #d5d3ff 100%);
+  --gradient-mesh:
+    radial-gradient(60% 80% at 18% 12%, rgba(238, 239, 255, 0.96) 0%, transparent 60%),
+    radial-gradient(50% 60% at 85% 85%, rgba(213, 211, 255, 0.9) 0%, transparent 60%),
+    radial-gradient(70% 70% at 70% 30%, #4F4BE0 0%, transparent 70%),
+    linear-gradient(135deg, #a8a6ff 0%, #6360F0 45%, #4F4BE0 75%, #7a77f5 100%);
+
+  /* ---- Neutrals (cool slate, tiny indigo bias) ---- */
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f4f4f8;   /* recessed panels */
+  --surface-3: #efeff4;   /* rows, quiet secondary fills */
+  --surface-hover: #e9e9f0;
+  --line: #e4e4ec;
+  --line-strong: #d0d0db;
+  --control-line: #c4c4d0;
+  --ink: #17171f;
+  --ink-2: #555563;
+  --ink-3: #6a6a7a;
+  --scrim: rgba(17, 17, 28, 0.34);
+
+  /* ---- Status (green = live / money up; keep roles tight) ---- */
+  --success: #12b76a;
+  --success-text: #0e7a4b;
+  --success-ink: #0c6b42;
+  --success-bg: #eafaf2;
+  --warning-ink: #8a5200;
+  --warning-bg: #fff5e5;
+  --warning: #f59e0b;
+  --danger: #e5484d;
+  --danger-text: #c8323b;
+  --danger-ink: #b42335;
+  --danger-bg: #fff0f2;
+  --info-ink: #4A46C8;
+  --info-bg: #efeffe;
+
+  /* ---- Dock (bottom navigation) ---- */
+  --dock-bg: #15151c;
+  --dock-fg: #a6a6b4;
+  --dock-fg-active: #ffffff;
+  --dock-item-active: rgba(255, 255, 255, 0.10);
+  --dock-line: rgba(255, 255, 255, 0.06);
+  --dock-panel-row: rgba(255, 255, 255, 0.07);
+  --dock-blur: none;
+  --dock-stick: rgba(21, 21, 28, 0.82);
+  --dock-pad: 6px;
+  --dock-item-size: 38px;
+  --dock-r: 999px;
+  --dock-item-r: 999px;
+  --dock-lift: 0 1px 2px rgb(10 12 24 / 0.08), 0 14px 32px -14px rgb(10 12 24 / 0.3);
+  --dock-ease: cubic-bezier(0.22, 1.15, 0.36, 1);
+  --dock-morph: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* ---- Shape (customizer: button shape + corner radius) ---- */
+  --radius: 16px;
+  --r-btn: 999px;
+  --r-card: var(--radius);
+  --r-field: calc(var(--radius) * 0.75);
+  --r-row: calc(var(--radius) * 0.6);
+  --r-float: calc(var(--radius) * 1.25);
+  --r-chip: var(--r-btn);
+  --r-avatar: 50%;
+
+  /* ---- Density ---- */
+  --ctl-h: 36px;
+  --ctl-h-sm: 30px;
+  --ctl-h-lg: 44px;
+  --ctl-px: 16px;
+  --card-pad: 18px;
+  --row-h: 34px;
+  --gap: 12px;
+
+  /* ---- Depth ---- */
+  --shadow-xs: 0 1px 2px rgba(23, 23, 31, 0.05);
+  --shadow-sm: 0 2px 8px rgba(23, 23, 31, 0.04);
+  --shadow-md: 0 8px 32px rgba(23, 23, 31, 0.10);
+  --shadow-lg: 0 18px 48px rgba(23, 23, 31, 0.16);
+  --card-border: 1px solid var(--line);
+
+  /* ---- Type ---- */
+  --font: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-base: 15px;
+  --fs-lg: 17px;
+  --fs-xl: 20px;
+  --fs-2xl: 26px;
+  --fs-3xl: 34px;
+
+  /* ---- Motion ---- */
+  --t-fast: 120ms;
+  --t-med: 200ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  color-scheme: light;
+}
+
+/* ---------- Customizer: density ---------- */
+:root[data-density="compact"] {
+  --ctl-h: 32px; --ctl-h-sm: 26px; --ctl-h-lg: 38px;
+  --ctl-px: 12px; --card-pad: 14px; --row-h: 30px; --gap: 8px;
+}
+:root[data-density="comfy"] {
+  --ctl-h: 42px; --ctl-h-sm: 34px; --ctl-h-lg: 50px;
+  --ctl-px: 20px; --card-pad: 22px; --row-h: 40px; --gap: 16px;
+}
+
+/* ---------- Customizer: depth ---------- */
+:root[data-shadow="flat"] {
+  --shadow-xs: none; --shadow-sm: none; --shadow-md: 0 0 0 1px var(--line); --shadow-lg: 0 0 0 1px var(--line-strong);
+}
+:root[data-shadow="lifted"] {
+  --shadow-xs: 0 1px 3px rgba(23, 23, 31, 0.08);
+  --shadow-sm: 0 4px 14px rgba(23, 23, 31, 0.08);
+  --shadow-md: 0 14px 40px rgba(23, 23, 31, 0.16);
+  --shadow-lg: 0 24px 64px rgba(23, 23, 31, 0.22);
+  --card-border: 1px solid transparent;
+}
+
+/* ---------- Customizer: font ---------- */
+:root[data-font="system"] { --font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+:root[data-font="rounded"] { --font: ui-rounded, "SF Pro Rounded", "Nunito", system-ui, sans-serif; }
+
+/* ---------- Customizer: dock ---------- */
+:root[data-dock="light"] {
+  --dock-bg: #ffffff;
+  --dock-fg: var(--ink-3);
+  --dock-fg-active: var(--ink);
+  --dock-item-active: color-mix(in srgb, var(--ink) 6%, transparent);
+  --dock-line: #e4e4ec;
+  --dock-panel-row: #f4f4f8;
+  --dock-stick: color-mix(in srgb, var(--ink) 28%, transparent);
+  --dock-lift: 0 1px 2px rgb(23 23 31 / 0.04), 0 10px 24px -14px rgb(23 23 31 / 0.14);
+}
+:root[data-dock="glass"] {
+  --dock-bg: color-mix(in srgb, #ffffff 78%, #f4f4f8);
+  --dock-fg: var(--ink-3);
+  --dock-fg-active: var(--ink);
+  --dock-item-active: color-mix(in srgb, var(--ink) 6%, transparent);
+  --dock-line: color-mix(in srgb, var(--ink) 10%, transparent);
+  --dock-panel-row: color-mix(in srgb, var(--ink) 4%, transparent);
+  --dock-blur: blur(16px) saturate(1.25);
+  --dock-stick: color-mix(in srgb, var(--ink) 30%, transparent);
+  --dock-lift: 0 1px 2px rgb(23 23 31 / 0.04), 0 12px 28px -16px rgb(23 23 31 / 0.16);
+}
+
+/* ---------- Customizer: theme ---------- */
+:root[data-theme="dark"] {
+  --bg: #0c0c10;
+  --surface: #141418;
+  --surface-2: #101014;
+  --surface-3: #1c1c22;
+  --surface-hover: #24242c;
+  --line: #26262f;
+  --line-strong: #353542;
+  --control-line: #42424f;
+  --ink: #f2f2f6;
+  --ink-2: #a4a4b2;
+  --ink-3: #8e8e9c;
+  --scrim: rgba(0, 0, 0, 0.55);
+  --success-ink: #4ade80;
+  --success-text: #4ade80;
+  --danger-text: #ff7a85;
+  --accent-text: color-mix(in oklab, var(--accent) 62%, white);
+  --success-bg: rgba(18, 183, 106, 0.12);
+  --warning-ink: #fbbf24;
+  --warning-bg: rgba(245, 158, 11, 0.12);
+  --danger-ink: #ff7a85;
+  --danger-bg: rgba(229, 72, 77, 0.14);
+  --info-ink: #b4b2ff;
+  --info-bg: rgba(99, 96, 240, 0.16);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 8px 32px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.55);
+  --dock-bg: #000000;
+  --dock-line: rgba(255, 255, 255, 0.08);
+  --dock-stick: rgba(255, 255, 255, 0.42);
+  --dock-lift: 0 1px 0 rgb(255 255 255 / 0.04), 0 12px 28px -16px rgb(0 0 0 / 0.55);
+  color-scheme: dark;
+}
+:root[data-theme="dark"][data-dock="light"] {
+  --dock-bg: var(--surface-3); --dock-fg: var(--ink-2); --dock-fg-active: var(--ink);
+  --dock-item-active: color-mix(in srgb, var(--ink) 8%, transparent); --dock-line: var(--line);
+  --dock-lift: 0 1px 0 rgb(255 255 255 / 0.04), 0 12px 28px -16px rgb(0 0 0 / 0.5);
+}
+:root[data-theme="dark"][data-dock="glass"] {
+  --dock-bg: rgba(28, 28, 36, 0.72); --dock-fg: var(--ink-2); --dock-fg-active: var(--ink);
+  --dock-item-active: rgba(255, 255, 255, 0.08); --dock-line: rgba(255, 255, 255, 0.12);
+  --dock-panel-row: rgba(255, 255, 255, 0.06);
+  --dock-lift: 0 1px 0 rgb(255 255 255 / 0.06), 0 14px 32px -16px rgb(0 0 0 / 0.55);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --t-fast: 0ms; --t-med: 0ms; }
+}
