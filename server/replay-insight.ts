@@ -1,11 +1,18 @@
 import { getObject } from './object-store';
 
 /** Bump when evidence/question shape changes so cached insights regenerate. */
-export const INSIGHT_VERSION = 2;
+export const INSIGHT_VERSION = 3;
 
 export type PageDwell = { path: string; dwellMs: number };
 
 export type ClickLabel = { label: string; tag: string; count: number };
+
+/** Where attention lingered (scroll/viewport), not only clicks. */
+export type AttentionSlice = {
+  label: string;
+  dwellMs: number;
+  share: number;
+};
 
 export type ReplayEvidence = {
   durationMs: number;
@@ -24,6 +31,8 @@ export type ReplayEvidence = {
   chunkCount: number;
   pageTitle: string | null;
   clicked: ClickLabel[];
+  /** Sections/copy they spent the most time viewing (scroll attention). */
+  attended: AttentionSlice[];
   noticed: string[];
   ctas: string[];
   formHints: string[];
@@ -133,10 +142,155 @@ function nodeText(node: RrwebNode | undefined, max = 100): string {
   return parts.join(' ').slice(0, max);
 }
 
-function indexNode(map: Map<number, RrwebNode>, node: RrwebNode | undefined) {
+function indexNode(
+  map: Map<number, RrwebNode>,
+  node: RrwebNode | undefined,
+  parentMap?: Map<number, number>,
+  parentId?: number,
+) {
   if (!node || typeof node !== 'object') return;
-  if (typeof node.id === 'number') map.set(node.id, node);
-  for (const child of node.childNodes || []) indexNode(map, child);
+  if (typeof node.id === 'number') {
+    map.set(node.id, node);
+    if (parentMap && parentId != null) parentMap.set(node.id, parentId);
+  }
+  const selfId = typeof node.id === 'number' ? node.id : parentId;
+  for (const child of node.childNodes || []) indexNode(map, child, parentMap, selfId);
+}
+
+type ContentAnchor = {
+  id: number;
+  label: string;
+  weight: number;
+};
+
+function maybeCollectAnchor(node: RrwebNode | undefined, into: ContentAnchor[]) {
+  if (!node || node.type !== 2 || into.length >= 24 || typeof node.id !== 'number') return;
+  const tag = (node.tagName || '').toLowerCase();
+  const attrs = node.attributes || {};
+  const cls = `${attrs.class || ''} ${attrs.id || ''}`;
+  const text = nodeText(node, 100);
+  if (!text) return;
+  const interestingSection = tag === 'section' || tag === 'article'
+    || /review|ingredient|product|pricing|feature|testimonial|spec|step|match|preview|hero/i.test(cls);
+  if (/^h[1-3]$/.test(tag)) {
+    if (!into.some((row) => row.label.toLowerCase() === text.toLowerCase())) {
+      into.push({ id: node.id, label: text, weight: Math.max(48, text.length) });
+    }
+    return;
+  }
+  if (interestingSection) {
+    // Prefer a short title-like slice for section cards.
+    const label = text.length > 72 ? `${text.slice(0, 69)}…` : text;
+    if (!into.some((row) => row.label.toLowerCase() === label.toLowerCase())) {
+      into.push({ id: node.id, label, weight: Math.max(80, Math.min(220, text.length)) });
+    }
+  }
+}
+
+function attentionLabelForNode(
+  map: Map<number, RrwebNode>,
+  parentMap: Map<number, number>,
+  id: number | undefined,
+) {
+  if (id == null) return null;
+  let cursor: number | undefined = id;
+  for (let depth = 0; depth < 8 && cursor != null; depth += 1) {
+    const node = map.get(cursor);
+    if (!node) break;
+    const tag = (node.tagName || '').toLowerCase();
+    const text = nodeText(node, 90);
+    if ((/^h[1-3]$/.test(tag) || tag === 'section' || tag === 'article' || tag === 'button') && text) {
+      return text.length > 72 ? `${text.slice(0, 69)}…` : text;
+    }
+    cursor = parentMap.get(cursor);
+  }
+  return labelForNode(map, id)?.label || null;
+}
+
+/** Map scroll timeline + DOM order onto section dwell (no real layout boxes in rrweb). */
+function computeScrollAttention(input: {
+  anchors: ContentAnchor[];
+  scrolls: { ts: number; y: number }[];
+  mouse: { ts: number; id?: number }[];
+  nodeMap: Map<number, RrwebNode>;
+  parentMap: Map<number, number>;
+  viewportH: number;
+  minTs: number;
+  maxTs: number;
+}): AttentionSlice[] {
+  const dwell = new Map<string, number>();
+  const add = (label: string, ms: number) => {
+    const cleaned = cleanText(label, 100);
+    if (!cleaned || ms < 80) return;
+    dwell.set(cleaned, (dwell.get(cleaned) || 0) + ms);
+  };
+
+  const viewportH = Math.max(320, input.viewportH || 700);
+  const maxScroll = input.scrolls.reduce((max, row) => Math.max(max, row.y), 0);
+  const docH = Math.max(viewportH * 1.15, maxScroll + viewportH);
+
+  const anchors = input.anchors
+    .filter((row) => row.label && Number.isFinite(row.id))
+    .slice(0, 20);
+  if (anchors.length) {
+    const totalWeight = anchors.reduce((sum, row) => sum + row.weight, 0) || 1;
+    let cursorY = 0;
+    const bands = anchors.map((row) => {
+      const height = Math.max(72, (row.weight / totalWeight) * docH);
+      const top = cursorY;
+      const bottom = cursorY + height;
+      cursorY = bottom;
+      return { label: row.label, top, bottom };
+    });
+
+    const samples = [...input.scrolls].sort((a, b) => a.ts - b.ts);
+    if (!samples.length && Number.isFinite(input.minTs) && Number.isFinite(input.maxTs)) {
+      samples.push({ ts: input.minTs, y: 0 });
+    }
+    if (samples.length && samples[0].ts > input.minTs) {
+      samples.unshift({ ts: input.minTs, y: samples[0].y });
+    }
+    if (samples.length && input.maxTs > samples[samples.length - 1].ts) {
+      samples.push({ ts: input.maxTs, y: samples[samples.length - 1].y });
+    }
+
+    for (let i = 0; i < samples.length - 1; i += 1) {
+      const duration = Math.min(45_000, Math.max(0, samples[i + 1].ts - samples[i].ts));
+      if (duration < 80) continue;
+      const y = Math.max(0, samples[i].y);
+      const viewTop = y;
+      const viewBottom = y + viewportH;
+      // Reading zone: slightly above geometric center.
+      const focus = y + viewportH * 0.38;
+      let best: { label: string; score: number } | null = null;
+      for (const band of bands) {
+        const overlap = Math.max(0, Math.min(viewBottom, band.bottom) - Math.max(viewTop, band.top));
+        if (overlap <= 0) continue;
+        const centerHit = focus >= band.top && focus < band.bottom ? viewportH : 0;
+        const score = overlap + centerHit;
+        if (!best || score > best.score) best = { label: band.label, score };
+      }
+      if (best) add(best.label, duration);
+    }
+  }
+
+  // Pointer dwell on concrete nodes (desktop) — boosts attention beyond scroll alone.
+  const mouse = [...input.mouse].sort((a, b) => a.ts - b.ts);
+  for (let i = 0; i < mouse.length - 1; i += 1) {
+    const duration = Math.min(8_000, Math.max(0, mouse[i + 1].ts - mouse[i].ts));
+    const label = attentionLabelForNode(input.nodeMap, input.parentMap, mouse[i].id);
+    if (label) add(label, duration);
+  }
+
+  const total = [...dwell.values()].reduce((sum, ms) => sum + ms, 0) || 1;
+  return [...dwell.entries()]
+    .map(([label, dwellMs]) => ({
+      label,
+      dwellMs: Math.round(dwellMs),
+      share: Math.round((dwellMs / total) * 1000) / 1000,
+    }))
+    .sort((a, b) => b.dwellMs - a.dwellMs)
+    .slice(0, 8);
 }
 
 function labelForNode(map: Map<number, RrwebNode>, id: number | undefined) {
@@ -183,7 +337,11 @@ export async function extractReplayEvidence(input: {
   hasName?: boolean;
 }): Promise<ReplayEvidence> {
   const nodeMap = new Map<number, RrwebNode>();
+  const parentMap = new Map<number, number>();
   const clickMap = new Map<string, ClickLabel>();
+  const anchors: ContentAnchor[] = [];
+  const scrollSamples: { ts: number; y: number }[] = [];
+  const mouseSamples: { ts: number; id?: number }[] = [];
   const noticed: string[] = [];
   const ctas: string[] = [];
   const formHints: string[] = [];
@@ -196,9 +354,11 @@ export async function extractReplayEvidence(input: {
   let eventCount = 0;
   let minTs = Number.POSITIVE_INFINITY;
   let maxTs = 0;
+  let viewportH = 700;
 
   const harvestVisible = (node: RrwebNode | undefined) => {
     if (!node) return;
+    maybeCollectAnchor(node, anchors);
     if (node.type === 2) {
       const tag = (node.tagName || '').toLowerCase();
       const attrs = node.attributes || {};
@@ -241,7 +401,7 @@ export async function extractReplayEvidence(input: {
 
         if (event.type === 2) {
           const node = event.data?.node as RrwebNode | undefined;
-          indexNode(nodeMap, node);
+          indexNode(nodeMap, node, parentMap);
           harvestVisible(node);
           continue;
         }
@@ -249,6 +409,8 @@ export async function extractReplayEvidence(input: {
         if (event.type === 4) {
           const href = cleanText(event.data?.href, 160);
           const title = cleanText(event.data?.title, 120);
+          const height = Number(event.data?.height);
+          if (Number.isFinite(height) && height > 200) viewportH = height;
           if (title) pageTitle = title;
           if (href) {
             try {
@@ -266,7 +428,7 @@ export async function extractReplayEvidence(input: {
           if (Array.isArray(adds)) {
             for (const add of adds) {
               const node = add && typeof add === 'object' ? (add as { node?: RrwebNode }).node : undefined;
-              indexNode(nodeMap, node);
+              indexNode(nodeMap, node, parentMap, Number((add as { parentId?: number }).parentId) || undefined);
               harvestVisible(node);
             }
           }
@@ -285,10 +447,28 @@ export async function extractReplayEvidence(input: {
           continue;
         }
 
-        // MouseMove=1, MouseInteraction=2, Scroll=3, Input=5, TouchMove=6
-        if (source === 1 || source === 6) mouseMoves += 1;
-        else if (source === 3) scrolls += 1;
-        else if (source === 5) {
+        // MouseMove=1, MouseInteraction=2, Scroll=3, ViewportResize=4, Input=5, TouchMove=6
+        if (source === 4) {
+          const height = Number(event.data?.height);
+          if (Number.isFinite(height) && height > 200) viewportH = height;
+          continue;
+        }
+        if (source === 1 || source === 6) {
+          mouseMoves += 1;
+          if (ts) {
+            const positions = event.data?.positions;
+            if (Array.isArray(positions) && positions.length) {
+              const last = positions[positions.length - 1] as { id?: number };
+              mouseSamples.push({ ts, id: Number(last?.id) || undefined });
+            } else if (event.data?.id != null) {
+              mouseSamples.push({ ts, id: Number(event.data.id) || undefined });
+            }
+          }
+        } else if (source === 3) {
+          scrolls += 1;
+          const y = Number(event.data?.y);
+          if (ts && Number.isFinite(y)) scrollSamples.push({ ts, y: Math.max(0, y) });
+        } else if (source === 5) {
           inputs += 1;
           formInteraction = true;
           const id = Number(event.data?.id);
@@ -325,6 +505,17 @@ export async function extractReplayEvidence(input: {
   const durationFromEvents = Number.isFinite(minTs) && maxTs >= minTs ? Math.max(0, maxTs - minTs) : 0;
   const durationMs = Math.max(durationFromEvents, pages.reduce((sum, page) => sum + page.dwellMs, 0));
   const clicked = [...clickMap.values()].sort((a, b) => b.count - a.count).slice(0, 16);
+  const attended = computeScrollAttention({
+    anchors,
+    scrolls: scrollSamples,
+    mouse: mouseSamples,
+    nodeMap,
+    parentMap,
+    viewportH,
+    minTs: Number.isFinite(minTs) ? minTs : 0,
+    maxTs: Number.isFinite(maxTs) ? maxTs : 0,
+  });
+  for (const row of attended.slice(0, 6)) pushUnique(noticed, row.label, 16);
 
   return {
     durationMs,
@@ -343,6 +534,7 @@ export async function extractReplayEvidence(input: {
     chunkCount: input.objectKeys.length,
     pageTitle,
     clicked,
+    attended,
     noticed: noticed.slice(0, 16),
     ctas: ctas.slice(0, 16),
     formHints: formHints.slice(0, 10),
@@ -383,6 +575,7 @@ export function buildEvidence(input: {
     chunkCount: input.chunkCount,
     pageTitle: null,
     clicked: [],
+    attended: [],
     noticed: [],
     ctas: [],
     formHints: [],
@@ -428,6 +621,7 @@ function fmtDur(ms: number) {
 async function runDecisions(evidence: ReplayEvidence) {
   const interestChoices = choiceOptions(
     [
+      ...evidence.attended.map((row) => row.label),
       ...evidence.clicked.map((row) => row.label),
       ...evidence.noticed.slice(0, 8),
       evidence.pageTitle || '',
@@ -437,9 +631,16 @@ async function runDecisions(evidence: ReplayEvidence) {
     'None of the listed interests fit well.',
   );
   const hookChoices = choiceOptions(
-    evidence.clicked.map((row) => row.label).concat(evidence.noticed.slice(0, 6)),
+    evidence.attended.map((row) => row.label)
+      .concat(evidence.clicked.map((row) => row.label))
+      .concat(evidence.noticed.slice(0, 6)),
     ['finish what they started', 'remind them of a style they liked', 'help with upload', 'answer a product question'],
     'A different angle fits better.',
+  );
+  const attentionChoices = choiceOptions(
+    evidence.attended.map((row) => row.label),
+    evidence.noticed.slice(0, 6).concat(['above the fold', 'unknown']),
+    'Attention was spread or unclear.',
   );
 
   const res = await fetch('https://api.openai.com/v1/decisions', {
@@ -457,7 +658,8 @@ async function runDecisions(evidence: ReplayEvidence) {
             type: 'input_text',
             text: [
               'Classify this website session for a merchant analytics product.',
-              'Use only the JSON evidence. Prefer concrete UI labels from clicked/noticed/ctas.',
+              'Use only the JSON evidence. Prefer concrete UI labels from attended/clicked/noticed/ctas.',
+              'attended[] is scroll/viewport dwell — time spent viewing a section even without clicks. Weight it heavily for interest.',
               'email_ready means: enough behavioral detail to write a useful personalized email later (drafts come later; score readiness only).',
             ].join(' '),
           },
@@ -530,6 +732,23 @@ async function runDecisions(evidence: ReplayEvidence) {
           choices: interestChoices,
         },
         {
+          name: 'most_attended',
+          type: 'choice',
+          instructions: 'Section or copy they spent the most time viewing (from attended dwell, not only clicks).',
+          choices: attentionChoices,
+        },
+        {
+          name: 'reading_depth',
+          type: 'score',
+          instructions: 'How carefully they read content (lingering on sections) vs skimming.',
+          levels: [
+            { label: 'skim', description: 'Mostly scrolled past without lingering.' },
+            { label: 'light', description: 'Brief pauses on a couple of blocks.' },
+            { label: 'focused', description: 'Clear dwell on one or two sections.' },
+            { label: 'deep', description: 'Long reading time on specific content.' },
+          ],
+        },
+        {
           name: 'compared_options',
           type: 'predicate',
           instructions: 'They compared multiple options, styles, or products.',
@@ -593,8 +812,14 @@ async function runDecisions(evidence: ReplayEvidence) {
   const intent = Number.isFinite(intentRaw) ? Math.max(0, Math.min(3, intentRaw)) : 0;
   const worthProb = Number(answerByName(answers, 'worth_watching')?.probability);
   const worthWatching = Number.isFinite(worthProb) ? worthProb >= 0.5 : false;
+  const mostAttended = String(
+    answerByName(answers, 'most_attended')?.choice
+    || evidence.attended[0]?.label
+    || '',
+  );
   const primaryInterest = String(
     answerByName(answers, 'primary_interest')?.choice
+    || mostAttended
     || evidence.clicked[0]?.label
     || evidence.pages[0]?.path
     || '/',
@@ -604,6 +829,8 @@ async function runDecisions(evidence: ReplayEvidence) {
   const emailReady = emailReadyConfidence >= 0.55;
   const bestAngle = String(answerByName(answers, 'best_email_angle')?.choice || '');
   const secondary = String(answerByName(answers, 'secondary_interest')?.choice || '');
+  const readingRaw = Number(answerByName(answers, 'reading_depth')?.score);
+  const readingDepth = Number.isFinite(readingRaw) ? Math.max(0, Math.min(3, readingRaw)) : 0;
   return {
     answers,
     outcome,
@@ -616,6 +843,8 @@ async function runDecisions(evidence: ReplayEvidence) {
     emailReadyConfidence,
     bestAngle,
     secondary,
+    mostAttended,
+    readingDepth,
   };
 }
 
@@ -650,6 +879,8 @@ async function runNarrative(evidence: ReplayEvidence, decisions: {
   emailReadyConfidence: number;
   bestAngle: string;
   secondary: string;
+  mostAttended: string;
+  readingDepth: number;
 }) {
   const pageLine = evidence.pages
     .map((page) => `${page.path} (${fmtDur(page.dwellMs)})`)
@@ -658,14 +889,20 @@ async function runNarrative(evidence: ReplayEvidence, decisions: {
     .slice(0, 8)
     .map((row) => `${row.label}${row.count > 1 ? `×${row.count}` : ''}`)
     .join(', ');
+  const attendLine = evidence.attended
+    .slice(0, 5)
+    .map((row) => `“${row.label}” ${fmtDur(row.dwellMs)} (${Math.round(row.share * 100)}%)`)
+    .join(', ');
 
   const prompt = [
     'Write 2-4 short sentences for a merchant about this website visit.',
-    'Must mention approximate time spent and, when available, specific UI labels they clicked or read.',
+    'Must mention approximate time spent and, when available, where they lingered longest (attended sections) even if they did not click.',
+    'Also mention specific UI labels they clicked when relevant.',
     'Ground only in evidence and labels. Do not invent personal details, emails, quotes, or prices.',
     'Do not write an email. Plain prose, no markdown.',
-    `Labels: outcome=${decisions.outcome}; stage=${decisions.stage}; friction=${frictionBand(decisions.friction)}; intent=${decisions.intent.toFixed(2)}; interest=${decisions.primaryInterest}; secondary=${decisions.secondary}; email_ready=${decisions.emailReady} (${decisions.emailReadyConfidence.toFixed(2)}); watch=${decisions.worthWatching}; angle=${decisions.bestAngle}`,
+    `Labels: outcome=${decisions.outcome}; stage=${decisions.stage}; friction=${frictionBand(decisions.friction)}; intent=${decisions.intent.toFixed(2)}; interest=${decisions.primaryInterest}; secondary=${decisions.secondary}; most_attended=${decisions.mostAttended}; reading=${decisions.readingDepth.toFixed(2)}; email_ready=${decisions.emailReady} (${decisions.emailReadyConfidence.toFixed(2)}); watch=${decisions.worthWatching}; angle=${decisions.bestAngle}`,
     `Time by page: ${pageLine || 'unknown'}`,
+    `Longest attention: ${attendLine || 'unknown'}`,
     `Clicked: ${clickLine || 'none labeled'}`,
     `Evidence JSON: ${JSON.stringify(evidence)}`,
   ].join('\n');
@@ -690,10 +927,11 @@ async function runNarrative(evidence: ReplayEvidence, decisions: {
   const text = extractResponseText(body);
   if (text) return text.slice(0, 700);
 
+  const topAttend = evidence.attended[0]?.label || decisions.mostAttended;
   const topClick = evidence.clicked[0]?.label;
   return [
     `${decisions.outcome} ${fmtDur(evidence.durationMs)} session`,
-    topClick ? `focused on “${topClick}”` : `on ${evidence.pages[0]?.path || '/'}`,
+    topAttend ? `lingered on “${topAttend}”` : (topClick ? `focused on “${topClick}”` : `on ${evidence.pages[0]?.path || '/'}`),
     decisions.emailReady ? 'enough detail to personalize later.' : 'needs more signal before a strong email.',
   ].join(' — ');
 }
@@ -703,12 +941,16 @@ function buildHighlights(evidence: ReplayEvidence, decisions: {
   secondary: string;
   stage: string;
   bestAngle: string;
+  mostAttended: string;
 }) {
   const highlights: string[] = [];
   for (const page of evidence.pages.slice(0, 5)) {
     highlights.push(`${page.path} · ${fmtDur(page.dwellMs)}`);
   }
-  for (const click of evidence.clicked.slice(0, 6)) {
+  for (const row of evidence.attended.slice(0, 4)) {
+    highlights.push(`Read “${row.label}” · ${fmtDur(row.dwellMs)}`);
+  }
+  for (const click of evidence.clicked.slice(0, 5)) {
     highlights.push(`Clicked “${click.label}”${click.count > 1 ? ` ×${click.count}` : ''}`);
   }
   if (evidence.formInteraction) {
@@ -716,6 +958,9 @@ function buildHighlights(evidence: ReplayEvidence, decisions: {
     highlights.push(hint ? `Typed in form (${hint.slice(0, 60)})` : 'Interacted with a form');
   }
   if (evidence.pageTitle) highlights.push(`Page: ${evidence.pageTitle}`);
+  if (decisions.mostAttended && decisions.mostAttended !== 'other') {
+    pushUnique(highlights, `Most attention: ${decisions.mostAttended}`, 20);
+  }
   if (decisions.primaryInterest && decisions.primaryInterest !== 'other') {
     pushUnique(highlights, `Interest: ${decisions.primaryInterest}`, 20);
   }
@@ -730,11 +975,18 @@ function buildEmailHooks(evidence: ReplayEvidence, decisions: {
   primaryInterest: string;
   bestAngle: string;
   emailReady: boolean;
+  mostAttended: string;
 }) {
   const hooks: string[] = [];
   if (decisions.bestAngle && decisions.bestAngle !== 'other') pushUnique(hooks, decisions.bestAngle, 8);
+  if (decisions.mostAttended && decisions.mostAttended !== 'other') {
+    pushUnique(hooks, `Reference what they spent time reading: ${decisions.mostAttended}`, 8);
+  }
   if (decisions.primaryInterest && decisions.primaryInterest !== 'other') {
     pushUnique(hooks, `Reference their interest in ${decisions.primaryInterest}`, 8);
+  }
+  for (const row of evidence.attended.slice(0, 3)) {
+    pushUnique(hooks, `Mention they lingered on “${row.label}”`, 8);
   }
   for (const click of evidence.clicked.slice(0, 4)) {
     pushUnique(hooks, `Mention they explored “${click.label}”`, 8);
