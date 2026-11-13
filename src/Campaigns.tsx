@@ -46,7 +46,10 @@ export function Campaigns({ space, storeName, openId, editing, onOpen, onEdit }:
           </header>
           <div className="cpx-stage cpx-stage-3" aria-hidden="true">
             <span className="cpx-off-chip"><Icon name="pause" />Paused</span>
-            {PERSONAL_MAILS.map((m) => <MailPeek key={m.subject} doc={m} />)}
+            {space === DEMO_SPACE
+              ? PERSONAL_MAILS.map((m) => <MailPeek key={m.subject} doc={m} />)
+              : <><SkeletonMail kind="pics" /><SkeletonMail kind="pics" short /><SkeletonMail kind="letter" /></>}
+            {space === DEMO_SPACE ? null : <span className="cpx-first-chip"><Icon name="send" />Your first follow-ups show up here once they’re sent</span>}
           </div>
         </section>
         {ordered.map((c) => <Card key={c.id} c={c} onOpen={() => onOpen(c.id)} />)}
@@ -74,6 +77,27 @@ function Card({ c, onOpen }: { c: CampaignState; onOpen: () => void }) {
         {c.published ? <MailPeek doc={c.published.doc} page={c.published.page} /> : <div className="cpx-thumb-empty"><Icon name="mail" /><span>Pick what starts it to see the email</span></div>}
       </div>
     </article>
+  );
+}
+
+/** A follow-up that hasn't been written yet: the shape of an email, before the first real one goes out. */
+function SkeletonMail({ kind, short }: { kind: 'pics' | 'letter'; short?: boolean }) {
+  const bar = (w: string, cls = '') => <i className={`cpx-sk${cls}`} style={{ width: w }} />;
+  return (
+    <div className="cpx-skmail">
+      {kind === 'pics' ? <>
+        {bar(short ? '58%' : '72%', ' cpx-sk-title')}
+        {bar('22%')}
+        {bar('94%')}{bar('88%')}{short ? null : bar('40%')}
+        <span className="cpx-skmail-pics"><i /><i /></span>
+      </> : <>
+        {bar('24%')}
+        {bar('92%')}{bar('70%')}
+        {bar('86%')}{bar('52%')}
+        {bar('30%', ' cpx-sk-link')}
+        {bar('18%', ' cpx-sk-sign')}
+      </>}
+    </div>
   );
 }
 

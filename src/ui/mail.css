@@ -391,3 +391,20 @@
 .cpx-name-row { flex-wrap: wrap; row-gap: 6px; }
 .cpx-name-row .cp-name { min-width: 0; }
 .set-saved:not(.show) { width: 0; overflow: hidden; }
+
+/* Personal follow-ups before the first send: the shape of three emails on the same sky. */
+.cpx-skmail { display: grid; align-content: start; gap: 11px; min-width: 0; padding: 26px 24px 0; border-radius: 18px 18px 0 0; background: #fff; box-shadow: 0 1px 1px rgb(10 12 30 / 0.05), 0 16px 36px -14px rgb(40 30 110 / 0.24); overflow: hidden; }
+.cpx-skmail .cpx-sk { height: 8px; }
+.cpx-skmail .cpx-sk-title { height: 15px; margin-bottom: 6px; background: color-mix(in srgb, var(--ink) 12%, transparent); }
+.cpx-skmail .cpx-sk-link { margin-top: 4px; background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.cpx-skmail .cpx-sk-sign { margin-top: 6px; height: 9px; background: color-mix(in srgb, var(--ink) 12%, transparent); }
+.cpx-skmail-pics { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 8px; }
+.cpx-skmail-pics i { display: block; height: 120px; border-radius: 12px; background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.cpx-first-chip { position: absolute; left: 50%; bottom: 22px; z-index: 2; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 7px; max-width: calc(100% - 32px); padding: 9px 15px; border: 1px solid var(--v2-line); border-radius: 999px; background: var(--v2-card, #fff); box-shadow: 0 1px 2px rgb(25 27 34 / 0.06), 0 10px 26px -12px rgb(25 27 34 / 0.3); font-size: 13.5px; font-weight: 500; color: var(--ink); white-space: nowrap; }
+.cpx-first-chip .ico { flex: none; width: 15px; height: 15px; color: var(--accent-text); }
+.cpx-main-card.is-off .cpx-skmail { opacity: 0.6; }
+.cpx-main-card.is-off .cpx-first-chip { display: none; }
+@media (max-width: 820px) {
+  .cpx-main-card .cpx-stage > .cpx-skmail:nth-of-type(n + 2) { display: none; }
+  .cpx-first-chip { left: 16px; right: 16px; justify-content: center; max-width: none; transform: none; border-radius: 16px; white-space: normal; text-align: center; font-size: 13px; line-height: 1.35; }
+}
