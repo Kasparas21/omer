@@ -13,6 +13,7 @@ import { Settings, type DockMode } from './Settings';
 import { useLive } from './live';
 import { Icon, type IconName } from './ui/Icon';
 import { Dock } from './ui/Dock';
+import { ProjectMenu } from './ui/ProjectMenu';
 
 type ProjectError = { field?: 'name' | 'website'; error: string };
 type SetupStep = 'site' | 'brand' | 'install' | 'check' | 'sender';
@@ -452,19 +453,12 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
           <div className="app-shelf-l">
             <button type="button" className="app-shelf-logo" aria-label="Dashboard" onClick={() => { setScreen('home'); setForceSetup(false); }}><Icon name="ghost" /></button>
             {projects.length > 0 && (
-              <label className="app-shelf-brand">
-                <span className="app-shelf-dot" aria-hidden="true" style={{ ['--c' as string]: '#C8471F' }} />
-                <span className="app-shelf-name" aria-hidden="true">{project?.name}</span>
-                <Icon name="updown" className="app-shelf-chev" />
-                <select aria-label="Current project" value={project?.id} onChange={(event) => {
-                  setSelection(event.target.value);
-                  setForceSetup(false);
-                  setScreen('home');
-                  setNotice('');
-                }}>
-                  {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                </select>
-              </label>
+              <ProjectMenu projects={projects} current={project?.id} onAdd={openCreate} onPick={(id) => {
+                setSelection(id);
+                setForceSetup(false);
+                setScreen('home');
+                setNotice('');
+              }} />
             )}
             {!inSetup && WHERE[screen] ? <span className="app-shelf-where">{WHERE[screen]}</span> : null}
           </div>

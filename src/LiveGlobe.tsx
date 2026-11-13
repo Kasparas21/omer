@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from './ui/Icon';
 import { SourceMark, sourceKey, sourceLabel } from './ui/sources';
-import { loadOrbEngine, orbFace } from './ui/Orb';
-import type { GlobePerson } from './globe/orbglobe';
 
 import { isOnline, type LiveVisit, type LivePayload } from './live';
+
+type GlobePerson = { seed?: string; cc: string; place: { name: string; lat: number; lng: number } };
+
+// Kit "Dots" globe: each pin wears the visitor's country flag (kit flag(cc, 21)).
+function flagFace(cc: string) {
+  return `<span class="flag" style="width:21px;height:21px"><img src="/assets/flags/${cc.toLowerCase()}.svg" alt="" draggable="false"></span>`;
+}
 
 type GlobeApi = {
   destroy(): void;
@@ -61,15 +66,18 @@ export function LiveGlobe({ data, loading, failed: connectionFailed, focusSeed }
     const host = stage.current;
     if (!host) return;
     let disposed = false;
-    // Kit setting "Live globe: 3D": orb pins on a shaded globe (loaded on demand, three.js is large).
-    void import('./globe/orbglobe').then(async ({ createOrbGlobe, preloadOrbGlobe }) => {
-      await Promise.all([preloadOrbGlobe(), loadOrbEngine()]);
+    void import('./globe/dotglobe.js').then(async ({ createDotGlobe, preloadDotGlobe }) => {
+      await preloadDotGlobe();
       if (disposed || !stage.current) return;
       globe.current?.destroy();
       stage.current.replaceChildren();
-      const next = createOrbGlobe(stage.current, {
-        face: (person) => `<span class="orb" style="--s:36px">${orbFace(person.seed, 36)}</span>`,
-        onPick: (person) => setFocus(person.seed),
+      const next = createDotGlobe(stage.current, {
+        face: flagFace,
+        autoSpin: true,
+        quietIntro: true,
+        openOnFocus: false,
+        maxZoom: 1.35,
+        radiusScale: 1.12,
       }) as GlobeApi;
       globe.current = next;
       setReady(true);
@@ -116,7 +124,7 @@ export function LiveGlobe({ data, loading, failed: connectionFailed, focusSeed }
   }
 
   return (
-    <div className="globe-wrap has-panel" data-style="3d" id="globeWrap">
+    <div className="globe-wrap has-panel" data-style="dots" id="globeWrap">
       <aside className={`live-panel${showVisits ? ' visits-open' : ''}`} id="livePanel">
         <section className="v2-card lvp-now">
           <header><h3>Right now</h3></header>
