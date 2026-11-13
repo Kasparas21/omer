@@ -76,7 +76,7 @@ export function Settings({ project, topPages, snippet, onCopy, onGuide, onSetup,
         </nav>
       </header>
       {tab === 'brand' ? (
-        <BrandKnowledge key={project.id} space={space} demo={demo} />
+        <BrandKnowledge key={project.id} space={space} host={host} demo={demo} />
       ) : tab === 'monitoring' ? (
         <MonitoringSection key={project.id} space={space} host={host} topPages={topPages ?? []} onChanges={() => setTab('changes')} />
       ) : (

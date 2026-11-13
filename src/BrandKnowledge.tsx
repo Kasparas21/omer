@@ -1,7 +1,8 @@
 /* Brand knowledge: six folders (logo, colours, fonts, products, brand photos & voice, store facts). Hovering
    tips a folder's frosted front open; clicking opens it in place: the other folders step back and the folder's
-   card slides out under its row. Click the folder again or anywhere outside to close it. The store pages we
-   monitor are their own Settings tab (MonitoringSection, at the bottom). */
+   card slides out under its row. Click the folder again or anywhere outside to close it. A real store can fill
+   the folders by importing its website. The store pages we monitor are their own Settings tab
+   (MonitoringSection, at the bottom). */
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Icon, type IconName } from './ui/Icon';
 import { Dropdown } from './ui/Dropdown';
@@ -9,7 +10,7 @@ import { Uploader } from './ui/Uploader';
 import { toast } from './ui/toast';
 import { FONTS } from './Mail';
 import {
-  DEMO_BRAND_SPACE, MONITOR_LIMIT, fileFrom, folderCount, newId, updateBrand, useBrand,
+  DEMO_BRAND_SPACE, MONITOR_LIMIT, fileFrom, folderCount, importBrandFromSite, newId, updateBrand, useBrand,
   type Brand, type BrandColor, type BrandFile, type ColorRole, type FolderId, type LogoSlot,
 } from './brandStore';
 import { demoFacts, useDemoFacts } from './DemoSettings';
@@ -41,9 +42,10 @@ function useFontFile(id: string, blob?: Blob) {
 const fontStack = (f: { id: string; family: string; file?: BrandFile | null }) =>
   f.file && loadedFonts.has(f.id) ? `"bk-${f.id}", ${f.family || 'system-ui'}` : f.family ? `"${f.family}", system-ui` : 'inherit';
 
-export function BrandKnowledge({ space, demo = false }: { space: string; demo?: boolean }) {
+export function BrandKnowledge({ space, host, demo = false }: { space: string; host: string; demo?: boolean }) {
   const brand = useBrand(space);
   const facts = useFacts(space, demo, brand);
+  const [importing, setImporting] = useState(false);
   const [open, setOpen] = useState<FolderId | null>(null);
   // Keep showing the last folder's contents while its card slides shut.
   const [shown, setShown] = useState<FolderId | null>(null);
@@ -91,12 +93,38 @@ export function BrandKnowledge({ space, demo = false }: { space: string; demo?: 
   const notch = openIndex < 0 ? 50 : ((openIndex % cols) + 0.5) * (100 / Math.min(cols, FOLDERS.length));
   const count = (id: FolderId) => {
     const f = FOLDERS.find((x) => x.id === id)!;
-    const n = id === 'facts' ? facts.list.length : folderCount(brand, id);
+    const n = id === 'facts' ? facts.list.length + (brand.docs?.product.trim() ? 1 : 0) : folderCount(brand, id);
     return n ? `${n} ${n === 1 ? f.one : f.many}` : f.empty;
+  };
+
+  const canImport = space !== DEMO_BRAND_SPACE;
+  const runImport = async () => {
+    if (!canImport || importing) return;
+    setImporting(true);
+    try {
+      await importBrandFromSite(space);
+      toast('Brand knowledge updated from your site');
+      setOpen('brand');
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'Import failed', { kind: 'warn' });
+    } finally {
+      setImporting(false);
+    }
   };
 
   return (
     <section className="bk" aria-label="Brand knowledge">
+      {canImport ? (
+        <div className="bk-import">
+          <div>
+            <b>Import from {host}</b>
+            <p>Pulls colours, fonts, photos, Product Information and a Brand Voice Guide for follow-up emails.</p>
+          </div>
+          <button type="button" className={`btn btn-secondary${importing ? ' loading' : ''}`} disabled={importing} onClick={() => void runImport()}>
+            {importing ? 'Reading your site…' : brand.importedAt ? 'Import again' : 'Import from website'}
+          </button>
+        </div>
+      ) : null}
       <div className={`bk-grid${open ? ' has-open' : ''}`} ref={grid}>
         {FOLDERS.map((f, i) => (
           <button key={f.id} type="button" className={`bk-item${open === f.id ? ' is-open' : ''}`} style={{ order: i * 2 }}
@@ -118,7 +146,8 @@ export function BrandKnowledge({ space, demo = false }: { space: string; demo?: 
                   {shownFolder.id === 'fonts' && <FontFolder brand={brand} set={set} />}
                   {shownFolder.id === 'products' && <ProductFolder brand={brand} set={set} />}
                   {shownFolder.id === 'brand' && <BrandFolder brand={brand} set={set} />}
-                  {shownFolder.id === 'facts' && <FactsFolder facts={facts} />}
+                  {shownFolder.id === 'facts' && <FactsFolder facts={facts} product={brand.docs?.product ?? ''}
+                    onProduct={(v) => set((b) => ({ ...b, docs: { ...(b.docs || { product: '', voice: '' }), product: v } }))} />}
                 </div>
               </section>
             )}
@@ -395,6 +424,7 @@ function BrandFolder({ brand, set }: FolderProps) {
     set((b) => ({ ...b, photos: [...b.photos, ...imgs.map(fileFrom)] }));
   };
   const voice = (k: keyof Brand['voice'], v: string) => set((b) => ({ ...b, voice: { ...b.voice, [k]: v } }));
+  const guide = (v: string) => set((b) => ({ ...b, docs: { ...(b.docs || { product: '', voice: '' }), voice: v } }));
   return (
     <div className="bk-brand">
       <Items className="bk-photos">
@@ -413,6 +443,10 @@ function BrandFolder({ brand, set }: FolderProps) {
             <PlainText value={brand.voice[r.id]} placeholder={r.placeholder} label={r.name} lines={r.lines} onChange={(v) => voice(r.id, v)} />
           </div>
         ))}
+        <div className="bk-row">
+          <div className="bk-row-k"><b>Voice guide</b><small>The longer version: how emails sound and what they never say</small></div>
+          <PlainText value={brand.docs?.voice ?? ''} placeholder="Import your site to draft this, or write it yourself" label="Voice guide" lines onChange={guide} />
+        </div>
       </div>
     </div>
   );
@@ -454,7 +488,7 @@ function useFacts(space: string, demo: boolean, brand: Brand): Facts {
     answer: () => undefined,
   };
 }
-function FactsFolder({ facts }: { facts: Facts }) {
+function FactsFolder({ facts, product, onProduct }: { facts: Facts; product: string; onProduct: (v: string) => void }) {
   const [answer, setAnswer] = useState('');
   const [name, setName] = useState('');
   const [value, setValue] = useState('');
@@ -507,6 +541,12 @@ function FactsFolder({ facts }: { facts: Facts }) {
         <input value={value} placeholder="What emails can say" aria-label="What emails can say" onChange={(e) => setValue(e.target.value)} />
         <button type="submit" className="btn btn-secondary btn-sm" disabled={!name.trim() || !value.trim()}><Icon name="plus" />Add fact</button>
       </form>
+      <div className="bk-rows bk-product-info">
+        <div className="bk-row">
+          <div className="bk-row-k"><b>Product information</b><small>What emails can promise about what you sell</small></div>
+          <PlainText value={product} placeholder="Import your site to draft this, or write it yourself" label="Product information" lines onChange={onProduct} />
+        </div>
+      </div>
     </div>
   );
 }

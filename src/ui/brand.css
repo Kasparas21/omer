@@ -2,6 +2,13 @@
    and ink as the rest of the app: folders are our soft grey with a frosted white front, purple only when open. */
 
 .bk { display: grid; gap: 26px; min-width: 0; }
+.bk-import {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px 18px;
+  padding: 16px 18px; border: 1px solid var(--v2-line, var(--line)); border-radius: 18px;
+  background: var(--v2-card, var(--surface)); box-shadow: var(--v2-lift);
+}
+.bk-import b { display: block; font-size: 15px; font-weight: 560; letter-spacing: -0.015em; }
+.bk-import p { margin: 4px 0 0; max-width: 52ch; font-size: 13.5px; line-height: 1.45; color: var(--ink-3); }
 
 /* ---------- the folders */
 .bk-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px 10px; align-items: start; }
@@ -114,6 +121,7 @@
 @keyframes bk-in { from { opacity: 0; transform: translateY(-10px) scale(0.97); } to { opacity: 1; transform: none; } }
 .bk-items { display: grid; gap: 12px; }
 .bk-items > * { animation: bk-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: calc(var(--i, 0) * 45ms + 80ms); }
+.bk-product-info { margin-top: 14px; }
 .bk-sub { margin: 20px 0 10px; font-size: 13px; font-weight: 560; color: var(--ink-3); }
 
 .bk-card { display: flex; flex-direction: column; min-width: 0; overflow: hidden; border: 1px solid var(--v2-line); border-radius: 17px; background: var(--v2-card); box-shadow: var(--v2-lift); }

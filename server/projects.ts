@@ -13,6 +13,8 @@ import {
   publicInsight,
   publicVisitorInsight,
 } from './replay-insight';
+import { brandImportReady, emptyStoredBrand, importBrandFromSite, loadBrand, saveBrand, type StoredBrand } from './brand-import';
+import { firecrawlConfigured } from './firecrawl';
 import { dailyVisitors, dwell, emailEvents, identities, pageViews, pathViews, projects, purchases, referrerViews, replayChunks, replayInsights, replaySessions, visitorInsights, visits } from './schema';
 import { auth, pool, appURL } from './auth';
 
@@ -1463,6 +1465,63 @@ async function patchProject(request: Request, env: Env, projectId: string) {
   });
 }
 
+async function ownedProject(db: NodePgDatabase, projectId: string, owner: string) {
+  const [project] = await db.select({ id: projects.id, origin: projects.origin })
+    .from(projects)
+    .where(and(eq(projects.id, projectId), eq(projects.owner, owner)))
+    .limit(1);
+  return project || null;
+}
+
+async function getBrand(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to view brand knowledge.' }, 401);
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    const brand = await loadBrand(db, projectId);
+    return json({ brand, importReady: brandImportReady() });
+  });
+}
+
+async function putBrand(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to update brand knowledge.' }, 401);
+  const raw = await readText(request, 400_000);
+  if (raw === null) return json({ error: 'Brand payload too large.' }, 413);
+  let body: { brand?: StoredBrand } | null;
+  try { body = JSON.parse(raw); } catch { return json({ error: 'Invalid JSON.' }, 400); }
+  if (!body?.brand || typeof body.brand !== 'object') return json({ error: 'brand required.' }, 400);
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    const next = { ...emptyStoredBrand(), ...body!.brand };
+    await saveBrand(db, projectId, next);
+    return json({ brand: next });
+  });
+}
+
+async function postBrandImport(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to import brand knowledge.' }, 401);
+  if (!brandImportReady()) {
+    return json({
+      error: !firecrawlConfigured()
+        ? 'Firecrawl is not configured on this server.'
+        : 'OpenAI is not configured on this server.',
+    }, 400);
+  }
+  try {
+    const brand = await withDatabase(env, (db) => importBrandFromSite(db, projectId, owner));
+    return json({ brand });
+  } catch (error) {
+    console.error('brand import failed', error);
+    const message = error instanceof Error ? error.message : 'Brand import failed.';
+    return json({ error: message.slice(0, 240) }, 502);
+  }
+}
+
 // One app process serves the VPS. Signals only invalidate; the authenticated
 // snapshot remains the source of truth on reconnect or across app restarts.
 function openLiveStream(projectId: string) {
@@ -1529,6 +1588,17 @@ export default {
       const profileMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/visitors\/([A-Za-z0-9_-]{8,80})$/i);
       if (profileMatch) {
         if (request.method === 'GET') return await visitorProfile(request, env, profileMatch[1], profileMatch[2]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const brandImportMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/brand\/import$/i);
+      if (brandImportMatch) {
+        if (request.method === 'POST') return await postBrandImport(request, env, brandImportMatch[1]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const brandMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/brand$/i);
+      if (brandMatch) {
+        if (request.method === 'GET') return await getBrand(request, env, brandMatch[1]);
+        if (request.method === 'PUT') return await putBrand(request, env, brandMatch[1]);
         return json({ error: 'Method not allowed.' }, 405);
       }
       const projectMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})$/i);

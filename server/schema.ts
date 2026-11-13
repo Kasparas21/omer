@@ -180,3 +180,10 @@ export const visitorInsights = pgTable('project_visitor_insights', {
   primaryKey({ name: 'project_visitor_insights_pk', columns: [table.projectId, table.visitorId] }),
   index('project_visitor_insights_project_idx').on(table.projectId),
 ]);
+
+/** Brand knowledge (logo, colors, fonts, products, photos, voice, docs) per project. */
+export const projectBrand = pgTable('project_brand', {
+  projectId: uuid('project_id').primaryKey().references(() => projects.id, { onDelete: 'cascade' }),
+  data: jsonb('data').$type<Record<string, unknown>>().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
