@@ -9,8 +9,10 @@ function place(box: HTMLElement, animate: boolean) {
   // Measured against the group's own padding box, so it is right before and after the group is positioned.
   const outer = box.getBoundingClientRect();
   const inner = on.getBoundingClientRect();
-  box.style.setProperty('--pill-x', `${inner.left - outer.left - box.clientLeft}px`);
-  box.style.setProperty('--pill-y', `${inner.top - outer.top - box.clientTop}px`);
+  box.style.setProperty('--pill-x', `${inner.left - outer.left - box.clientLeft + box.scrollLeft}px`);
+  box.style.setProperty('--pill-y', `${inner.top - outer.top - box.clientTop + box.scrollTop}px`);
+  // In a sideways-scrolling row, bring the chosen tab into view.
+  if (animate && box.scrollWidth > box.clientWidth) on.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
   box.style.setProperty('--pill-w', `${inner.width}px`);
   box.style.setProperty('--pill-h', `${inner.height}px`);
   box.style.setProperty('--pill-r', getComputedStyle(on).borderRadius || '99px');

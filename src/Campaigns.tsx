@@ -106,9 +106,9 @@ function NewCard({ onClick }: { onClick: () => void }) {
     <button type="button" className="v2-card cpx-card cpx-new" onClick={onClick}>
       <header><Icon name="plus" /><h3>New campaign</h3></header>
       <div className="cpx-stage cpx-new-stage">
-        <span className="cpx-new-plus" aria-hidden="true"><Icon name="plus" /></span>
-        <b className="cpx-new-title">Create a campaign</b>
-        <span className="cpx-new-sub">Pick what starts it and we’ll write the email.</span>
+        <span className="cpx-new-ic" aria-hidden="true"><Icon name="plus" /></span>
+        <b>Create a campaign</b>
+        <span>Pick what starts it and we’ll write the email.</span>
       </div>
     </button>
   );
