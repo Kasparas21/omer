@@ -105,7 +105,7 @@ type ProfileData = {
   replayInsights?: boolean;
 };
 
-const CURRENT_INSIGHT_VERSION = 2;
+const CURRENT_INSIGHT_VERSION = 3;
 
 export function Profile({ projectId, seed, onBack, onLive }: {
   projectId: string;
