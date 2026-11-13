@@ -7,6 +7,7 @@ import { Icon } from './ui/Icon';
 import { Orb } from './ui/Orb';
 import { Dropdown } from './ui/Dropdown';
 import { SourceMark, sourceKey, sourceKind, sourceLabel } from './ui/sources';
+import { demoCustomer } from './demo';
 
 const ADJ = ['Quiet', 'Bold', 'Swift', 'Calm', 'Bright', 'Gentle', 'Lucky', 'Clever', 'Brave', 'Sunny', 'Misty', 'Happy', 'Witty', 'Mellow', 'Rapid', 'Keen'];
 const ANIMAL = ['Heron', 'Otter', 'Fox', 'Lynx', 'Robin', 'Panda', 'Koala', 'Falcon', 'Badger', 'Finch', 'Hare', 'Wren', 'Seal', 'Owl', 'Moth', 'Crane'];
@@ -15,7 +16,7 @@ const money = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'U
 
 type Tab = 'all' | 'live' | 'email' | 'customers';
 type Sort = 'recent' | 'revenue' | 'sessions';
-type Person = { seed: string; latest: LiveVisit; first: LiveVisit; sessions: number; online: boolean };
+type Person = { seed: string; latest: LiveVisit; first: LiveVisit; sessions: number; online: boolean; email: string | null; revenue: number };
 
 // Anonymous visitors get a stable, friendly handle: the same browser always reads the same.
 function handle(seed: string) {
@@ -31,7 +32,8 @@ function ago(iso: string, now: number) {
   return minutes < 60 ? `${minutes}m ago` : `${Math.floor(minutes / 60)}h ago`;
 }
 
-export function People({ data, loading, failed, onLive, onOpen }: {
+export function People({ data, loading, failed, onLive, onOpen, demo = false }: {
+  demo?: boolean;
   data: LivePayload;
   loading: boolean;
   failed: boolean;
@@ -57,17 +59,20 @@ export function People({ data, loading, failed, onLive, onOpen }: {
     return [...byVisitor.entries()].map(([seed, visits]): Person => {
       const times = visits.map((v) => Date.parse(v.seenAt)).sort((a, b) => a - b);
       const sessions = times.reduce((count, t, i) => count + (i === 0 || t - times[i - 1] > SESSION_GAP ? 1 : 0), 0);
-      return { seed, latest: visits[0], first: visits[visits.length - 1], sessions, online: visits.some((v) => isOnline(v, now)) };
+      // Email and revenue aren't connected yet; only the demo project shows example customers.
+      const known = demo ? demoCustomer(seed, handle(seed)) : { email: null, revenue: 0 };
+      return { seed, latest: visits[0], first: visits[visits.length - 1], sessions, online: visits.some((v) => isOnline(v, now)), ...known };
     });
-  }, [data.visits, now]);
+  }, [data.visits, now, demo]);
 
   const term = query.trim().toLowerCase();
   const picked = people.filter((p) => (source === 'all' || sourceKey(p.first.referrer) === source)
     && (country === 'all' || p.latest.cc === country)
     && (!term || [handle(p.seed), p.latest.path, p.latest.place, sourceLabel(p.first.referrer)].some((v) => v?.toLowerCase().includes(term))));
-  const inTab = (p: Person, t: Tab) => (t === 'live' ? p.online : t === 'all');
+  const inTab = (p: Person, t: Tab) => (t === 'live' ? p.online : t === 'email' ? Boolean(p.email) : t === 'customers' ? p.revenue > 0 : true);
   const rows = picked.filter((p) => inTab(p, tab)).sort((a, b) => (sort === 'sessions'
     ? b.sessions - a.sessions
+    : sort === 'revenue' ? b.revenue - a.revenue
     : Date.parse(b.latest.seenAt) - Date.parse(a.latest.seenAt)));
 
   const tabs: { id: Tab; label: string }[] = [
@@ -144,7 +149,7 @@ export function People({ data, loading, failed, onLive, onOpen }: {
                     <Orb seed={p.seed} size={42} />
                     {p.latest.cc && <span className="flag people-flag" title={regions.of(p.latest.cc.toUpperCase())}><img src={`/assets/flags/${p.latest.cc}.svg`} alt="" draggable={false} /></span>}
                   </span>
-                  <span className="people-names"><b>{handle(p.seed)}</b><small>{p.latest.place ?? 'Anonymous'}</small></span>
+                  <span className="people-names"><b>{handle(p.seed)}</b><small>{p.email ?? p.latest.place ?? 'Anonymous'}</small></span>
                 </span>
                 <span className="people-did" role="cell">{p.online ? <>On your site now, viewing <b>{p.latest.path}</b></> : <>Last viewed <b>{p.latest.path}</b></>}</span>
                 <span className="people-from" role="cell">
@@ -152,7 +157,7 @@ export function People({ data, loading, failed, onLive, onOpen }: {
                   <small>{sourceKind(p.first.referrer)}</small>
                 </span>
                 <span className="people-n people-sessions" role="cell">{p.sessions}<span className="sr-only"> sessions</span></span>
-                <span className="people-n people-none" role="cell"><span className="sr-only">Revenue </span>{money.format(0)}</span>
+                <span className={`people-n${p.revenue ? ' people-pos' : ' people-none'}`} role="cell"><span className="sr-only">Revenue </span>{money.format(p.revenue)}</span>
                 <span className="people-seen" role="cell">{p.online ? <span className="people-live">Online</span> : <><span className="sr-only">Last seen </span>{ago(p.latest.seenAt, now)}</>}</span>
                 <Icon name="chevronRight" className="people-arrow" />
               </div>

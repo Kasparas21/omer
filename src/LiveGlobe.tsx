@@ -40,7 +40,7 @@ function peopleFromVisits(visits: LiveVisit[], now: number) {
   }));
 }
 
-export function LiveGlobe({ data, loading, failed: connectionFailed, focusSeed }: { data: LivePayload; loading: boolean; failed: boolean; focusSeed?: string }) {
+export function LiveGlobe({ data, loading, failed: connectionFailed, focusSeed, demo = false }: { data: LivePayload; loading: boolean; failed: boolean; focusSeed?: string; demo?: boolean }) {
   const stage = useRef<HTMLDivElement>(null);
   const globe = useRef<GlobeApi | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -182,7 +182,7 @@ export function LiveGlobe({ data, loading, failed: connectionFailed, focusSeed }
                       <tr key={row.name}>
                         <th scope="row"><span className="lvp-name"><span className={`lvp-src ${sourceKey(row.name)}`} aria-hidden="true"><SourceMark referrer={row.name} /></span><span>{sourceLabel(row.name)}</span></span></th>
                         <td>{row.count}</td>
-                        <td>0</td>
+                        <td>{demo ? Math.round(row.count * 0.03) : 0}</td>
                         <td>{Math.round((row.count / sourceTotal) * 100)}%</td>
                       </tr>
                     ))}
