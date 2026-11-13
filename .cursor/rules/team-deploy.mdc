@@ -1,33 +1,35 @@
 ---
-description: Safe teammate git + VPS deploy — one trunk, never wipe UI
+description: Safe teammate git + VPS deploy — main only, use deploy script
 alwaysApply: true
 ---
 
 # Team deploy safety
 
-Two people ship this repo. Deploying the wrong branch wipes the other’s UI.
+Two people ship this repo. Deploying the wrong branch wipes UI polish.
 
 ## One trunk only
 
 - **Deploy trunk: `main`**
-- Do **not** deploy `codex/dashboard-onboarding`, private feature branches, or any tip that is behind `origin/main`.
-- Both of you: open PRs **into `main`**, merge, then deploy.
+- Never deploy `codex/dashboard-onboarding`, private branches, or a tip behind `origin/main`
+- Both people: PRs **into `main`**, merge, then deploy
 
-## Before any VPS deploy
+## How to deploy (mandatory)
 
-1. `git fetch origin`
-2. `git checkout main && git pull --ff-only`
-3. Confirm `git status` is clean and `HEAD` equals `origin/main`
-4. Deploy **only** that commit (`git archive` from that SHA)
-5. If `main` is missing either latest UI or latest backend, **stop** — merge the missing PR first
+Use only:
 
-## While coding
+```sh
+npm run deploy:prod
+```
 
-- Short private branches (`ben/…`, `kasparas/…`) → PR → `main`
-- Never `git push --force` to `main`. Own branch only: `--force-with-lease`
-- Backend/insight work: avoid rewriting `src/ui/**` / layout CSS unless the task is explicitly UI
-- UI work: avoid reverting `server/**` insight/replay changes
+That script refuses dirty trees / non-main / behind-origin tips.  
+**Do not** ad-hoc `scp` / `docker build` from another branch.
+
+## Before coding
+
+1. `git fetch origin && git checkout main && git pull --ff-only`
+2. Branch `ben/…` or `kasparas/…` from that tip
+3. Prefer not rewriting `src/ui/**` on backend tasks (and not reverting `server/**` on UI tasks)
 
 ## If unsure
 
-Ask before deploying. One merge wait beats redoing the whole UI kit.
+Stop and merge into `main` first. Never “just deploy my branch.”
