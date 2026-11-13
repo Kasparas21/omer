@@ -99,7 +99,8 @@ export function Profile({ projectId, seed, onBack, onLive, onName }: {
       }
     }
     void load();
-    const timer = window.setInterval(() => void load(), 8_000);
+    // Refresh quickly while someone looks live so Online/Recording clears without a manual reload.
+    const timer = window.setInterval(() => void load(), 4_000);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [projectId, seed]);
 
