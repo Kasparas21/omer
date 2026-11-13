@@ -124,7 +124,7 @@ export function Results({ project, demo, onCampaign, onCampaigns }: { project: P
         <Card icon="cart" title="Orders" className="rs-stat">
           <b className="rs-big">{num.format(t.orders)}</b>
           <span className="rs-line"><Delta now={t.orders} prev={p.orders} range={range} />{perEmail ? <span className="rs-sub"> · 1 in {perEmail} emails</span> : null}</span>
-          <div className="rs-chart rs-spikes" aria-hidden="true">{now.orders.map((o, i) => <i key={i} style={{ ['--h' as string]: `${(o / topOrders) * 100}%`, ['--i' as string]: i }} />)}</div>
+          <div className="rs-chart rs-spikes" aria-hidden="true" style={{ ['--n' as string]: now.orders.length }}>{now.orders.map((o, i) => <i key={i} style={{ ['--h' as string]: `${(o / topOrders) * 100}%`, ['--i' as string]: i }} />)}</div>
         </Card>
         <Card icon="send" title="Emails sent" className="rs-stat">
           <b className="rs-big">{num.format(t.sent)}</b>
