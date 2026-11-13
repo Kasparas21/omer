@@ -540,7 +540,7 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
         <span className="omer-blank-ic" aria-hidden="true"><Icon name="ghost" /></span>
         <h2>Watching {hostname}</h2>
         <p>Your store is connected. Visitors, sales, and the emails behind them show up here as soon as people arrive.</p>
-        <button type="button" className="btn btn-primary" onClick={onGlobe}>See who’s on the site</button>
+        <button type="button" className="btn btn-secondary omer-blank-cta" onClick={onGlobe}>See who’s on the site<Icon name="arrowUpRight" /></button>
       </div>
     );
   }

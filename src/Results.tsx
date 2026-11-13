@@ -87,7 +87,7 @@ export function Results({ project, demo, onCampaign, onCampaigns }: { project: P
         <span className="omer-blank-ic" aria-hidden="true"><Icon name="dollar" /></span>
         <h2>No results yet</h2>
         <p>Sales, orders, and time saved show up here after the first follow-up email goes out.</p>
-        {onCampaigns ? <button type="button" className="btn btn-primary" onClick={onCampaigns}>Set up follow-ups</button> : null}
+        {onCampaigns ? <button type="button" className="btn btn-secondary omer-blank-cta" onClick={onCampaigns}>Set up follow-ups<Icon name="arrowUpRight" /></button> : null}
       </div>
     );
   }
