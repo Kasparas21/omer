@@ -51,6 +51,11 @@ function cors(origin: string) {
   return { 'Access-Control-Allow-Origin': origin, Vary: 'Origin', 'Cache-Control': 'no-store' };
 }
 
+/** Collect endpoints must always include CORS, including errors — otherwise browsers report Failed to fetch. */
+function collectReply(origin: string, status: number) {
+  return new Response(null, { status, headers: cors(origin) });
+}
+
 async function readText(request: Request, limit: number) {
   const reader = request.body?.getReader();
   if (!reader) return '';
@@ -356,7 +361,7 @@ async function receiveEvent(request: Request, env: Env) {
   const origin = request.headers.get('Origin');
   if (!origin || origin === 'null') return new Response(null, { status: 403 });
   const ip = request.headers.get('CF-Connecting-IP') ?? 'local';
-  if (!(await env.COLLECT_LIMIT.limit({ key: `${ip}:event` })).success) return new Response(null, { status: 429 });
+  if (!(await env.COLLECT_LIMIT.limit({ key: `${ip}:event` })).success) return collectReply(origin, 429);
 
   const raw = await readText(request, 4096);
   let body: Record<string, unknown> | null;
@@ -367,7 +372,7 @@ async function receiveEvent(request: Request, env: Env) {
     || body?.type === 'email_open' || body?.type === 'email_click' ? body.type : null;
   const vid = typeof body?.vid === 'string' && visitorId.test(body.vid) ? body.vid : null;
   const path = cleanPath(body?.path) ?? '/';
-  if (!uuid.test(writeKey) || !type || !vid) return new Response(null, { status: 400 });
+  if (!uuid.test(writeKey) || !type || !vid) return collectReply(origin, 400);
 
   const accepted = await withDatabase(env, (db) => db.transaction(async (tx) => {
     const [project] = await tx.select({ id: projects.id, firstEventAt: projects.firstEventAt }).from(projects)
@@ -889,14 +894,14 @@ async function collectConfig(request: Request, env: Env) {
 async function receiveReplayChunk(request: Request, env: Env) {
   const origin = request.headers.get('Origin');
   if (!origin || origin === 'null') return new Response(null, { status: 403 });
-  if (!objectStoreConfigured()) return new Response(null, { status: 503 });
+  if (!objectStoreConfigured()) return collectReply(origin, 503);
   const ip = request.headers.get('CF-Connecting-IP') ?? 'local';
-  if (!(await env.COLLECT_LIMIT.limit({ key: `${ip}:replay` })).success) return new Response(null, { status: 429 });
+  if (!(await env.COLLECT_LIMIT.limit({ key: `${ip}:replay` })).success) return collectReply(origin, 429);
 
-  const raw = await readText(request, 900_000);
-  if (raw == null) return new Response(null, { status: 413 });
+  const raw = await readText(request, 4_000_000);
+  if (raw == null) return collectReply(origin, 413);
   let body: Record<string, unknown> | null;
-  try { body = JSON.parse(raw); } catch { return new Response(null, { status: 400 }); }
+  try { body = JSON.parse(raw); } catch { return collectReply(origin, 400); }
   const writeKey = typeof body?.key === 'string' ? body.key : '';
   const vid = typeof body?.vid === 'string' && visitorId.test(body.vid) ? body.vid : null;
   const sid = cleanSessionId(body?.sid);
@@ -905,16 +910,16 @@ async function receiveReplayChunk(request: Request, env: Env) {
   const seq = typeof body?.seq === 'number' && Number.isFinite(body.seq) ? Math.max(0, Math.round(body.seq)) : -1;
   const events = Array.isArray(body?.events) ? body.events : null;
   if (!uuid.test(writeKey) || !vid || !sid || !clientBatchId || seq < 0 || !events || !events.length || events.length > 2_000) {
-    return new Response(null, { status: 400 });
+    return collectReply(origin, 400);
   }
 
   const [project] = await withDatabase(env, (db) => db.select({
     id: projects.id, replayEnabled: projects.replayEnabled,
   }).from(projects).where(and(eq(projects.writeKey, writeKey), eq(projects.origin, origin))).limit(1));
-  if (!project?.replayEnabled) return new Response(null, { status: 403 });
+  if (!project?.replayEnabled) return collectReply(origin, 403);
 
   const payload = Buffer.from(JSON.stringify(events));
-  if (payload.length > 700_000) return new Response(null, { status: 413 });
+  if (payload.length > 3_500_000) return collectReply(origin, 413);
   const checksum = createHash('sha256').update(payload).digest('hex');
   const hasFull = Boolean(body?.hasFullSnapshot) || events.some((e) => (e as { type?: number })?.type === 2);
 

@@ -348,7 +348,7 @@
   });
   window.addEventListener('pagehide', () => sendDwell(true));
   window.addEventListener('pageshow', (event) => { if (event.persisted) sendPresence(); });
-  window.setInterval(sendPresence, 45000);
+  window.setInterval(sendPresence, 15000);
 
   const push = history.pushState;
   const replace = history.replaceState;

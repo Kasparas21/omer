@@ -25,7 +25,12 @@ export type LivePayload = {
 };
 
 export const emptyLive: LivePayload = { online: 0, minutes: Array(60).fill(0), sources: [], visits: [] };
-export const isOnline = (visit: LiveVisit, now = Date.now()) => now - Date.parse(visit.activeAt) < 300_000;
+export const ONLINE_MS = 45_000;
+export const isOnline = (visit: LiveVisit, now = Date.now()) => {
+  if (!visit.activeAt) return false;
+  const at = Date.parse(visit.activeAt);
+  return Number.isFinite(at) && now - at < ONLINE_MS;
+};
 
 export function useLive(projectId?: string) {
   const [snapshot, setSnapshot] = useState<{ id: string; data: LivePayload; failed: boolean }>();

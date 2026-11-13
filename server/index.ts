@@ -20,10 +20,10 @@ function limiter(max: number) {
     return { success: ++entry.count <= max };
   } };
 }
-const env = { ALLOW_LOCAL_SITES: process.env.ALLOW_LOCAL_SITES, CREATE_LIMIT: limiter(10), COLLECT_LIMIT: limiter(120) };
+const env = { ALLOW_LOCAL_SITES: process.env.ALLOW_LOCAL_SITES, CREATE_LIMIT: limiter(10), COLLECT_LIMIT: limiter(600) };
 const app = new Hono();
 app.use('/api/*', bodyLimit({ maxSize: 16384 }));
-app.use('/v1/collect/replay-chunks', bodyLimit({ maxSize: 900_000 }));
+app.use('/v1/collect/replay-chunks', bodyLimit({ maxSize: 4_000_000 }));
 app.use('/v1/collect/event', bodyLimit({ maxSize: 16384 }));
 app.use('/api/*', async (c, next) => { c.header('Cache-Control', 'no-store'); await next(); });
 app.all('/api/auth/*', (c) => auth.handler(c.req.raw));
