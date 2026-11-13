@@ -11,8 +11,8 @@
 .bk-import p { margin: 4px 0 0; max-width: 52ch; font-size: 13.5px; line-height: 1.45; color: var(--ink-3); }
 
 /* ---------- the folders */
-.bk-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px 10px; align-items: start; }
-@media (max-width: 1080px) { .bk-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.bk-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 10px; align-items: start; }
+@media (max-width: 900px) { .bk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .bk-item {
   display: grid; justify-items: center; gap: 2px; min-width: 0; padding: 18px 10px 14px;
   border: 0; border-radius: 20px; background: transparent; font: inherit; color: inherit; cursor: pointer; text-align: center;
@@ -123,6 +123,9 @@
 .bk-items > * { animation: bk-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: calc(var(--i, 0) * 45ms + 80ms); }
 .bk-product-info { margin-top: 14px; }
 .bk-sub { margin: 20px 0 10px; font-size: 13px; font-weight: 560; color: var(--ink-3); }
+.bk-identity { display: grid; gap: 4px; }
+.bk-identity > .bk-sub:first-child { margin-top: 0; }
+.bk-identity > .bk-sub { margin-top: 22px; }
 
 .bk-card { display: flex; flex-direction: column; min-width: 0; overflow: hidden; border: 1px solid var(--v2-line); border-radius: 17px; background: var(--v2-card); box-shadow: var(--v2-lift); }
 .bk-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 11px 12px 12px 14px; border-top: 1px solid var(--v2-line); }
