@@ -5,13 +5,15 @@ import { amountCents, cleanCampaign, cleanCurrency, cleanEmail, cleanName, clean
 import { localDemoPlace, placeFromRequest } from './geo';
 import { deleteObject, getObject, objectKeyFor, objectStoreConfigured, putObject } from './object-store';
 import {
-  buildEvidence,
+  extractReplayEvidence,
   generateReplayInsight,
-  loadChunkEvents,
+  generateVisitorInsight,
+  INSIGHT_VERSION,
   openaiConfigured,
   publicInsight,
+  publicVisitorInsight,
 } from './replay-insight';
-import { dailyVisitors, dwell, emailEvents, identities, pageViews, pathViews, projects, purchases, referrerViews, replayChunks, replayInsights, replaySessions, visits } from './schema';
+import { dailyVisitors, dwell, emailEvents, identities, pageViews, pathViews, projects, purchases, referrerViews, replayChunks, replayInsights, replaySessions, visitorInsights, visits } from './schema';
 import { auth, pool, appURL } from './auth';
 
 type RateLimit = { limit(input: { key: string }): Promise<{ success: boolean }> };
@@ -821,12 +823,24 @@ async function visitorProfile(request: Request, env: Env, projectId: string, vis
         friction: replayInsights.friction,
         worthWatching: replayInsights.worthWatching,
         primaryInterest: replayInsights.primaryInterest,
+        emailReady: replayInsights.emailReady,
+        emailReadyConfidence: replayInsights.emailReadyConfidence,
+        stage: replayInsights.stage,
+        intent: replayInsights.intent,
+        highlightsJson: replayInsights.highlightsJson,
+        emailHooksJson: replayInsights.emailHooksJson,
+        insightVersion: replayInsights.insightVersion,
         generatedAt: replayInsights.generatedAt,
+        error: replayInsights.error,
       })
         .from(replayInsights)
         .where(inArray(replayInsights.sessionPk, replayRows.map((row) => row.id)))
       : [];
     const insightByReplay = new Map(insightRows.map((row) => [row.sessionPk, publicInsight(row)]));
+
+    const [visitorInsightRow] = await db.select().from(visitorInsights)
+      .where(and(eq(visitorInsights.projectId, projectId), eq(visitorInsights.visitorId, visitorKey)))
+      .limit(1);
 
     const revenue = orderRows.reduce((sum, row) => sum + row.amountCents, 0) / 100;
     const opens = mail.filter((row) => row.type === 'email_open').length;
@@ -885,6 +899,8 @@ async function visitorProfile(request: Request, env: Env, projectId: string, vis
     return json({
       seed: visitorKey,
       identity: identity ?? null,
+      visitorInsight: visitorInsightRow ? publicVisitorInsight(visitorInsightRow) : null,
+      insightsEnabled: openaiConfigured(),
       place: firstGeo ? {
         cc: firstGeo.cc, city: firstGeo.city, place: firstGeo.place, lat: firstGeo.lat, lng: firstGeo.lng,
       } : null,
@@ -1091,7 +1107,11 @@ async function summarizeReplay(request: Request, env: Env, projectId: string, re
 
     const [existing] = await db.select().from(replayInsights)
       .where(eq(replayInsights.sessionPk, session.id)).limit(1);
-    if (existing?.status === 'ready' && existing.summaryText) {
+    if (
+      existing?.status === 'ready'
+      && existing.summaryText
+      && Number(existing.insightVersion) >= INSIGHT_VERSION
+    ) {
       return json({ insight: publicInsight(existing) });
     }
 
@@ -1124,37 +1144,55 @@ async function summarizeReplay(request: Request, env: Env, projectId: string, re
       .orderBy(asc(visits.seenAt))
       .limit(50);
 
+    const [identity] = await db.select({
+      email: identities.email,
+      name: identities.name,
+    })
+      .from(identities)
+      .where(and(eq(identities.projectId, projectId), eq(identities.visitorId, session.visitorId)))
+      .limit(1);
+
     await db.insert(replayInsights).values({
       sessionPk: session.id,
       status: 'pending',
+      insightVersion: INSIGHT_VERSION,
       error: null,
     }).onConflictDoUpdate({
       target: replayInsights.sessionPk,
-      set: { status: 'pending', error: null },
+      set: { status: 'pending', insightVersion: INSIGHT_VERSION, error: null },
     });
 
     try {
-      const events = await loadChunkEvents(usable.map((chunk) => chunk.objectKey));
-      const evidence = buildEvidence({
+      const pages = visitRows.length
+        ? visitRows.map((row) => ({ path: row.path || '/', dwellMs: Number(row.dwellMs) || 0 }))
+        : [{ path: '/', dwellMs: 0 }];
+      const evidence = await extractReplayEvidence({
+        objectKeys: usable.map((chunk) => chunk.objectKey),
         device: visitRows.find((row) => row.device === 'phone')?.device
           || visitRows.find((row) => row.device === 'monitor')?.device
           || 'monitor',
         referrer: visitRows[0]?.referrer || '(direct)',
-        paths: visitRows.length ? visitRows.map((row) => row.path) : ['/'],
-        dwellMs: visitRows.reduce((sum, row) => sum + (Number(row.dwellMs) || 0), 0),
-        chunkCount: usable.length,
-        events,
+        pages,
+        hasEmail: Boolean(identity?.email),
+        hasName: Boolean(identity?.name),
       });
 
       const generated = await generateReplayInsight(evidence);
       const [saved] = await db.insert(replayInsights).values({
         sessionPk: session.id,
         status: 'ready',
+        insightVersion: generated.insightVersion,
         summaryText: generated.summaryText,
         outcome: generated.outcome,
         friction: generated.friction,
         worthWatching: generated.worthWatching,
         primaryInterest: generated.primaryInterest,
+        emailReady: generated.emailReady,
+        emailReadyConfidence: generated.emailReadyConfidence,
+        stage: generated.stage,
+        intent: generated.intent,
+        highlightsJson: generated.highlights,
+        emailHooksJson: generated.emailHooks,
         decisionsJson: generated.decisionsJson,
         model: generated.model,
         generatedAt: new Date(),
@@ -1163,11 +1201,18 @@ async function summarizeReplay(request: Request, env: Env, projectId: string, re
         target: replayInsights.sessionPk,
         set: {
           status: 'ready',
+          insightVersion: generated.insightVersion,
           summaryText: generated.summaryText,
           outcome: generated.outcome,
           friction: generated.friction,
           worthWatching: generated.worthWatching,
           primaryInterest: generated.primaryInterest,
+          emailReady: generated.emailReady,
+          emailReadyConfidence: generated.emailReadyConfidence,
+          stage: generated.stage,
+          intent: generated.intent,
+          highlightsJson: generated.highlights,
+          emailHooksJson: generated.emailHooks,
           decisionsJson: generated.decisionsJson,
           model: generated.model,
           generatedAt: new Date(),
@@ -1181,10 +1226,11 @@ async function summarizeReplay(request: Request, env: Env, projectId: string, re
       await db.insert(replayInsights).values({
         sessionPk: session.id,
         status: 'failed',
+        insightVersion: INSIGHT_VERSION,
         error: message,
       }).onConflictDoUpdate({
         target: replayInsights.sessionPk,
-        set: { status: 'failed', error: message },
+        set: { status: 'failed', insightVersion: INSIGHT_VERSION, error: message },
       });
       return json({ error: message, insight: publicInsight({
         status: 'failed',
@@ -1193,6 +1239,170 @@ async function summarizeReplay(request: Request, env: Env, projectId: string, re
         friction: null,
         worthWatching: null,
         primaryInterest: null,
+        error: message,
+      }) }, 502);
+    }
+  });
+}
+
+async function summarizeVisitor(request: Request, env: Env, projectId: string, visitorKey: string) {
+  if (!uuid.test(projectId) || !visitorId.test(visitorKey)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to summarize visitors.' }, 401);
+  if (!openaiConfigured()) return json({ error: 'OpenAI is not configured.' }, 503);
+
+  return withDatabase(env, async (db) => {
+    const [project] = await db.select({ id: projects.id })
+      .from(projects).where(and(eq(projects.id, projectId), eq(projects.owner, owner))).limit(1);
+    if (!project) return json({ error: 'Not found.' }, 404);
+
+    const [identity] = await db.select({
+      email: identities.email,
+      name: identities.name,
+    })
+      .from(identities)
+      .where(and(eq(identities.projectId, projectId), eq(identities.visitorId, visitorKey)))
+      .limit(1);
+
+    const visitRows = await db.select({
+      dwellMs: visits.dwellMs,
+    })
+      .from(visits)
+      .where(and(eq(visits.projectId, projectId), eq(visits.visitorId, visitorKey)))
+      .limit(200);
+
+    const orderRows = await db.select({
+      amountCents: purchases.amountCents,
+    })
+      .from(purchases)
+      .where(and(eq(purchases.projectId, projectId), eq(purchases.visitorId, visitorKey)))
+      .limit(40);
+
+    const replayRows = await db.select({
+      id: replaySessions.id,
+      startedAt: replaySessions.startedAt,
+      endedAt: replaySessions.endedAt,
+    })
+      .from(replaySessions)
+      .where(and(eq(replaySessions.projectId, projectId), eq(replaySessions.visitorId, visitorKey)))
+      .orderBy(desc(replaySessions.startedAt))
+      .limit(40);
+
+    const insightRows = replayRows.length
+      ? await db.select().from(replayInsights)
+        .where(inArray(replayInsights.sessionPk, replayRows.map((row) => row.id)))
+      : [];
+    const ready = insightRows.filter((row) => row.status === 'ready' && row.summaryText);
+    if (!ready.length) {
+      return json({ error: 'Analyze at least one session replay first.' }, 409);
+    }
+
+    const [existing] = await db.select().from(visitorInsights)
+      .where(and(eq(visitorInsights.projectId, projectId), eq(visitorInsights.visitorId, visitorKey)))
+      .limit(1);
+    if (
+      existing?.status === 'ready'
+      && existing.summaryText
+      && Number(existing.insightVersion) >= INSIGHT_VERSION
+      && Number(existing.sourceSessionCount) >= ready.length
+    ) {
+      return json({ insight: publicVisitorInsight(existing) });
+    }
+
+    await db.insert(visitorInsights).values({
+      projectId,
+      visitorId: visitorKey,
+      status: 'pending',
+      insightVersion: INSIGHT_VERSION,
+      error: null,
+    }).onConflictDoUpdate({
+      target: [visitorInsights.projectId, visitorInsights.visitorId],
+      set: { status: 'pending', insightVersion: INSIGHT_VERSION, error: null },
+    });
+
+    try {
+      const replayById = new Map(replayRows.map((row) => [row.id, row]));
+      const generated = await generateVisitorInsight({
+        hasEmail: Boolean(identity?.email),
+        hasName: Boolean(identity?.name),
+        totalDwellMs: visitRows.reduce((sum, row) => sum + (Number(row.dwellMs) || 0), 0),
+        pageviews: visitRows.length,
+        orders: orderRows.length,
+        revenue: orderRows.reduce((sum, row) => sum + row.amountCents, 0) / 100,
+        sessions: ready.map((row) => {
+          const replay = replayById.get(row.sessionPk);
+          const start = replay?.startedAt ? Date.parse(String(replay.startedAt)) : NaN;
+          const end = replay?.endedAt ? Date.parse(String(replay.endedAt)) : NaN;
+          const durationMs = Number.isFinite(start) && Number.isFinite(end) && end >= start ? end - start : 0;
+          const published = publicInsight(row);
+          return {
+            outcome: published.outcome,
+            primaryInterest: published.primaryInterest,
+            summary: published.summary,
+            emailReady: published.emailReady,
+            emailReadyConfidence: published.emailReadyConfidence,
+            stage: published.stage,
+            intent: published.intent,
+            highlights: published.highlights,
+            emailHooks: published.emailHooks,
+            durationMs,
+          };
+        }),
+      });
+
+      const [saved] = await db.insert(visitorInsights).values({
+        projectId,
+        visitorId: visitorKey,
+        status: 'ready',
+        insightVersion: generated.insightVersion,
+        summaryText: generated.summaryText,
+        emailReady: generated.emailReady,
+        emailReadyConfidence: generated.emailReadyConfidence,
+        interestsJson: generated.interests,
+        emailHooksJson: generated.emailHooks,
+        gapsJson: generated.gaps,
+        decisionsJson: generated.decisionsJson,
+        model: generated.model,
+        sourceSessionCount: generated.sourceSessionCount,
+        generatedAt: new Date(),
+        error: null,
+      }).onConflictDoUpdate({
+        target: [visitorInsights.projectId, visitorInsights.visitorId],
+        set: {
+          status: 'ready',
+          insightVersion: generated.insightVersion,
+          summaryText: generated.summaryText,
+          emailReady: generated.emailReady,
+          emailReadyConfidence: generated.emailReadyConfidence,
+          interestsJson: generated.interests,
+          emailHooksJson: generated.emailHooks,
+          gapsJson: generated.gaps,
+          decisionsJson: generated.decisionsJson,
+          model: generated.model,
+          sourceSessionCount: generated.sourceSessionCount,
+          generatedAt: new Date(),
+          error: null,
+        },
+      }).returning();
+      return json({ insight: publicVisitorInsight(saved) });
+    } catch (error) {
+      const message = error instanceof Error ? error.message.slice(0, 300) : 'Unable to generate visitor insight';
+      console.error('visitor summarize failed', error);
+      await db.insert(visitorInsights).values({
+        projectId,
+        visitorId: visitorKey,
+        status: 'failed',
+        insightVersion: INSIGHT_VERSION,
+        error: message,
+      }).onConflictDoUpdate({
+        target: [visitorInsights.projectId, visitorInsights.visitorId],
+        set: { status: 'failed', insightVersion: INSIGHT_VERSION, error: message },
+      });
+      return json({ error: message, insight: publicVisitorInsight({
+        status: 'failed',
+        summaryText: null,
+        emailReady: null,
+        emailReadyConfidence: null,
         error: message,
       }) }, 502);
     }
@@ -1307,6 +1517,13 @@ export default {
       const replayMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/replays\/([0-9a-f-]{36})$/i);
       if (replayMatch) {
         if (request.method === 'GET') return await getReplay(request, env, replayMatch[1], replayMatch[2]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const visitorInsightMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/visitors\/([A-Za-z0-9_-]{8,80})\/insight$/i);
+      if (visitorInsightMatch) {
+        if (request.method === 'POST') {
+          return await summarizeVisitor(request, env, visitorInsightMatch[1], visitorInsightMatch[2]);
+        }
         return json({ error: 'Method not allowed.' }, 405);
       }
       const profileMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/visitors\/([A-Za-z0-9_-]{8,80})$/i);

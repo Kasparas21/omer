@@ -64,6 +64,13 @@
       "when": 1794665000000,
       "tag": "0008_replay_insights",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794669000000,
+      "tag": "0009_rich_insights",
+      "breakpoints": true
     }
   ]
 }

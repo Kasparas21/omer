@@ -1,4 +1,4 @@
-import { bigint, boolean, date, doublePrecision, index, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { bigint, boolean, date, doublePrecision, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 export const projects = pgTable('onboarding_projects', {
@@ -142,13 +142,41 @@ export const replayChunks = pgTable('project_replay_chunks', {
 export const replayInsights = pgTable('project_replay_insights', {
   sessionPk: uuid('session_pk').primaryKey().references(() => replaySessions.id, { onDelete: 'cascade' }),
   status: text('status').default('pending').notNull(),
+  insightVersion: integer('insight_version').default(1).notNull(),
   summaryText: text('summary_text'),
   outcome: text('outcome'),
   friction: doublePrecision('friction'),
   worthWatching: boolean('worth_watching'),
   primaryInterest: text('primary_interest'),
+  emailReady: boolean('email_ready'),
+  emailReadyConfidence: doublePrecision('email_ready_confidence'),
+  stage: text('stage'),
+  intent: doublePrecision('intent'),
+  highlightsJson: jsonb('highlights_json'),
+  emailHooksJson: jsonb('email_hooks_json'),
   decisionsJson: jsonb('decisions_json'),
   model: text('model'),
   generatedAt: timestamp('generated_at', { withTimezone: true }),
   error: text('error'),
 });
+
+export const visitorInsights = pgTable('project_visitor_insights', {
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  visitorId: text('visitor_id').notNull(),
+  status: text('status').default('pending').notNull(),
+  insightVersion: integer('insight_version').default(1).notNull(),
+  summaryText: text('summary_text'),
+  emailReady: boolean('email_ready'),
+  emailReadyConfidence: doublePrecision('email_ready_confidence'),
+  interestsJson: jsonb('interests_json'),
+  emailHooksJson: jsonb('email_hooks_json'),
+  gapsJson: jsonb('gaps_json'),
+  decisionsJson: jsonb('decisions_json'),
+  model: text('model'),
+  sourceSessionCount: integer('source_session_count').default(0).notNull(),
+  generatedAt: timestamp('generated_at', { withTimezone: true }),
+  error: text('error'),
+}, (table) => [
+  primaryKey({ name: 'project_visitor_insights_pk', columns: [table.projectId, table.visitorId] }),
+  index('project_visitor_insights_project_idx').on(table.projectId),
+]);

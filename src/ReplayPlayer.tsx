@@ -8,9 +8,23 @@ type Insight = {
   friction: number | null;
   worthWatching: boolean | null;
   primaryInterest: string | null;
+  emailReady?: boolean | null;
+  emailReadyConfidence?: number | null;
+  stage?: string | null;
+  intent?: number | null;
+  highlights?: string[];
+  emailHooks?: string[];
+  insightVersion?: number;
   generatedAt?: string | null;
   error?: string | null;
 };
+
+const CURRENT_INSIGHT_VERSION = 2;
+
+function insightNeedsRefresh(insight: Insight | null | undefined) {
+  if (!insight || insight.status !== 'ready' || !insight.summary) return true;
+  return (insight.insightVersion || 1) < CURRENT_INSIGHT_VERSION;
+}
 
 type Manifest = {
   id: string;
@@ -168,8 +182,8 @@ export function ReplayPlayer({ projectId, replayId, onBack }: {
           return;
         }
 
-        // Kick off summary without blocking playback.
-        if (manifest.insightsEnabled && manifest.insight?.status !== 'ready') {
+        // Kick off / refresh summary without blocking playback.
+        if (manifest.insightsEnabled && insightNeedsRefresh(manifest.insight)) {
           void requestSummary();
         }
 
@@ -258,6 +272,9 @@ export function ReplayPlayer({ projectId, replayId, onBack }: {
 
   const loading = !failed && progress < 100 && status !== 'Playing' && status !== 'Partial recording' && !status.startsWith('Still');
   const friction = frictionLabel(insight?.friction ?? null);
+  const emailReadyPct = insight?.emailReadyConfidence != null
+    ? Math.round(Math.max(0, Math.min(1, insight.emailReadyConfidence)) * 100)
+    : null;
 
   return (
     <div className="rp-page">
@@ -277,18 +294,41 @@ export function ReplayPlayer({ projectId, replayId, onBack }: {
 
         {insightsEnabled && (
           <div className="rp-insight">
-            {insightBusy && !insight?.summary && <p className="rp-insight-status">Writing summary…</p>}
+            {insightBusy && !insight?.summary && <p className="rp-insight-status">Reading the session…</p>}
             {insight?.summary && (
               <>
                 <p className="rp-insight-text">{insight.summary}</p>
                 <div className="rp-insight-chips">
                   {insight.outcome && <span className="rp-chip">{insight.outcome}</span>}
+                  {insight.stage && <span className="rp-chip muted">{insight.stage}</span>}
                   {friction && <span className="rp-chip muted">{friction}</span>}
                   {insight.worthWatching != null && (
                     <span className="rp-chip muted">{insight.worthWatching ? 'Worth watching' : 'Low priority'}</span>
                   )}
                   {insight.primaryInterest && <span className="rp-chip muted">{insight.primaryInterest}</span>}
+                  {emailReadyPct != null && (
+                    <span className={`rp-chip ${insight.emailReady ? '' : 'muted'}`.trim()}>
+                      Email-ready {emailReadyPct}%
+                    </span>
+                  )}
                 </div>
+                {!!insight.highlights?.length && (
+                  <ul className="rp-insight-list">
+                    {insight.highlights.slice(0, 8).map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                )}
+                {!!insight.emailHooks?.length && (
+                  <div className="rp-insight-hooks">
+                    <p className="rp-insight-hooks-label">Later email hooks</p>
+                    <ul className="rp-insight-list">
+                      {insight.emailHooks.slice(0, 4).map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </>
             )}
             {!insightBusy && !insight?.summary && (
