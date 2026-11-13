@@ -211,6 +211,27 @@
 .app-shelf .popover { z-index: 50; visibility: hidden; }
 .app-shelf .popover.open { visibility: visible; }
 .app-site-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--accent)); }
+.app-site-dot--fallback {
+  width: 22px; height: 22px; border-radius: 7px; background: #f5f5f5;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.08);
+  display: grid; place-items: center;
+}
+.app-site-dot--fallback::before {
+  content: ""; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--c, var(--accent));
+}
+.app-site-favicon {
+  display: grid; place-items: center; flex: none;
+  width: 22px; height: 22px; border-radius: 7px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.08);
+  overflow: hidden;
+}
+.app-site-favicon img {
+  width: 18px; height: 18px;
+  object-fit: contain;
+  display: block;
+}
 .app-site-opt { height: auto; min-height: 42px; gap: 10px; padding: 8px 10px; }
 .app-site-opt > span:last-child { display: grid; gap: 1px; min-width: 0; text-align: left; }
 .app-site-opt b { font-size: 13.5px; font-weight: 500; color: var(--ink); }
