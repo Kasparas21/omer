@@ -21,6 +21,7 @@ import { useLive } from './live';
 import { Icon, type IconName } from './ui/Icon';
 import { Dock } from './ui/Dock';
 import { ProjectMenu } from './ui/ProjectMenu';
+import { importBrandFromSite } from './brandStore';
 import { isDemo } from './demo';
 
 type ProjectError = { field?: 'name' | 'website'; error: string };
@@ -50,7 +51,7 @@ const WHERE: Record<AppScreen, string> = {
 
 const SETUP_STEPS: { id: SetupStep; label: string; locked?: boolean }[] = [
   { id: 'site', label: 'Your website' },
-  { id: 'brand', label: 'Your brand', locked: true },
+  { id: 'brand', label: 'Your brand' },
   { id: 'install', label: 'Install the snippet' },
   { id: 'check', label: 'Check it works' },
   { id: 'sender', label: 'Your sender', locked: true },
@@ -81,6 +82,8 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [step, setStep] = useState<SetupStep>('site');
   const [reached, setReached] = useState(0);
   const [forceSetup, setForceSetup] = useState(false);
+  const [brandImporting, setBrandImporting] = useState(false);
+  const [brandImportError, setBrandImportError] = useState('');
   const [screen, setScreen] = useState<AppScreen>('home');
   const [collapsed, setCollapsed] = useState(false);
   const [analytics, setAnalytics] = useState<Project>();
@@ -260,8 +263,8 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
       setReached(stepIndex('check'));
       return;
     }
-    setReached((value) => Math.max(value, stepIndex('install')));
-    setStep((current) => (current === 'site' || current === 'brand' ? 'install' : current));
+    setReached((value) => Math.max(value, stepIndex('brand')));
+    setStep((current) => (current === 'site' ? 'brand' : current));
   }, [loading, loadError, project?.id, project?.firstEventAt]);
 
   useEffect(() => {
@@ -312,8 +315,8 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
       setLoading(false);
       setChecking(false);
       setLoadError(false);
-      setReached(stepIndex('install'));
-      setStep('install');
+      setReached(stepIndex('brand'));
+      setStep('brand');
       setNotice('Project created.');
       createDialog.current?.close();
     } catch {
@@ -379,18 +382,46 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
       );
     }
 
-    if (step === 'brand' || step === 'sender') {
+    if (step === 'brand' && project) {
+      const host = (() => { try { return new URL(project.origin).host; } catch { return project.origin; } })();
       return (
         <div className="set-main solo">
           <header className="su-head">
-            <h2>{step === 'brand' ? 'Your brand' : 'Your sender'}</h2>
-            <p>{step === 'brand'
-              ? 'Brand import from your site lands once Firecrawl context is wired. No mock scrape here.'
-              : 'Sender DNS and test email land once SES sending is wired. No fake DNS theatre here.'}</p>
+            <h2>Your brand</h2>
+            <p>We’ll read {host} and draft Product Information plus a Brand Voice Guide for follow-up emails. You can edit everything later in Settings.</p>
+          </header>
+          {brandImportError ? <p className="hint error" role="alert">{brandImportError}</p> : null}
+          <footer className="su-foot">
+            <button className="btn btn-ghost btn-sm" type="button" disabled={brandImporting} onClick={() => goStep('site')}>Back</button>
+            <button className="btn btn-secondary" type="button" disabled={brandImporting} onClick={() => {
+              setReached((value) => Math.max(value, stepIndex('install')));
+              setStep('install');
+            }}>Skip for now</button>
+            <button className={`btn btn-primary${brandImporting ? ' loading' : ''}`} type="button" disabled={brandImporting} onClick={() => {
+              setBrandImportError('');
+              setBrandImporting(true);
+              void importBrandFromSite(project.id).then(() => {
+                setReached((value) => Math.max(value, stepIndex('install')));
+                setStep('install');
+              }).catch((error) => {
+                setBrandImportError(error instanceof Error ? error.message : 'Import failed');
+              }).finally(() => setBrandImporting(false));
+            }}>{brandImporting ? 'Reading your site…' : 'Import from website'}</button>
+          </footer>
+        </div>
+      );
+    }
+
+    if (step === 'sender') {
+      return (
+        <div className="set-main solo">
+          <header className="su-head">
+            <h2>Your sender</h2>
+            <p>Sender DNS and test email land once SES sending is wired. No fake DNS theatre here.</p>
           </header>
           <p className="su-locked"><Lock size={16} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: 8 }} /> Coming next — this step stays locked until the real backend exists.</p>
           <footer className="su-foot">
-            <button className="btn btn-ghost btn-sm" type="button" onClick={() => goStep(step === 'brand' ? 'site' : 'check')}>Back</button>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={() => goStep('check')}>Back</button>
             <button className="btn btn-primary" type="button" disabled>Continue</button>
           </footer>
         </div>

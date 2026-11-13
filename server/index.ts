@@ -4,6 +4,8 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { bodyLimit } from 'hono/body-limit';
 import { auth, googleAuthEnabled, pool } from './auth';
 import { objectStoreConfigured } from './object-store';
+import { brandImportReady } from './brand-import';
+import { firecrawlConfigured } from './firecrawl';
 import { openaiConfigured } from './replay-insight';
 import projects from './projects';
 
@@ -23,7 +25,7 @@ function limiter(max: number) {
 }
 const env = { ALLOW_LOCAL_SITES: process.env.ALLOW_LOCAL_SITES, CREATE_LIMIT: limiter(10), COLLECT_LIMIT: limiter(600) };
 const app = new Hono();
-app.use('/api/*', bodyLimit({ maxSize: 16384 }));
+app.use('/api/*', bodyLimit({ maxSize: 400_000 }));
 app.use('/v1/collect/replay-chunks', bodyLimit({ maxSize: 4_000_000 }));
 app.use('/v1/collect/event', bodyLimit({ maxSize: 16384 }));
 app.use('/api/*', async (c, next) => { c.header('Cache-Control', 'no-store'); await next(); });
@@ -32,11 +34,15 @@ app.get('/api/config', (c) => c.json({
   googleAuth: googleAuthEnabled,
   replayStorage: objectStoreConfigured(),
   replayInsights: openaiConfigured(),
+  firecrawl: firecrawlConfigured(),
+  brandImport: brandImportReady(),
 }));
 app.all('/api/projects', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id', (c) => projects.fetch(c.req.raw, env));
 app.get('/api/projects/:id/live/stream', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/live', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/brand', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/brand/*', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/visitors/:vid', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/visitors/:vid/insight', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/replays/:rid/summary', (c) => projects.fetch(c.req.raw, env));

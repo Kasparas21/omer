@@ -1,6 +1,6 @@
-/* Brand knowledge: the logo, colours, fonts, products, photos and voice Ghost writes emails with.
-   Each store has its own set. The demo store starts with Pawsome's brand; a real store starts empty until
-   website import ships. Until then, what you add is kept in this browser (IndexedDB, files included). */
+/* Brand knowledge: the logo, colours, fonts, products, photos, voice and docs Ghost writes emails with.
+   Each store has its own set. The demo store starts with Pawsome's brand; a real store loads from the
+   server (and keeps local file uploads in IndexedDB). */
 import { useEffect, useSyncExternalStore } from 'react';
 import { PHOTOS, STORE, photo } from './storeData';
 
@@ -13,6 +13,7 @@ export type BrandProduct = { id: string; name: string; price: string; image: Bra
 export type MonitoredPage = { id: string; path: string; addedAt: string; checkedAt?: string | null; change?: string | null };
 export const MONITOR_LIMIT = 10;
 export type LogoSlot = 'primary' | 'mark' | 'dark';
+export type BrandDocs = { product: string; voice: string };
 export type Brand = {
   logos: Record<LogoSlot, BrandFile | null>;
   colors: BrandColor[];
@@ -20,9 +21,11 @@ export type Brand = {
   products: BrandProduct[];
   photos: BrandFile[];
   voice: { tagline: string; tone: string; about: string };
+  docs: BrandDocs;
   monitor: MonitoredPage[];
+  importedAt?: string | null;
 };
-export type FolderId = 'logo' | 'colors' | 'fonts' | 'products' | 'brand';
+export type FolderId = 'logo' | 'colors' | 'fonts' | 'products' | 'photos' | 'docs';
 
 export const DEMO_BRAND_SPACE = 'demo';
 export const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
@@ -68,6 +71,10 @@ const DEMO: Brand = {
     tone: 'Warm and a little playful. Short sentences. Never pushy.',
     about: 'Pawsome is a small Portland shop run by Marc and two very opinionated cats. We sell the food and furniture we trust at home.',
   },
+  docs: {
+    product: `## Overview\n- Product / store name: Pawsome\n- Website: pawsome.demo\n- One-liner: Good food and trees for curious cats\n- Language: English\n\n## What It Is\nA small Portland cat shop for food and furniture Marc trusts at home.\n\n## Who It's For\nCat people who want better food and climbing trees without the big-box noise.\n\n## What Emails Can Promise\n- Grain-free kitten pâté and salmon kibble in stock\n- Furniture built for real apartment living\n- Friendly help from a two-person shop\n\n## Proof Points\nnone found, emails should avoid unverifiable claims\n\n## Price & Offers\nStarter pack from $49; tall tower $129\n\n## Shipping, Returns & Guarantees\nnot found, confirm with merchant\n\n## Generated on\ndemo`,
+    voice: `## Voice in three words\nWarm, playful, plain\n\n## Email register\nShort sentences. A little wit. Never pushy. (Good food and trees for curious cats.)\n\n## Subject line style\nSoft reminder / benefit-led\n- Still thinking about the Tall Tower?\n- Your cart kept the Kitten Starter Pack\n\n## What this brand would never say\n- "Unlock premium feline wellness synergies"\n- "Limited-time mega deal — act now!!!"\n- "As a leading disruptor in pet tech…"\n\n## One real rewrite\nOriginal: "Good food and trees for curious cats"\nEmail-length: "Good food and a better tree for your cat"\n\n## Tagline (from the site)\nGood food and trees for curious cats`,
+  },
   monitor: [
     { id: 'm1', path: '/', addedAt: '2026-11-01', checkedAt: ago(18), change: null },
     { id: 'm2', path: '/products/tall-tower', addedAt: '2026-11-01', checkedAt: ago(120), change: 'Price changed: $139 → $129' },
@@ -83,7 +90,9 @@ export const emptyBrand = (): Brand => ({
   products: [],
   photos: [],
   voice: { tagline: '', tone: '', about: '' },
+  docs: { product: '', voice: '' },
   monitor: [],
+  importedAt: null,
 });
 
 // ---- the store
@@ -128,6 +137,7 @@ async function writeSpace(id: string, brand: Brand) {
   const strip = (f: BrandFile | null | undefined) => (f ? (f.blob ? { ...f, src: '' } : f) : null);
   const record: Brand = {
     ...brand,
+    docs: brand.docs || { product: '', voice: '' },
     logos: { primary: strip(brand.logos.primary), mark: strip(brand.logos.mark), dark: strip(brand.logos.dark) },
     fonts: brand.fonts.map((f) => ({ ...f, file: strip(f.file) })),
     products: brand.products.map((p) => ({ ...p, image: strip(p.image), image2: strip(p.image2) })),
@@ -142,14 +152,60 @@ async function writeSpace(id: string, brand: Brand) {
   });
 }
 
+function serializable(brand: Brand): Brand {
+  const dropBlob = (f: BrandFile | null | undefined) => (f ? { id: f.id, name: f.name, src: f.src, type: f.type } : null);
+  return {
+    ...brand,
+    logos: { primary: dropBlob(brand.logos.primary), mark: dropBlob(brand.logos.mark), dark: dropBlob(brand.logos.dark) },
+    fonts: brand.fonts.map((f) => ({ ...f, file: dropBlob(f.file) })),
+    products: brand.products.map((p) => ({ ...p, image: dropBlob(p.image), image2: dropBlob(p.image2) })),
+    photos: brand.photos.map((p) => dropBlob(p) as BrandFile),
+  };
+}
+
+async function pullServer(id: string) {
+  if (id === DEMO_BRAND_SPACE || !uuidLike(id)) return null;
+  try {
+    const res = await fetch(`/api/projects/${id}/brand`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const data = await res.json() as { brand?: Brand };
+    return data.brand ? { ...emptyBrand(), ...data.brand } : null;
+  } catch {
+    return null;
+  }
+}
+
+function uuidLike(id: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+
+let saveTimer = 0;
+function pushServer(id: string, brand: Brand) {
+  if (id === DEMO_BRAND_SPACE || !uuidLike(id)) return;
+  window.clearTimeout(saveTimer);
+  saveTimer = window.setTimeout(() => {
+    void fetch(`/api/projects/${id}/brand`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ brand: serializable(brand) }),
+    }).catch(() => undefined);
+  }, 600);
+}
+
 function ensure(id: string) {
   if (spaces.has(id) || loading.has(id)) return;
   loading.add(id);
   spaces.set(id, emptyBrand());
-  void readSpace(id).catch(() => null).then((saved) => {
+  void (async () => {
+    const remote = await pullServer(id);
+    const local = await readSpace(id).catch(() => null);
     loading.delete(id);
-    if (saved) { spaces.set(id, withUrls({ ...emptyBrand(), ...saved })); emit(); }
-  });
+    const base = remote || local;
+    if (base) {
+      spaces.set(id, withUrls({ ...emptyBrand(), ...base, docs: base.docs || { product: '', voice: '' } }));
+      emit();
+    }
+  })();
 }
 
 const EMPTY = emptyBrand();
@@ -162,7 +218,30 @@ export function updateBrand(id: string, next: (b: Brand) => Brand) {
   const updated = next(spaces.get(id) ?? emptyBrand());
   spaces.set(id, updated);
   emit();
-  if (id !== DEMO_BRAND_SPACE) void writeSpace(id, updated).catch(() => undefined);
+  if (id !== DEMO_BRAND_SPACE) {
+    void writeSpace(id, updated).catch(() => undefined);
+    pushServer(id, updated);
+  }
+}
+
+/** Replace the whole brand (after a website import). */
+export function replaceBrand(id: string, brand: Brand) {
+  const next = withUrls({ ...emptyBrand(), ...brand, docs: brand.docs || { product: '', voice: '' } });
+  spaces.set(id, next);
+  emit();
+  if (id !== DEMO_BRAND_SPACE) {
+    void writeSpace(id, next).catch(() => undefined);
+    pushServer(id, next);
+  }
+}
+
+export async function importBrandFromSite(id: string) {
+  if (!uuidLike(id)) throw new Error('Import is only for a connected store');
+  const res = await fetch(`/api/projects/${id}/brand/import`, { method: 'POST' });
+  const data = await res.json().catch(() => ({})) as { brand?: Brand; error?: string };
+  if (!res.ok || !data.brand) throw new Error(data.error || 'Brand import failed');
+  replaceBrand(id, data.brand);
+  return data.brand;
 }
 
 export function fileFrom(file: File): BrandFile {
@@ -175,5 +254,7 @@ export function folderCount(b: Brand, folder: FolderId) {
   if (folder === 'colors') return b.colors.length;
   if (folder === 'fonts') return b.fonts.filter((f) => f.family || f.file).length;
   if (folder === 'products') return b.products.length;
-  return b.photos.length + (b.voice.tagline || b.voice.tone || b.voice.about ? 1 : 0);
+  if (folder === 'photos') return b.photos.length;
+  const docs = b.docs || { product: '', voice: '' };
+  return (docs.product.trim() ? 1 : 0) + (docs.voice.trim() ? 1 : 0);
 }
