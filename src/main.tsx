@@ -14,7 +14,7 @@ import { Opportunities, type OpTab } from './Opportunities';
 import { Campaigns } from './Campaigns';
 import { Results } from './Results';
 import { Toasts } from './ui/toast';
-import { useDemo } from './demoState';
+import { DEMO_SPACE, useDemo } from './demoState';
 import { Settings, type DockMode, type SettingsTab } from './Settings';
 import { useLive } from './live';
 import { Icon, type IconName } from './ui/Icon';
@@ -104,7 +104,6 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
     setScreen(to.to);
     window.scrollTo({ top: 0 });
   }
-  const demoState = useDemo();
   const [replayStorage, setReplayStorage] = useState(false);
   const [replayBusy, setReplayBusy] = useState(false);
   const [dockMode, setDockMode] = useState<DockMode>(() => {
@@ -123,6 +122,8 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const snippet = project ? installSnippet(project, window.location.origin) : '';
   const setupComplete = Boolean(project?.firstEventAt);
   const live = useLive(setupComplete ? project?.id : undefined);
+  const campaignSpace = project && !isDemo(project) ? project.id : DEMO_SPACE;
+  const campaignState = useDemo(campaignSpace);
   const liveCount = live.data.online;
   const inSetup = !loading && !loadError && (!setupComplete || forceSetup);
 
@@ -484,11 +485,12 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
   }
 
   // Inside a campaign the shelf trades the store switcher for the way back, as in the kit.
-  const openCampaign = screen === 'campaigns' && project && isDemo(project) ? demoState.campaigns.find((c) => c.id === campaignId) : undefined;
+  const openCampaign = screen === 'campaigns' && project ? campaignState.campaigns.find((c) => c.id === campaignId) : undefined;
   const onProfile = screen === 'visitors' && project && profile?.projectId === project.id;
   const nested = inSetup ? undefined
     : openCampaign ? { back: 'Campaigns', title: openCampaign.name, go: () => { setCampaignId(undefined); setEditing(false); } }
     : onProfile ? { back: 'People', title: profileName || 'Profile', go: () => setProfile(undefined) }
+    : screen === 'inbox' && editing ? { back: 'Opportunities', title: 'Edit email', go: () => setEditing(false) }
     : undefined;
 
   return (
@@ -622,11 +624,12 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
             <Opportunities key={`${project.id}-${start.n}`} start={start.op} demo={isDemo(project)} editing={editing} onEdit={setEditing}
               onPeople={() => setScreen('visitors')} onBack={() => setScreen('home')} />
           ) : screen === 'campaigns' && project ? (
-            <Campaigns key={project.id} demo={isDemo(project)} openId={campaignId} editing={editing}
+            <Campaigns key={project.id} space={campaignSpace} storeName={project.name} openId={campaignId} editing={editing}
               onOpen={(id) => { setCampaignId(id); setEditing(false); window.scrollTo({ top: 0 }); }} onEdit={(on) => { setEditing(on); window.scrollTo({ top: 0 }); }} onBack={() => setScreen('home')} />
           ) : screen === 'results' && project ? (
             <Results key={project.id} project={analytics?.id === project.id ? analytics : project} demo={isDemo(project)}
-              onCampaign={(id) => { setCampaignId(id); setEditing(false); setScreen('campaigns'); window.scrollTo({ top: 0 }); }} />
+              onCampaign={(id) => { setCampaignId(id); setEditing(false); setScreen('campaigns'); window.scrollTo({ top: 0 }); }}
+              onCampaigns={() => { setCampaignId(undefined); setEditing(false); setScreen('campaigns'); window.scrollTo({ top: 0 }); }} />
           ) : (
             <div className="v2-empty-screen">
               <h1 className="v2-title">{WHERE[screen] || 'Soon'}</h1>

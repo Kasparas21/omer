@@ -530,3 +530,23 @@
 .v2-link::before { content: ""; position: absolute; left: 50%; top: 50%; z-index: -1; width: 520px; height: 300px; transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(closest-side, rgb(54 90 245 / 0.28), rgb(47 140 246 / 0.12) 55%, transparent); pointer-events: none; }
 .v2-link.is-on::before { background: radial-gradient(closest-side, rgb(61 214 140 / 0.3), rgb(61 214 140 / 0.1) 55%, transparent); }
 
+/* Connected store with no visitors yet: the backdrop fills the rail and the step sits in the middle. */
+.v2-empty-home { position: relative; width: var(--v2-rail); min-height: calc(100dvh - 150px); margin-inline: auto; padding-top: var(--page-start, 24px); overflow: hidden; }
+.app-body .v2-empty-home .v2-connect h2 { margin: 30px 0 0; font-size: 32px; font-weight: 500; letter-spacing: -0.03em; }
+.v2-tile > .ico { width: 34px; height: 34px; color: var(--ink); }
+@media (max-width: 620px) {
+  /* Keep the faint cards side by side so the page stays one screen tall and the button clears the dock. */
+  .v2-empty-home .v2-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .v2-empty-home .v2-two { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+  .v2-empty-home .v2-row { gap: 10px; margin-bottom: 10px; }
+  .v2-empty-home .v2-ghost { height: 120px; padding: 16px; border-radius: 18px; }
+  .v2-empty-home .v2-ghost-tall { height: 200px; }
+  .v2-empty-home .v2-ghost-mid { height: 160px; }
+  .v2-empty-home .v2-connect { padding-bottom: 110px; }
+  .app-body .v2-empty-home .v2-connect h2 { margin-top: 24px; font-size: 25px; overflow-wrap: anywhere; }
+  .v2-empty-home .v2-connect p { font-size: 15px; }
+  .v2-empty-home .v2-cta { margin-top: 22px; }
+  .v2-empty-home .v2-tile { width: 64px; height: 64px; border-radius: 19px; }
+  .v2-empty-home .v2-tile > .ico { width: 28px; height: 28px; }
+  .v2-empty-home .v2-dots { width: 56px; }
+}

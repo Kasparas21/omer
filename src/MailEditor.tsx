@@ -29,10 +29,9 @@ const BLOCK: Record<string, { icon: IconName; name: string; hint: string }> = {
 };
 const KIT = [STORE.color, '#191B22', '#2F5FD0', '#1F7A5C', '#B23A6B', '#7A3FC8'];
 
-export function MailEditor({ backLabel, published, onBack, onPublish }: {
-  backLabel: string;
+/** The way back lives in the app shelf crumb above the editor, as in the kit. */
+export function MailEditor({ published, onPublish }: {
   published: Draft;
-  onBack: () => void;
   onPublish: (draft: Draft) => void;
 }) {
   const [draft, setDraft] = useState<Draft>(() => clone(published));
@@ -207,7 +206,6 @@ export function MailEditor({ backLabel, published, onBack, onPublish }: {
             </div>
           )}
         </div>
-        <button type="button" className="cpe-exit" onClick={onBack}><Icon name="arrowLeft" />{backLabel}</button>
         <div className="cpe-tools" role="toolbar" aria-label="Add a block" aria-orientation="vertical">
           <div className="cpe-grip" aria-hidden="true"><span>Add</span></div>
           {ADD.map((a, i) => (

@@ -1,57 +1,48 @@
 /* Campaigns: the follow-up recipes. The list shows each one by the email it sends; a campaign opens on its own
    page (what it is, the journey, the email big enough to read), with Settings in a window and the email editor
-   one click away. Laid out like the UI kit. The demo store shows the kit's example set; real projects start
-   with an empty create card. */
+   one click away. Laid out like the UI kit. The demo store shows the kit’s example set; real stores start
+   with Personal follow-ups on and the create card. */
 import { useEffect, useRef, useState } from 'react';
 import { Icon, type IconName } from './ui/Icon';
 import { MailInbox, MailPeek } from './Mail';
 import { MailEditor } from './MailEditor';
 import { FLOWS, PICKS, PERSONAL_MAILS, campaignStats, type Flow } from './storeData';
-import { demo as store, pickValue, useDemo, type CampaignSettings, type CampaignState } from './demoState';
+import { DEMO_SPACE, demo as store, pickValue, useDemo, type CampaignSettings, type CampaignState } from './demoState';
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 const num = new Intl.NumberFormat('en-US');
 const STARTS: [string, string][] = Object.entries(FLOWS).map(([id, f]) => [id, f.when((k) => PICKS[k]?.def ?? '')]);
 
-export function Campaigns({ demo, openId, editing, onOpen, onEdit, onBack }: {
-  demo: boolean;
+export function Campaigns({ space, storeName, openId, editing, onOpen, onEdit }: {
+  /** DEMO_SPACE for the demo store, otherwise the project id: each store keeps its own campaigns. */
+  space: string;
+  storeName: string;
   openId?: string;
   editing: boolean;
   onOpen: (id?: string) => void;
   onEdit: (on: boolean) => void;
-  onBack: () => void;
+  onBack?: () => void;
 }) {
-  const { campaigns, personal } = useDemo();
+  const { campaigns, personal } = useDemo(space);
   const open = campaigns.find((c) => c.id === openId);
-
-  if (!demo) {
-    return (
-      <div className="cp-screen">
-        <h1 className="v2-title cp-title">Campaigns</h1>
-        <div className="cpx-grid">
-          <NewCard onClick={onBack} note="Follow-up recipes appear here once email drafting is connected." />
-        </div>
-      </div>
-    );
-  }
 
   if (open && editing && open.published) {
     return (
-      <MailEditor key={open.id} backLabel={open.name} published={open.published}
-        onBack={() => onEdit(false)}
+      <MailEditor key={open.id} published={open.published}
         onPublish={(draft) => store.updateCampaign(open.id, { published: draft })} />
     );
   }
   if (open) return <CampaignPage key={open.id} c={open} onEdit={() => onEdit(true)} onClose={() => onOpen(undefined)} />;
 
   const ordered = [...campaigns.filter((c) => c.suggested && !c.dismissed), ...campaigns.filter((c) => !c.suggested)];
+  const create = () => onOpen(store.add(space, space === DEMO_SPACE ? undefined : storeName));
   return (
     <div className="cp-screen">
       <h1 className="sr-only">Campaigns</h1>
       <div className="cpx-grid">
         <section className={`v2-card cpx-card cpx-main-card${personal ? '' : ' is-off'}`} aria-labelledby="cpMainT">
           <header><Icon name="ghost" /><h3 id="cpMainT">Personal follow-ups</h3>
-            <label className="switch"><input type="checkbox" checked={personal} aria-label="Personal follow-ups on or off" onChange={(e) => store.setPersonal(e.target.checked)} /></label>
+            <label className="switch"><input type="checkbox" checked={personal} aria-label="Personal follow-ups on or off" onChange={(e) => store.setPersonal(e.target.checked, space)} /></label>
           </header>
           <div className="cpx-stage cpx-stage-3" aria-hidden="true">
             <span className="cpx-off-chip"><Icon name="pause" />Paused</span>
@@ -59,7 +50,7 @@ export function Campaigns({ demo, openId, editing, onOpen, onEdit, onBack }: {
           </div>
         </section>
         {ordered.map((c) => <Card key={c.id} c={c} onOpen={() => onOpen(c.id)} />)}
-        <NewCard onClick={() => onOpen(store.add())} />
+        <NewCard onClick={create} />
       </div>
     </div>
   );
@@ -86,14 +77,13 @@ function Card({ c, onOpen }: { c: CampaignState; onOpen: () => void }) {
   );
 }
 
-function NewCard({ onClick, note }: { onClick: () => void; note?: string }) {
+function NewCard({ onClick }: { onClick: () => void }) {
   const bar = (w: string) => <i className="cpx-sk" style={{ width: w }} />;
   return (
     <button type="button" className="v2-card cpx-card cpx-new" aria-label="Create a new campaign" onClick={onClick}>
       <header><i className="cpx-sk cpx-sk-ic" />{bar('38%')}</header>
       <div className="cpx-stage" aria-hidden="true"><div className="cpx-new-lines">{bar('46%')}{bar('92%')}{bar('84%')}{bar('70%')}{bar('88%')}</div></div>
       <span className="cpx-new-cta"><Icon name="plus" />Create new campaign</span>
-      {note ? <small className="cpx-new-note">{note}</small> : null}
     </button>
   );
 }

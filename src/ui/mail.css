@@ -313,8 +313,6 @@
 .cpe-page { width: calc(var(--ml-width) + 64px); max-width: 100%; padding: 32px; background: var(--ml-bg); box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 24px 60px -34px rgb(25 27 34 / 0.3); transition: width 0.25s var(--ease); }
 .cpe-page .ml { border-radius: var(--ml-corners); }
 .cpe-phonewrap { display: flex; justify-content: center; }
-.cpe-exit { position: absolute; left: 24px; top: calc(var(--app-shelf-h, 58px) + 8px); z-index: 3; display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px 0 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: 0 6px 18px -12px rgb(25 27 34 / 0.3); font: inherit; font-size: 14px; font-weight: 500; color: var(--ink); cursor: pointer; }
-.cpe-exit .ico { width: 16px; height: 16px; color: var(--ink-3); }
 .cpe-tools { position: absolute; left: 20px; top: 50%; z-index: 3; display: flex; flex-direction: column; gap: 4px; padding: 6px 6px 8px; transform: translateY(-40%); border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 12px 30px -14px rgb(25 27 34 / 0.22); }
 .cpe-grip { padding: 4px 0 6px; text-align: center; font-size: 12px; font-weight: 600; color: var(--ink-2); }
 .cpe-tool { display: contents; }

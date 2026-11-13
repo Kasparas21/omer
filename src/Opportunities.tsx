@@ -61,9 +61,9 @@ export function Opportunities({ demo, editing, onEdit, onPeople, onBack, start }
         <h1 className="v2-title">Opportunities</h1>
         <section className="v2-card"><div className="v2-in omer-soon"><div className="empty">
           <span className="empty-ico"><Icon name="inbox" /></span>
-          <h4>No opportunities yet</h4>
-          <p>Moments where a follow-up would help show up here once email drafting is connected.</p>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={onBack}>Back to Dashboard</button>
+          <h4>Nothing to review yet</h4>
+          <p>When someone leaves without buying, their follow-up email waits here for you to approve.</p>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={onPeople}>See who’s visiting</button>
         </div></div></section>
       </div>
     );
@@ -78,8 +78,7 @@ export function Opportunities({ demo, editing, onEdit, onPeople, onBack, start }
 
   if (editing && picked) {
     return (
-      <MailEditor key={picked.id} backLabel="Opportunities" published={{ doc: picked.mail, page: picked.page ?? PAGE_STYLE }}
-        onBack={() => onEdit(false)}
+      <MailEditor key={picked.id} published={{ doc: picked.mail, page: picked.page ?? PAGE_STYLE }}
         onPublish={(draft) => { store.updatePerson(picked.id, { mail: draft.doc, page: draft.page }); toast('Saved to the draft'); }} />
     );
   }
