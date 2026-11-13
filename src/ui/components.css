@@ -3,7 +3,10 @@
    to React/Tailwind components later. */
 
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html {
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none;
+}
 body {
   margin: 0;
   background: var(--bg);
@@ -13,6 +16,7 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   font-feature-settings: "cv11", "ss01";
+  overscroll-behavior: none;
 }
 button, input, select, textarea { font: inherit; color: inherit; }
 img, svg { display: block; }
