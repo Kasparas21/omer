@@ -86,9 +86,22 @@ OPENAI_API_KEY=sk-...
 
 Create the key at https://platform.openai.com/api-keys. Until it is present, `/api/config` reports `replayInsights: false` and the summary panel stays hidden; playback still works. After adding the key, recreate `omer-app` and apply migration `0008_replay_insights` if it has not run yet.
 
+## Team deploy rule (do not skip)
+
+Two people work in this repo. **Deploy only the tip of `main` after both UI and backend PRs are merged.** Never deploy a private branch, and never deploy `codex/dashboard-onboarding` (legacy) — that split is what wiped UI polish.
+
+Before every production deploy:
+
+1. `git fetch origin && git checkout main && git pull --ff-only`
+2. Confirm `git status` is clean and `HEAD` equals `origin/main`
+3. `git archive` / release **that** commit only
+4. If pull fails or `main` is missing a teammate’s merged work, fix that first — do not deploy over them
+
+Never `git push --force` to `main`. Use short personal branches + PRs into `main`, then deploy.
+
 ## Update app image
 
-Create a release archive with `git archive` from the reviewed commit. Extract it under `/opt/omer/releases/<release>` on the VPS so only committed source is deployed. Keep env files outside that directory. Build before stopping the running app:
+Create a release archive with `git archive` from the reviewed commit on **`main`**. Extract it under `/opt/omer/releases/<release>` on the VPS so only committed source is deployed. Keep env files outside that directory. Build before stopping the running app:
 
 ```sh
 cd /opt/omer/releases/<release>
