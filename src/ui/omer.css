@@ -285,3 +285,15 @@
   .people-bar .pill-tabs::-webkit-scrollbar { display: none; }
   .people-bar .pill-tabs .ib-tab { flex: none; }
 }
+
+/* Settings on top tabs: title, sliding pill tabs, then the section full width. */
+.omer-settings.st-page { display: grid; gap: 22px; width: var(--v2-rail); margin-inline: auto; padding: var(--page-start) 0 112px; }
+.st-top { display: grid; gap: 14px; justify-items: start; min-width: 0; }
+.st-title { margin: 6px 0 0; font-size: 28px; font-weight: 500; line-height: 1.2; letter-spacing: -0.025em; }
+.st-tabs { max-width: 100%; }
+.st-body { min-width: 0; }
+@media (max-width: 760px) {
+  .st-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
+  .st-tabs::-webkit-scrollbar { display: none; }
+  .st-tabs .ib-tab { flex: none; }
+}

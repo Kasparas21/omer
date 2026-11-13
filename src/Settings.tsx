@@ -1,14 +1,17 @@
-/* Settings, laid out like the kit's: a section list beside a sheet with side notes.
-   Sections match the kit; each one shows only what this product really does today. */
+/* Settings: sliding pill tabs on top, Brand knowledge first (glass folders with everything Ghost writes
+   emails with), then the other sections in their sheet with side notes. */
 import { useState } from 'react';
 import type { Project } from './project';
 import { Icon } from './ui/Icon';
 import { useThumb } from './ui/useThumb';
+import { useSlidingPill } from './ui/useSlidingPill';
+import { BrandKnowledge } from './BrandKnowledge';
+import { DEMO_BRAND_SPACE } from './brandStore';
 import { DemoChanges, DemoCompany, DemoPrivacy, DemoSending, useDemoSettingsCounts } from './DemoSettings';
 import type { Go } from './DashboardV2';
 
 export type DockMode = 'always' | 'scroll' | 'auto';
-export type SettingsTab = 'company' | 'changes' | 'sending' | 'privacy' | 'dock';
+export type SettingsTab = 'brand' | 'company' | 'changes' | 'sending' | 'privacy' | 'dock';
 type Tab = SettingsTab;
 
 const DOCK_MODES: { id: DockMode; label: string }[] = [
@@ -44,32 +47,37 @@ export function Settings({ project, snippet, dockMode, onDockMode, onCopy, onGui
   storageReady?: boolean;
   replayBusy?: boolean;
 }) {
-  const [tab, setTab] = useState<Tab>(startTab ?? 'company');
+  const [tab, setTab] = useState<Tab>(startTab ?? 'brand');
+  const tabPill = useSlidingPill<HTMLElement>(tab);
   const seg = useThumb<HTMLDivElement>('button[aria-pressed="true"]', `${tab}:${dockMode}`, true);
   const host = (() => { try { return new URL(project.origin).host; } catch { return project.origin; } })();
   const counts = useDemoSettingsCounts();
   const replayOn = Boolean(project.replayEnabled);
-  const tabs: { id: Tab; title: string; desc: string }[] = [
-    { id: 'company', title: 'Company', desc: demo ? (counts.company ? `${counts.company} need you` : 'All checked') : project.firstEventAt ? host : 'Install needed' },
-    { id: 'changes', title: 'Website changes', desc: demo ? (counts.changes ? `${counts.changes} to review` : 'Nothing to review') : 'Nothing to review' },
-    { id: 'sending', title: 'Sending', desc: 'Sender, limits and domain' },
-    { id: 'privacy', title: 'Privacy', desc: replayOn ? 'Replay on' : 'What we keep and for how long' },
-    { id: 'dock', title: 'Dock', desc: 'How the navigation behaves' },
+  const tabs: { id: Tab; title: string; badge?: number }[] = [
+    { id: 'brand', title: 'Brand knowledge' },
+    { id: 'company', title: 'Company', badge: demo ? counts.company : 0 },
+    { id: 'changes', title: 'Website changes', badge: demo ? counts.changes : 0 },
+    { id: 'sending', title: 'Sending' },
+    { id: 'privacy', title: 'Privacy' },
+    { id: 'dock', title: 'Dock' },
   ];
 
   return (
-    <div className="ib set omer-settings">
-      <nav className="ib-list" aria-label="Settings sections">
-        <h1 className="omer-set-title">Settings</h1>
-        <div className="set-navs">
+    <div className="omer-settings st-page">
+      <header className="st-top">
+        <h1 className="st-title">Settings</h1>
+        <nav className="pill-tabs st-tabs" aria-label="Settings sections" ref={tabPill}>
           {tabs.map((item) => (
-            <button key={item.id} type="button" className="set-nav omer-set-nav" aria-current={tab === item.id ? 'true' : 'false'} onClick={() => setTab(item.id)}>
-              <b>{item.title}</b><small>{item.desc}</small>
+            <button key={item.id} type="button" className="ib-tab" aria-pressed={tab === item.id} onClick={() => setTab(item.id)}>
+              {item.title}{item.badge ? <span>{item.badge}</span> : null}
             </button>
           ))}
-        </div>
-      </nav>
-      <div className="ib-detail">
+        </nav>
+      </header>
+      {tab === 'brand' ? (
+        <BrandKnowledge key={project.id} space={demo ? DEMO_BRAND_SPACE : project.id} storeName={project.name} host={host} />
+      ) : (
+      <div className="st-body omer-rows-in" key={tab}>
         <div className="set-sheet">
           {demo && tab === 'company' && <DemoCompany onGo={onGo} />}
           {demo && tab === 'changes' && <DemoChanges onGo={onGo} />}
@@ -180,6 +188,7 @@ export function Settings({ project, snippet, dockMode, onDockMode, onCopy, onGui
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }
