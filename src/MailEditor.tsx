@@ -1,10 +1,17 @@
 /* The email editor: the email on a dotted canvas, blocks to add down the left, the style (or the picked block)
-   on the right, Desktop/iPhone and undo/redo in a small dock. Changes stay a draft until Publish. */
+   on the right, Desktop/iPhone and undo/redo in a small dock. You write it: subject, preview, headline, text,
+   images and products from Brand knowledge (or uploaded, or a link), the button and where it goes. Changes
+   stay a draft until Save. */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon, type IconName } from './ui/Icon';
-import { FONTS, MailBody, MailPhone, pageVars, type MailEdit } from './Mail';
-import { STORE, type BlockStyle, type MailDoc, type PageStyle } from './storeData';
+import { Dropdown } from './ui/Dropdown';
+import { Uploader } from './ui/Uploader';
+import { toast } from './ui/toast';
+import { FONTS, MailBody, MailPhone, pageVars, useMailBrand, type MailEdit } from './Mail';
+import { PHOTOS, STORE, photo, type BlockStyle, type MailDoc, type PageStyle, type Product } from './storeData';
 import { useSlidingPill } from './ui/useSlidingPill';
+import type { Brand, BrandFile } from './brandStore';
+import { lastingSrc, uploadImage } from './campaignMail';
 
 export type Draft = { doc: MailDoc; page: PageStyle };
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -15,26 +22,52 @@ const ADD: { type: string; icon: IconName; label: string }[] = [
   { type: 'sig', icon: 'user', label: 'Signature' },
 ];
 const BLOCK: Record<string, { icon: IconName; name: string; hint: string }> = {
-  logo: { icon: 'image', name: 'Logo', hint: 'Your logo and colour come from your brand kit, so every email matches your site.' },
-  headline: { icon: 'heading', name: 'Heading', hint: 'The first thing they read. Keep it short.' },
-  body: { icon: 'list', name: 'Text', hint: 'A paragraph of the email.' },
-  products: { icon: 'cart', name: 'Products', hint: 'Products from your store.' },
-  code: { icon: 'tag', name: 'Discount code', hint: 'A code made for this person.' },
-  cta: { icon: 'pointer', name: 'Button', hint: 'Where the email sends them.' },
-  hero: { icon: 'image', name: 'Image', hint: 'A big product photo at the top' },
-  cart: { icon: 'cart', name: 'Cart', hint: 'What’s in their cart, as they left it' },
-  perks: { icon: 'check', name: 'Perks', hint: 'Shipping and returns, from your store settings' },
-  sig: { icon: 'user', name: 'Signature', hint: 'Who the email is from' },
-  div: { icon: 'minus', name: 'Divider', hint: 'A thin line between parts of the email' },
-  footer: { icon: 'list', name: 'Footer', hint: 'Your address and an unsubscribe link.' },
+  logo: { icon: 'image', name: 'Logo', hint: 'From Brand knowledge.' },
+  headline: { icon: 'heading', name: 'Heading', hint: 'Click it in the email to type.' },
+  body: { icon: 'list', name: 'Text', hint: 'Click it in the email to type. {{first_name}} becomes their name.' },
+  products: { icon: 'cart', name: 'Products', hint: '' },
+  code: { icon: 'tag', name: 'Discount code', hint: '' },
+  cta: { icon: 'pointer', name: 'Button', hint: '' },
+  hero: { icon: 'image', name: 'Image', hint: '' },
+  cart: { icon: 'cart', name: 'Cart', hint: 'What’s in their cart, as they left it.' },
+  perks: { icon: 'check', name: 'Perks', hint: '' },
+  sig: { icon: 'user', name: 'Signature', hint: 'The sender is set in the campaign’s Settings.' },
+  div: { icon: 'minus', name: 'Divider', hint: '' },
+  footer: { icon: 'list', name: 'Footer', hint: 'An unsubscribe link is always added.' },
 };
+const DEMO_PRODUCTS: Product[] = (Object.keys(PHOTOS) as (keyof typeof PHOTOS)[]).map((k) => ({ photo: k, name: k[0].toUpperCase() + k.slice(1), now: '' }));
 const KIT = [STORE.color, '#191B22', '#2F5FD0', '#1F7A5C', '#B23A6B', '#7A3FC8'];
 
 /** The way back lives in the app shelf crumb above the editor, as in the kit. */
-export function MailEditor({ published, onPublish }: {
+export function MailEditor({ space, brand, published, onPublish }: {
+  /** Where uploads go: the store's project id, or the demo store. */
+  space: string;
+  brand: Brand;
   published: Draft;
   onPublish: (draft: Draft) => void;
 }) {
+  const mailBrand = useMailBrand();
+  // Swatches: the store's own colours first, then a few safe ones.
+  const kit = [...new Set([...brand.colors.map((c) => c.hex.toUpperCase()), ...KIT.map((c) => c.toUpperCase())])].slice(0, 6);
+  const [uploading, setUploading] = useState(false);
+  // What you can put in an email: the store's own photos and products (the demo store's examples otherwise).
+  const shelf = useMemo(() => {
+    const photos: { key: string; label: string; file?: BrandFile; src: string }[] = [
+      ...brand.photos.map((f) => ({ key: `p-${f.id}`, label: f.name, file: f, src: f.src })),
+      ...brand.products.flatMap((p) => [p.image, p.image2].filter(Boolean).map((f) => ({ key: `r-${f!.id}`, label: p.name, file: f!, src: f!.src }))),
+    ].filter((x) => x.src);
+    const products: Product[] = brand.products.length
+      ? brand.products.map((p) => ({ name: p.name, now: p.price, img: p.image?.src }))
+      : space === 'demo' ? DEMO_PRODUCTS : [];
+    return { photos, products, files: new Map(brand.products.map((p) => [p.name, p.image ?? null])) };
+  }, [brand]);
+  async function imageFrom(file: BrandFile | File | null, src?: string): Promise<string | null> {
+    if (!file) return src ?? null;
+    setUploading(true);
+    try { return file instanceof File ? await uploadImage(space, file) : await lastingSrc(space, file); }
+    catch (e) { toast(e instanceof Error ? e.message : 'Upload failed', { kind: 'warn' }); return null; }
+    finally { setUploading(false); }
+  }
   const [draft, setDraft] = useState<Draft>(() => clone(published));
   const [sel, setSel] = useState('page');
   const [device, setDevice] = useState<'desktop' | 'phone'>('desktop');
@@ -109,13 +142,15 @@ export function MailEditor({ published, onPublish }: {
     let key = '';
     change((d) => {
       const o = d.doc.order;
-      const at = sel === 'page' || sel === 'logo' ? Math.max(0, o.indexOf('footer') - 1) : o.indexOf(sel);
+      // With nothing picked, new blocks go above the sign-off (or the footer).
+      const end = o.includes('sig') ? o.indexOf('sig') : o.indexOf('footer');
+      const at = sel === 'page' || sel === 'logo' ? Math.max(-1, end - 1) : o.indexOf(sel);
       if (type === 'body') { d.doc.body.push('Write something here.'); key = `body.${d.doc.body.length - 1}`; }
       else if (type === 'div') key = `div.${Date.now()}`;
       else if (type === 'header') { if (!d.doc.headline) d.doc.headline = 'A short heading'; key = 'headline'; }
-      else if (type === 'image') { d.doc.hero ??= { photo: d.doc.products?.[0]?.photo ?? 'starter' }; key = 'hero'; }
+      else if (type === 'image') { d.doc.hero ??= {}; key = 'hero'; }
       else if (type === 'button') { if (!d.doc.cta) d.doc.cta = 'Shop now'; key = 'cta'; }
-      else if (type === 'product') { if (!d.doc.products?.length) d.doc.products = [{ photo: 'starter', name: 'Kitten Starter Pack', now: '$49.00', note: 'From your store' }]; key = 'products'; }
+      else if (type === 'product') { if (!d.doc.products?.length) d.doc.products = []; key = 'products'; }
       else if (type === 'sig') key = 'sig';
       if (key && !o.includes(key)) o.splice(at + 1, 0, key);
     });
@@ -136,7 +171,7 @@ export function MailEditor({ published, onPublish }: {
             <Color label="Text" value={draft.page.text} onChange={(v) => setPage('text', v)} />
           </div>
           <div className="cpe-f"><span>Buttons and logo</span>
-            <div className="cpe-kit">{KIT.map((c) => <button key={c} type="button" className="cpe-kit-sw" style={{ ['--c' as string]: c }} aria-pressed={draft.page.accent.toLowerCase() === c.toLowerCase()} aria-label={`Use ${c}`} onClick={() => setPage('accent', c)} />)}</div>
+            <div className="cpe-kit">{kit.map((c) => <button key={c} type="button" className="cpe-kit-sw" style={{ ['--c' as string]: c }} aria-pressed={draft.page.accent.toLowerCase() === c.toLowerCase()} aria-label={`Use ${c}`} onClick={() => setPage('accent', c)} />)}</div>
           </div>
         </section>
         <section className="cpe-sec"><h4>Text</h4>
@@ -164,26 +199,71 @@ export function MailEditor({ published, onPublish }: {
       </div>
     );
     const alignSeg = seg('Align', 'align', s.align ?? 'left', [['left', 'Left'], ['center', 'Center']]);
+    const heroSrc = doc.hero?.src || (doc.hero?.photo ? photo(PHOTOS[doc.hero.photo], 400) : '');
+    const setHero = (src: string | null) => { if (src) change((d) => { d.doc.hero = { src }; }); };
+    const productSrc = (p: Product) => p.img || (p.photo ? photo(PHOTOS[p.photo], 200) : '');
+    const addProduct = async (p: Product) => {
+      const file = shelf.files.get(p.name) ?? null;
+      const img = file ? await imageFrom(file) : p.img ?? null;
+      change((d) => { d.doc.products = [...(d.doc.products ?? []), { ...p, img: img ?? p.img }]; if (!d.doc.order.includes('products')) d.doc.order.splice(Math.max(0, d.doc.order.indexOf('cta')), 0, 'products'); });
+    };
     return (
       <>
         <header><button type="button" className="cpe-back" aria-label="Back to style" onClick={() => setSel('page')}><Icon name="chevronLeft" /></button><Icon name={info.icon} /><h3>{info.name}</h3></header>
         <div className="v2-in cpe-panel-in">
           <section className="cpe-sec">
-            <p className="cpe-hint">{info.hint}</p>
+            {info.hint ? <p className="cpe-hint">{info.hint}</p> : null}
             {type === 'headline' && <>{seg('Size', 'size', s.size ?? 'm', [['s', 'Small'], ['m', 'Medium'], ['l', 'Large']])}{alignSeg}</>}
-            {type === 'body' && <>{alignSeg}<p className="cpe-hint">Click the words in the email to change them. Type {'{{first_name}}'} where their name should go.</p></>}
+            {type === 'body' && alignSeg}
             {type === 'cta' && <>
               <label className="cpe-f"><span>Button text</span><input className="input cpe-text" value={doc.cta} onChange={(e) => change((d) => { d.doc.cta = e.target.value; })} /></label>
+              <label className="cpe-f"><span>Link</span><input className="input cpe-text" value={doc.ctaUrl ?? ''} placeholder="https://… (your store if empty)" inputMode="url" onChange={(e) => change((d) => { d.doc.ctaUrl = e.target.value.trim(); })} /></label>
               {seg('Width', 'width', s.width ?? 'full', [['full', 'Full width'], ['fit', 'Fit text']])}
+            </>}
+            {type === 'hero' && <>
+              {heroSrc ? <div className="cpe-img-now"><img src={heroSrc} alt="" /></div> : null}
+              {shelf.photos.length ? <div className="cpe-f"><span>From Brand knowledge</span>
+                <div className="cpe-shelf">{shelf.photos.map((p) => (
+                  <button key={p.key} type="button" className="cpe-shelf-i" aria-label={`Use ${p.label}`} aria-pressed={heroSrc === p.src} disabled={uploading}
+                    onClick={() => void imageFrom(p.file ?? null, p.src).then(setHero)}><img src={p.src} alt="" /></button>
+                ))}</div></div> : null}
+              <Uploader compact accept="image/png,image/jpeg,image/webp,image/gif" maxMb={5} title={uploading ? 'Uploading…' : 'Upload an image'}
+                onFiles={([f]) => void imageFrom(f).then(setHero)} />
+              <label className="cpe-f"><span>Or a link</span><input className="input cpe-text" placeholder="https://…" inputMode="url" defaultValue={doc.hero?.src?.startsWith('http') ? doc.hero.src : ''}
+                onBlur={(e) => { const v = e.target.value.trim(); if (/^https?:\/\//i.test(v)) setHero(v); }} /></label>
             </>}
             {type === 'code' && doc.code && <>
               <label className="cpe-f"><span>Line under the code</span><input className="input cpe-text" value={doc.code.n} onChange={(e) => change((d) => { if (d.doc.code) d.doc.code.n = e.target.value; })} /></label>
               <p className="cpe-hint">The code itself is checked against your store before each email.</p>
             </>}
-            {type === 'products' && <>{(doc.products?.length ?? 0) > 1 ? seg('Layout', 'layout', s.layout ?? 'side', [['side', 'Side by side'], ['list', 'List']]) : null}<p className="cpe-hint">Photos and prices come straight from your store.</p></>}
+            {type === 'products' && <>
+              {(doc.products?.length ?? 0) > 1 ? seg('Layout', 'layout', s.layout ?? 'side', [['side', 'Side by side'], ['list', 'List']]) : null}
+              {doc.products?.length ? <ul className="cpe-prods">{doc.products.map((p, i) => (
+                <li key={i}>
+                  <label className="cpe-prod-img" title="Change the photo">
+                    {productSrc(p) ? <img src={productSrc(p)} alt="" /> : <span className="cpe-prod-ph"><Icon name="upload" /></span>}
+                    <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden
+                      onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void imageFrom(f).then((src) => { if (src) change((d) => { d.doc.products![i].img = src; delete d.doc.products![i].photo; }); }); }} />
+                  </label>
+                  <span className="cpe-prod-t">
+                    <input className="cpe-plain" value={p.name} placeholder="Name" aria-label="Product name" onChange={(e) => change((d) => { d.doc.products![i].name = e.target.value; })} />
+                    <input className="cpe-plain small" value={p.now} placeholder="Price" aria-label="Price" onChange={(e) => change((d) => { d.doc.products![i].now = e.target.value; })} />
+                  </span>
+                  <button type="button" className="cpe-x" aria-label={`Remove ${p.name}`} onClick={() => change((d) => { d.doc.products!.splice(i, 1); })}><Icon name="x" /></button>
+                </li>
+              ))}</ul> : null}
+              <div className="cpe-f"><span>Add</span>
+                <div className="cpe-shelf">{shelf.products.filter((p) => !doc.products?.some((x) => x.name === p.name)).map((p) => (
+                  <button key={p.name} type="button" className="cpe-shelf-i" title={p.name} aria-label={`Add ${p.name}`} disabled={uploading} onClick={() => void addProduct(p)}>
+                    {productSrc(p) ? <img src={productSrc(p)} alt="" /> : <Icon name="cart" />}
+                  </button>
+                ))}
+                <button type="button" className="cpe-shelf-i is-new" aria-label="Add a product by hand" onClick={() => void addProduct({ name: 'Product', now: '' })}><Icon name="plus" /></button>
+                </div>
+              </div>
+            </>}
             {type === 'footer' && <>
-              <label className="cpe-f"><span>Footer text</span><input className="input cpe-text" value={doc.footer ?? STORE.address} onChange={(e) => change((d) => { d.doc.footer = e.target.value; })} /></label>
-              <p className="cpe-hint">Your address and an unsubscribe link are required.</p>
+              <label className="cpe-f"><span>Footer text</span><input className="input cpe-text" value={doc.footer ?? (mailBrand.paw ? STORE.address : mailBrand.address)} onChange={(e) => change((d) => { d.doc.footer = e.target.value; })} /></label>
             </>}
           </section>
           {type === 'logo' || type === 'footer' ? null : <button type="button" className="btn btn-ghost btn-sm cpe-del" onClick={() => edit.onAct('del')}><Icon name="trash" />Remove this block</button>}
@@ -193,6 +273,7 @@ export function MailEditor({ published, onPublish }: {
   })();
 
   const subject = <input className="cpe-subject" value={doc.subject} placeholder="Subject line" aria-label="Subject" onChange={(e) => change((d) => { d.doc.subject = e.target.value; })} />;
+  const previewLine = <input className="cpe-subject cpe-preview" value={doc.preview ?? ''} placeholder="Preview text (after the subject in the inbox)" aria-label="Preview text" onChange={(e) => change((d) => { d.doc.preview = e.target.value; })} />;
 
   return (
     <div className="cpe">
@@ -204,6 +285,7 @@ export function MailEditor({ published, onPublish }: {
           ) : (
             <div className="cpe-zoom">
               <label className="cpe-subjrow"><span>Subject</span>{subject}</label>
+              <label className="cpe-subjrow"><span>Preview</span>{previewLine}</label>
               <div className="cpe-page ml-skin" style={pageVars(draft.page)}><MailBody doc={doc} edit={edit} /></div>
             </div>
           )}
@@ -229,8 +311,8 @@ export function MailEditor({ published, onPublish }: {
         <div className="cpe-side">
           <aside className="cpe-panel v2-card" aria-label="Style">{panel}</aside>
           <div className="cpe-pubrow">
-            {dirty ? <span className="cpe-state">Not live yet</span> : null}
-            <button type="button" className="btn btn-primary cpe-pub" disabled={!dirty} onClick={() => onPublish(clone(draft))}>Publish</button>
+            <span className="cpe-state">{dirty ? 'Unsaved changes' : 'Saved'}</span>
+            <button type="button" className="btn btn-primary cpe-pub" disabled={!dirty || uploading} onClick={() => onPublish(clone(draft))}>Save</button>
           </div>
         </div>
       </div>
@@ -253,7 +335,7 @@ function Color({ label, value, onChange }: { label: string; value: string; onCha
 function Font({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
     <label className="cpe-f"><span>{label}</span>
-      <span className="cpe-select-wrap"><select className="select cpe-select" value={value} aria-label={label} onChange={(e) => onChange(e.target.value)}>{FONTS.map((f) => <option key={f}>{f}</option>)}</select><Icon name="chevronDown" /></span>
+      <Dropdown label={label} value={value} className="cpe-dd" options={FONTS.map((f) => ({ value: f, label: f }))} onChange={onChange} />
     </label>
   );
 }

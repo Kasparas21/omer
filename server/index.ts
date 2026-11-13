@@ -8,6 +8,7 @@ import { brandImportReady } from './brand-import';
 import { firecrawlConfigured } from './firecrawl';
 import { openaiConfigured } from './replay-insight';
 import projects from './projects';
+import { loadImage } from './campaigns';
 
 // Single-server demo limits; bounded memory, no visitor IP persisted in project data.
 function limiter(max: number) {
@@ -25,7 +26,10 @@ function limiter(max: number) {
 }
 const env = { ALLOW_LOCAL_SITES: process.env.ALLOW_LOCAL_SITES, CREATE_LIMIT: limiter(10), COLLECT_LIMIT: limiter(600) };
 const app = new Hono();
-app.use('/api/*', bodyLimit({ maxSize: 400_000 }));
+// Email images upload on their own route with a bigger allowance; everything else under /api stays small.
+const smallBodies = bodyLimit({ maxSize: 400_000 });
+const imageBodies = bodyLimit({ maxSize: 5 * 1024 * 1024 + 1024 });
+app.use('/api/*', (c, next) => (/^\/api\/projects\/[0-9a-f-]{36}\/assets$/i.test(c.req.path) ? imageBodies(c, next) : smallBodies(c, next)));
 app.use('/v1/collect/replay-chunks', bodyLimit({ maxSize: 4_000_000 }));
 app.use('/v1/collect/event', bodyLimit({ maxSize: 16384 }));
 app.use('/api/*', async (c, next) => { c.header('Cache-Control', 'no-store'); await next(); });
@@ -43,6 +47,9 @@ app.get('/api/projects/:id/live/stream', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/live', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/brand', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/brand/*', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/campaigns', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/campaigns/*', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/assets', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/visitors/:vid', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/visitors/:vid/insight', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/replays/:rid/summary', (c) => projects.fetch(c.req.raw, env));
@@ -52,6 +59,12 @@ app.all('/v1/collect/install', (c) => projects.fetch(c.req.raw, env));
 app.all('/v1/collect/event', (c) => projects.fetch(c.req.raw, env));
 app.all('/v1/collect/config', (c) => projects.fetch(c.req.raw, env));
 app.all('/v1/collect/replay-chunks', (c) => projects.fetch(c.req.raw, env));
+// Email images: public (inboxes load them), named by random ids, and never change once stored.
+app.get('/i/:project/:file', async (c) => {
+  const image = await loadImage(`${c.req.param('project')}/${c.req.param('file')}`);
+  if (!image) return c.text('Not found', 404);
+  return c.body(new Uint8Array(image.body), 200, { 'Content-Type': image.type, 'Cache-Control': 'public, max-age=31536000, immutable' });
+});
 app.get('/health', async (c) => { await pool.query('select 1'); return c.json({ status: 'ready' }); });
 app.all('/api/*', (c) => c.json({ error: 'Not found' }, 404));
 app.all('/v1/*', (c) => c.json({ error: 'Not found' }, 404));
