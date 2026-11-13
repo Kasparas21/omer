@@ -28,7 +28,7 @@ export type Brand = {
   facts: StoreFact[];
   importedAt?: string | null;
 };
-export type FolderId = 'identity' | 'products' | 'brand' | 'facts';
+export type FolderId = 'logo' | 'colors' | 'fonts' | 'products' | 'brand' | 'facts';
 
 export const DEMO_BRAND_SPACE = 'demo';
 export const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
@@ -255,27 +255,12 @@ export function fileFrom(file: File): BrandFile {
 
 /** How many things are in each folder, for its label. */
 export function folderCount(b: Brand, folder: FolderId) {
-  if (folder === 'identity') {
-    return Object.values(b.logos).filter(Boolean).length
-      + b.colors.length
-      + b.fonts.filter((f) => f.family || f.file).length;
-  }
+  if (folder === 'logo') return Object.values(b.logos).filter(Boolean).length;
+  if (folder === 'colors') return b.colors.length;
+  if (folder === 'fonts') return b.fonts.filter((f) => f.family || f.file).length;
   if (folder === 'products') return b.products.length;
   const docs = b.docs || { product: '', voice: '' };
   // Product Information sits with the store facts; the Brand Voice Guide with photos & voice.
   if (folder === 'facts') return (b.facts?.length ?? 0) + (docs.product.trim() ? 1 : 0);
   return b.photos.length + (b.voice.tagline || b.voice.tone || b.voice.about ? 1 : 0) + (docs.voice.trim() ? 1 : 0);
-}
-
-/** Closed-folder caption for Identity: “3 logos · 5 colors · 2 fonts”, or empty hint. */
-export function identityCountLabel(b: Brand, empty: string) {
-  const logos = Object.values(b.logos).filter(Boolean).length;
-  const colors = b.colors.length;
-  const fonts = b.fonts.filter((f) => f.family || f.file).length;
-  if (!logos && !colors && !fonts) return empty;
-  const parts: string[] = [];
-  if (logos) parts.push(`${logos} ${logos === 1 ? 'logo' : 'logos'}`);
-  if (colors) parts.push(`${colors} ${colors === 1 ? 'color' : 'colors'}`);
-  if (fonts) parts.push(`${fonts} ${fonts === 1 ? 'font' : 'fonts'}`);
-  return parts.join(' · ');
 }
