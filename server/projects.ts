@@ -51,6 +51,19 @@ function cors(origin: string) {
   return { 'Access-Control-Allow-Origin': origin, Vary: 'Origin', 'Cache-Control': 'no-store' };
 }
 
+/** Prefer Origin; fall back to Referer for sendBeacon leave uploads (some mobile browsers omit Origin). */
+function requestOrigin(request: Request) {
+  const origin = request.headers.get('Origin');
+  if (origin && origin !== 'null') return origin;
+  const referer = request.headers.get('Referer') || request.headers.get('Referrer');
+  if (!referer) return null;
+  try {
+    return new URL(referer).origin;
+  } catch {
+    return null;
+  }
+}
+
 /** Collect endpoints must always include CORS, including errors — otherwise browsers report Failed to fetch. */
 function collectReply(origin: string, status: number) {
   return new Response(null, { status, headers: cors(origin) });
@@ -893,8 +906,8 @@ async function collectConfig(request: Request, env: Env) {
 }
 
 async function receiveReplayChunk(request: Request, env: Env) {
-  const origin = request.headers.get('Origin');
-  if (!origin || origin === 'null') return new Response(null, { status: 403 });
+  const origin = requestOrigin(request);
+  if (!origin) return new Response(null, { status: 403 });
   if (!objectStoreConfigured()) return collectReply(origin, 503);
   const ip = request.headers.get('CF-Connecting-IP') ?? 'local';
   if (!(await env.COLLECT_LIMIT.limit({ key: `${ip}:replay` })).success) return collectReply(origin, 429);

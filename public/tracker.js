@@ -249,59 +249,83 @@
     let bytes = 0;
     let started = Date.now();
     let hasFull = false;
-    const tabId = sessionStorage.getItem(`uw_tab_${key}`) || (() => {
-      const id = newId().slice(0, 16);
-      try { sessionStorage.setItem(`uw_tab_${key}`, id); } catch { /* ignore */ }
-      return id;
+    const phone = deviceClass() === 'phone';
+    const tabId = (() => {
+      try {
+        const existing = sessionStorage.getItem(`uw_tab_${key}`);
+        if (existing) return existing;
+        const id = newId().slice(0, 16);
+        sessionStorage.setItem(`uw_tab_${key}`, id);
+        return id;
+      } catch {
+        return newId().slice(0, 16);
+      }
     })();
     const MAX_MS = 5 * 60_000;
     const MAX_BYTES = 5 * 1024 * 1024;
-    const FLUSH_BYTES = 180_000;
+    const FLUSH_BYTES = phone ? 100_000 : 180_000;
     const BATCH_EVENTS = 300;
-    const FLUSH_EVERY_MS = 2000;
-    const FIRST_FLUSH_DELAY_MS = 1800;
+    // Phones background tabs aggressively — upload the snapshot ASAP and flush often.
+    const FLUSH_EVERY_MS = phone ? 1200 : 2000;
+    const FIRST_FLUSH_DELAY_MS = phone ? 120 : 800;
+    const KEEPALIVE_MAX = 60_000;
     let flushing = false;
     let firstFlushTimer = 0;
+    let retries = 0;
 
-    async function sendBatch(batch) {
-      if (!batch.length) return true;
-      const body = JSON.stringify(batch);
-      if (bytes + body.length > MAX_BYTES) return false;
+    async function sendBatch(batch, { unload = false } = {}) {
+      if (!batch.length) return 'ok';
+      const eventsJson = JSON.stringify(batch);
+      if (bytes + eventsJson.length > MAX_BYTES) return 'drop';
       const batchId = newId();
-      const checksum = String(batchId.length + body.length + seq);
+      const checksum = String(batchId.length + eventsJson.length + seq);
+      const payload = JSON.stringify({
+        key,
+        vid: visitorId(),
+        sid: sessionId(),
+        tabId,
+        seq,
+        clientBatchId: batchId,
+        checksum,
+        hasFullSnapshot: hasFull || batch.some((e) => e?.type === 2),
+        events: batch,
+      });
+      // Chromium caps keepalive at 64KiB. Use it only for small unload flushes (mobile leave).
+      const useKeepalive = unload && payload.length <= KEEPALIVE_MAX;
       try {
-        // Do not use keepalive here — Chromium caps keepalive bodies at 64KiB, and a
-        // full DOM snapshot is far larger, so every flush would fail and block the queue.
+        if (unload && !useKeepalive && typeof navigator.sendBeacon === 'function') {
+          // Best-effort leave path when the snapshot is too big for keepalive.
+          const ok = navigator.sendBeacon(replayURL, new Blob([payload], { type: 'text/plain;charset=UTF-8' }));
+          if (ok) {
+            seq += 1;
+            bytes += eventsJson.length;
+            hasFull = hasFull || batch.some((e) => e?.type === 2);
+            return 'ok';
+          }
+        }
         const res = await fetch(replayURL, {
           method: 'POST',
           credentials: 'omit',
+          keepalive: useKeepalive,
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            key,
-            vid: visitorId(),
-            sid: sessionId(),
-            tabId,
-            seq,
-            clientBatchId: batchId,
-            checksum,
-            hasFullSnapshot: hasFull || batch.some((e) => e?.type === 2),
-            events: batch,
-          }),
+          body: payload,
         });
-        if (!res.ok) return false;
+        if (res.status === 400 || res.status === 413) return 'drop';
+        if (!res.ok) return 'retry';
         seq += 1;
-        bytes += body.length;
+        bytes += eventsJson.length;
         hasFull = hasFull || batch.some((e) => e?.type === 2);
-        return true;
+        retries = 0;
+        return 'ok';
       } catch {
-        return false;
+        return 'retry';
       }
     }
 
-    async function flush(force) {
+    async function flush(force, unload = false) {
       if (flushing || !events.length) return;
       const size = JSON.stringify(events).length;
-      if (!force && events.length < BATCH_EVENTS && size < FLUSH_BYTES && Date.now() - started < MAX_MS) return;
+      if (!force && !unload && events.length < BATCH_EVENTS && size < FLUSH_BYTES && Date.now() - started < MAX_MS) return;
       flushing = true;
       try {
         while (events.length) {
@@ -309,51 +333,80 @@
           // events pushed during upload would be wiped (that produced 00:00 stills).
           const take = Math.min(events.length, BATCH_EVENTS);
           const batch = events.slice(0, take);
-          const ok = await sendBatch(batch);
-          if (!ok) break;
-          events.splice(0, take);
+          const result = await sendBatch(batch, { unload });
+          if (result === 'ok') {
+            events.splice(0, take);
+            continue;
+          }
+          if (result === 'drop') {
+            events.splice(0, take);
+            continue;
+          }
+          retries += 1;
+          if (retries > 8) {
+            // Avoid wedging forever on a poison/network failure — drop this batch and keep going.
+            events.splice(0, take);
+            retries = 0;
+            continue;
+          }
+          break;
         }
       } finally {
         flushing = false;
       }
     }
 
-    function begin() {
+    function begin(light = false) {
       const record = window.rrweb?.record;
       if (stopped || typeof record !== 'function' || stopReplay) return;
-      const stop = record({
-        emit(event) {
-          if (stopped) return;
-          events.push(event);
-          if (event?.type === 2) {
-            hasFull = true;
-            // Wait briefly so mouse/scroll incrementals land in the first chunk.
-            if (!firstFlushTimer) {
-              firstFlushTimer = window.setTimeout(() => {
-                firstFlushTimer = 0;
-                void flush(true);
-              }, FIRST_FLUSH_DELAY_MS);
+      let stop;
+      try {
+        stop = record({
+          emit(event) {
+            if (stopped) return;
+            events.push(event);
+            if (event?.type === 2) {
+              hasFull = true;
+              // Upload snapshot quickly so a phone backgrounding the tab still leaves a replay.
+              if (!firstFlushTimer) {
+                firstFlushTimer = window.setTimeout(() => {
+                  firstFlushTimer = 0;
+                  void flush(true);
+                }, FIRST_FLUSH_DELAY_MS);
+              }
+              return;
             }
-            return;
-          }
-          if (events.length >= BATCH_EVENTS || JSON.stringify(events).length >= FLUSH_BYTES) void flush(true);
-        },
-        maskAllInputs: true,
-        maskTextSelector: 'input, textarea, [data-uw-mask]',
-        blockClass: 'uw-block',
-        blockSelector: 'input[type=password], [data-uw-block], .checkout, #checkout',
-        recordCanvas: false,
-        inlineStylesheet: true,
-        checkoutEveryNms: 30_000,
-        sampling: {
-          mousemove: 50,
-          mouseInteraction: true,
-          scroll: 150,
-          input: 'last',
-        },
-      });
+            if (events.length >= BATCH_EVENTS || JSON.stringify(events).length >= FLUSH_BYTES) void flush(true);
+          },
+          maskAllInputs: true,
+          maskTextSelector: 'input, textarea, [data-uw-mask]',
+          blockClass: 'uw-block',
+          blockSelector: 'input[type=password], [data-uw-block], .checkout, #checkout',
+          recordCanvas: false,
+          // Inlining stylesheets blows up mobile payloads and often fails to upload on cellular.
+          inlineStylesheet: !(phone || light),
+          checkoutEveryNms: 30_000,
+          sampling: {
+            mousemove: phone ? 100 : 50,
+            mouseInteraction: true,
+            scroll: phone ? 200 : 150,
+            input: 'last',
+          },
+        });
+      } catch {
+        if (!light) {
+          begin(true);
+          return;
+        }
+        return;
+      }
       const timer = window.setInterval(() => void flush(true), FLUSH_EVERY_MS);
-      const end = () => {
+      const onHidden = () => { void flush(true); };
+      const onPageHide = () => end(true);
+      const onVisibility = () => {
+        if (document.visibilityState === 'hidden') onHidden();
+      };
+      function end(unload = false) {
         if (stopped) return;
         stopped = true;
         window.clearInterval(timer);
@@ -362,16 +415,17 @@
           firstFlushTimer = 0;
         }
         try { stop?.(); } catch { /* ignore */ }
-        void flush(true);
-      };
-      window.addEventListener('pagehide', end);
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'hidden') void flush(true);
-      });
-      window.setTimeout(end, MAX_MS);
+        void flush(true, unload);
+      }
+      window.addEventListener('pagehide', onPageHide);
+      window.addEventListener('freeze', onHidden);
+      document.addEventListener('visibilitychange', onVisibility);
+      window.setTimeout(() => end(false), MAX_MS);
       stopReplay = () => {
-        window.removeEventListener('pagehide', end);
-        end();
+        window.removeEventListener('pagehide', onPageHide);
+        window.removeEventListener('freeze', onHidden);
+        document.removeEventListener('visibilitychange', onVisibility);
+        end(false);
         stopReplay = null;
       };
     }
@@ -383,15 +437,27 @@
     }
     const existing = document.querySelector('script[data-uw-rrweb]');
     if (existing) {
-      existing.addEventListener('load', begin);
+      // Cached/already-loaded script will not fire "load" again — don't miss begin() on mobile.
+      if (existing.dataset.loaded === '1' || window.rrweb?.record) begin();
+      else {
+        existing.addEventListener('load', () => {
+          existing.dataset.loaded = '1';
+          begin();
+        }, { once: true });
+        existing.addEventListener('error', () => { /* recorder unavailable */ }, { once: true });
+      }
       return;
     }
     const scriptEl = document.createElement('script');
     scriptEl.src = new URL('/vendor/rrweb.min.js', base).href;
     scriptEl.async = true;
     scriptEl.dataset.uwRrweb = '1';
+    scriptEl.crossOrigin = 'anonymous';
     scriptEl.onerror = () => { /* recorder unavailable */ };
-    scriptEl.onload = begin;
+    scriptEl.onload = () => {
+      scriptEl.dataset.loaded = '1';
+      begin();
+    };
     document.head.appendChild(scriptEl);
   }
 
