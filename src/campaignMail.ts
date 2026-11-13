@@ -14,17 +14,20 @@ export function storeMailBrand(storeName: string, brand: Brand, sender?: string,
 export function storePage(brand: Brand): PageStyle {
   const main = brand.colors.find((c) => c.role === 'main')?.hex || brand.colors[0]?.hex;
   const secondary = brand.colors.find((c) => c.role === 'secondary')?.hex;
-  const fontOf = (role: string) => {
+  const fontOf = (role: string, fallback: string) => {
     const family = brand.fonts.find((f) => f.role === role)?.family;
-    return family && FONTS.includes(family) ? family : PAGE_STYLE.headFont;
+    return family && FONTS.includes(family) ? family : fallback;
   };
   return {
     ...PAGE_STYLE,
-    bg: /^#[0-9a-f]{6}$/i.test(secondary ?? '') ? secondary! : PAGE_STYLE.bg,
-    text: '#2B2D33',
-    accent: /^#[0-9a-f]{6}$/i.test(main ?? '') ? main! : '#2B2D33',
-    headFont: fontOf('Headings'),
-    bodyFont: fontOf('Body'),
+    bg: /^#[0-9a-f]{6}$/i.test(secondary ?? '') ? secondary! : '#F6F6F6',
+    text: '#111111',
+    accent: /^#[0-9a-f]{6}$/i.test(main ?? '') ? main! : '#111111',
+    headFont: fontOf('Headings', 'Georgia'),
+    bodyFont: fontOf('Body', 'Helvetica'),
+    size: 16,
+    width: 600,
+    corners: 16,
   };
 }
 
@@ -32,7 +35,7 @@ export function storePage(brand: Brand): PageStyle {
 export function starterMail(): MailDoc {
   return {
     kind: 'brand', subject: '', preview: '', headline: '', body: ['Hi {{first_name}},', ''], cta: 'Shop now', ctaUrl: '',
-    order: ['headline', 'body.0', 'body.1', 'cta', 'sig', 'footer'], blocks: {},
+    order: ['hero', 'headline', 'body.0', 'body.1', 'cta', 'sig', 'footer'], blocks: {},
   };
 }
 
