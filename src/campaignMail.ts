@@ -10,14 +10,22 @@ export function storeMailBrand(storeName: string, brand: Brand, sender?: string,
   return { name: storeName, logo: logo?.src || undefined, sender: sender?.trim() || storeName, signoff: storeName, address: host ? `${storeName} · ${host}` : storeName };
 }
 
-/** The store's look: its main colour for buttons, its fonts where we have them. */
+/** The store's look: its main colour for buttons, secondary for page wash, fonts where we have them. */
 export function storePage(brand: Brand): PageStyle {
-  const main = brand.colors.find((c) => c.role === 'main')?.hex;
+  const main = brand.colors.find((c) => c.role === 'main')?.hex || brand.colors[0]?.hex;
+  const secondary = brand.colors.find((c) => c.role === 'secondary')?.hex;
   const fontOf = (role: string) => {
     const family = brand.fonts.find((f) => f.role === role)?.family;
     return family && FONTS.includes(family) ? family : PAGE_STYLE.headFont;
   };
-  return { ...PAGE_STYLE, text: '#2B2D33', accent: /^#[0-9a-f]{6}$/i.test(main ?? '') ? main! : '#2B2D33', headFont: fontOf('Headings'), bodyFont: fontOf('Body') };
+  return {
+    ...PAGE_STYLE,
+    bg: /^#[0-9a-f]{6}$/i.test(secondary ?? '') ? secondary! : PAGE_STYLE.bg,
+    text: '#2B2D33',
+    accent: /^#[0-9a-f]{6}$/i.test(main ?? '') ? main! : '#2B2D33',
+    headFont: fontOf('Headings'),
+    bodyFont: fontOf('Body'),
+  };
 }
 
 /** A blank email: you write the subject, headline and message; the button and sign-off are there to edit. */

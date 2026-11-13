@@ -1,5 +1,5 @@
 /* Opportunities: people worth a follow-up, a rail to pick one, why we think so, and the email we'd send.
-   Laid out like the UI kit. Demo store has full drafts; real projects show the email-ready queue without send. */
+   Laid out like the UI kit. Demo store has full drafts; real projects draft via Luna into MailEditor and can send via SES. */
 import { useEffect, useState } from 'react';
 import { Icon } from './ui/Icon';
 import { Orb } from './ui/Orb';
@@ -8,9 +8,10 @@ import { Menu } from './ui/Menu';
 import { toast } from './ui/toast';
 import { MailBody, MailPhone, Sender, pageVars, senderName } from './Mail';
 import { MailEditor } from './MailEditor';
-import { PAGE_STYLE, PEOPLE, STORE, type JourneyDay, type Person, type Reply, type ReplyState } from './storeData';
+import { PAGE_STYLE, PEOPLE, STORE, type JourneyDay, type MailDoc, type PageStyle, type Person, type Reply, type ReplyState } from './storeData';
 import { demo as store, useDemo, type PersonState, DEMO_SPACE } from './demoState';
 import { DEMO_BRAND_SPACE, useBrand } from './brandStore';
+import { storePage } from './campaignMail';
 
 type RealOpp = {
   id: string;
@@ -21,6 +22,10 @@ type RealOpp = {
   insightSummary: string | null;
   email: string | null;
   name: string | null;
+  hasDraft?: boolean;
+  draft?: MailDoc | null;
+  page?: PageStyle | null;
+  suppressed?: boolean;
 };
 
 type Tab = 'review' | 'hold' | 'approved' | 'replies';
@@ -63,6 +68,7 @@ export function Opportunities({ demo, projectId, editing, onEdit, onPeople, onBa
 }) {
   const { people, replies, campaigns } = useDemo();
   const demoBrand = useBrand(DEMO_BRAND_SPACE);
+  const realBrand = useBrand(projectId && !demo ? projectId : DEMO_BRAND_SPACE);
   const [tab, setTab] = useState<Tab>(start?.tab ?? 'review');
   const [camp, setCamp] = useState('all');
   const [pickedId, setPicked] = useState<string>(start?.tab !== 'replies' && start?.id ? start.id : 'alex');
@@ -70,6 +76,8 @@ export function Opportunities({ demo, projectId, editing, onEdit, onPeople, onBa
   const [device, setDevice] = useState<'desktop' | 'phone'>('desktop');
   const [realOpps, setRealOpps] = useState<RealOpp[] | null>(null);
   const [realBusy, setRealBusy] = useState(false);
+  const [sesOn, setSesOn] = useState(false);
+  const [editOppId, setEditOppId] = useState<string | null>(null);
 
   useEffect(() => {
     if (demo || !projectId) return;
@@ -80,11 +88,17 @@ export function Opportunities({ demo, projectId, editing, onEdit, onPeople, onBa
         if (!gone) setRealOpps(Array.isArray(data.opportunities) ? data.opportunities : []);
       })
       .catch(() => { if (!gone) setRealOpps([]); });
+    void fetch('/api/config').then(async (res) => {
+      const data = await res.json().catch(() => ({})) as { ses?: boolean };
+      if (!gone) setSesOn(Boolean(data.ses));
+    }).catch(() => undefined);
     return () => { gone = true; };
   }, [demo, projectId]);
 
   if (!demo) {
-    const list = (realOpps || []).filter((o) => o.status === 'review' || o.status === 'hold' || o.status === 'ready_for_draft');
+    const list = (realOpps || []).filter((o) => !o.suppressed && (o.status === 'review' || o.status === 'hold' || o.status === 'ready_for_draft' || o.status === 'drafted'));
+    const editingOpp = editOppId ? (realOpps || []).find((o) => o.id === editOppId) : null;
+
     const patch = async (id: string, status: string) => {
       if (!projectId || realBusy) return;
       setRealBusy(true);
@@ -96,13 +110,99 @@ export function Opportunities({ demo, projectId, editing, onEdit, onPeople, onBa
         });
         if (!res.ok) throw new Error('Could not update');
         setRealOpps((prev) => (prev || []).map((o) => (o.id === id ? { ...o, status } : o)));
-        toast(status === 'dismissed' ? 'Dismissed' : status === 'hold' ? 'On hold' : 'Marked ready for drafting');
+        toast(status === 'dismissed' ? 'Dismissed' : status === 'hold' ? 'On hold' : 'Updated');
       } catch {
         toast('Could not update', { kind: 'warn' });
       } finally {
         setRealBusy(false);
       }
     };
+
+    const draft = async (id: string) => {
+      if (!projectId || realBusy) return;
+      setRealBusy(true);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/opportunities/${id}/draft`, { method: 'POST' });
+        const data = await res.json().catch(() => ({})) as { draft?: MailDoc; page?: PageStyle; error?: string };
+        if (!res.ok || !data.draft) throw new Error(data.error || 'Draft failed');
+        const page = data.page || storePage(realBrand);
+        setRealOpps((prev) => (prev || []).map((o) => (o.id === id ? {
+          ...o,
+          status: 'drafted',
+          hasDraft: true,
+          draft: { ...data.draft!, blocks: data.draft!.blocks || {} },
+          page,
+        } : o)));
+        setEditOppId(id);
+        onEdit(true);
+        toast('Draft ready');
+      } catch (error) {
+        toast(error instanceof Error ? error.message : 'Could not draft', { kind: 'warn' });
+      } finally {
+        setRealBusy(false);
+      }
+    };
+
+    const openDraft = (o: RealOpp) => {
+      if (!o.draft) {
+        void draft(o.id);
+        return;
+      }
+      setEditOppId(o.id);
+      onEdit(true);
+    };
+
+    const send = async (id: string) => {
+      if (!projectId || realBusy || !sesOn) return;
+      setRealBusy(true);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/opportunities/${id}/send`, { method: 'POST' });
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        if (!res.ok) throw new Error(data.error || 'Send failed');
+        setRealOpps((prev) => (prev || []).map((o) => (o.id === id ? { ...o, status: 'sent' } : o)));
+        setEditOppId(null);
+        onEdit(false);
+        toast('Sent');
+      } catch (error) {
+        toast(error instanceof Error ? error.message : 'Could not send', { kind: 'warn' });
+      } finally {
+        setRealBusy(false);
+      }
+    };
+
+    if (editing && editingOpp?.draft && projectId) {
+      return (
+        <div className="op-real-editor">
+          <div className="op-real-editor-bar">
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setEditOppId(null); onEdit(false); }}>
+              <Icon name="chevronLeft" />Opportunities
+            </button>
+            <span>{editingOpp.name || editingOpp.email || 'Draft'}</span>
+            <button type="button" className="btn btn-primary btn-sm" disabled={realBusy || !sesOn} title={sesOn ? 'Send with SES' : 'SES is not configured yet'} onClick={() => void send(editingOpp.id)}>
+              {sesOn ? 'Send' : 'Send (SES off)'}
+            </button>
+          </div>
+          <MailEditor
+            key={editingOpp.id}
+            space={projectId}
+            brand={realBrand}
+            published={{ doc: { ...editingOpp.draft, blocks: editingOpp.draft.blocks || {} }, page: editingOpp.page || storePage(realBrand) }}
+            onPublish={(draftSave) => {
+              void (async () => {
+                const res = await fetch(`/api/projects/${projectId}/opportunities/${editingOpp.id}/draft`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ draft: draftSave.doc, page: draftSave.page }),
+                });
+                if (!res.ok) { toast('Could not save draft', { kind: 'warn' }); return; }
+                setRealOpps((prev) => (prev || []).map((o) => (o.id === editingOpp.id ? { ...o, draft: draftSave.doc, page: draftSave.page, hasDraft: true, status: 'drafted' } : o)));
+                toast('Saved draft');
+              })();
+            }}
+          />
+        </div>
+      );
+    }
 
     if (realOpps === null) {
       return (
@@ -118,7 +218,7 @@ export function Opportunities({ demo, projectId, editing, onEdit, onPeople, onBa
           <h1 className="sr-only">Opportunities</h1>
           <span className="omer-blank-ic" aria-hidden="true"><Icon name="mail" /></span>
           <h2>Nothing to review yet</h2>
-          <p>When a visitor is email-ready and identified, they show up here. Drafting and sending come next.</p>
+          <p>When a visitor is email-ready and identified, they show up here for a personal draft.</p>
           <button type="button" className="btn btn-secondary omer-blank-cta" onClick={onPeople}>See who’s visiting<Icon name="arrowUpRight" /></button>
         </div>
       );
@@ -128,7 +228,7 @@ export function Opportunities({ demo, projectId, editing, onEdit, onPeople, onBa
       <div className="op-screen op-real">
         <header className="op-top">
           <h1 className="op-title">Opportunities</h1>
-          <p className="op-real-lede">Email-ready people. Drafts and sending are not live yet.</p>
+          <p className="op-real-lede">Email-ready people. Draft on-brand follow-ups{sesOn ? ', then send' : ' (configure SES to send)'}.</p>
         </header>
         <ul className="op-real-list">
           {list.map((o) => (
@@ -144,7 +244,12 @@ export function Opportunities({ demo, projectId, editing, onEdit, onPeople, onBa
                 </div>
               ) : null}
               <div className="op-real-acts">
-                <button type="button" className="btn btn-secondary btn-sm" disabled={realBusy} onClick={() => void patch(o.id, 'ready_for_draft')}>Ready for draft</button>
+                <button type="button" className="btn btn-primary btn-sm" disabled={realBusy} onClick={() => void openDraft(o)}>
+                  {o.hasDraft || o.draft ? 'Edit draft' : 'Draft email'}
+                </button>
+                {o.hasDraft || o.draft ? (
+                  <button type="button" className="btn btn-secondary btn-sm" disabled={realBusy || !sesOn} onClick={() => void send(o.id)}>Send</button>
+                ) : null}
                 <button type="button" className="btn btn-ghost btn-sm" disabled={realBusy} onClick={() => void patch(o.id, 'hold')}>Hold</button>
                 <button type="button" className="btn btn-ghost btn-sm" disabled={realBusy} onClick={() => void patch(o.id, 'dismissed')}>Dismiss</button>
               </div>

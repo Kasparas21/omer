@@ -23,7 +23,10 @@ import {
   refreshCampaignSuggestions,
   upsertOpportunityFromInsight,
 } from './opportunities';
+import { draftOpportunityEmail, saveOpportunityDraft } from './email-draft';
+import { sendOpportunityEmail } from './email-send';
 import { loadEmailContext } from './email-context';
+import { sesConfigured } from './ses';
 import { CAMPAIGN_ID, MAX_IMAGE_BYTES, deleteCampaign, describeTrigger, imageStorageReady, listCampaigns, saveCampaign, storeImage } from './campaigns';
 import { dailyVisitors, dwell, emailEvents, identities, pageViews, pathViews, projects, purchases, referrerViews, replayChunks, replayInsights, replaySessions, visitorInsights, visits } from './schema';
 import { auth, pool, appURL } from './auth';
@@ -1577,6 +1580,67 @@ async function patchOpportunityRoute(request: Request, env: Env, projectId: stri
   });
 }
 
+async function draftOpportunityRoute(request: Request, env: Env, projectId: string, opportunityId: string) {
+  if (!uuid.test(projectId) || !uuid.test(opportunityId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to draft.' }, 401);
+  if (!openaiConfigured()) return json({ error: 'OpenAI is not configured.' }, 503);
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    try {
+      const result = await draftOpportunityEmail(db, projectId, opportunityId);
+      return json({
+        draft: result.draft,
+        page: result.page,
+        opportunity: {
+          id: result.opportunity?.id,
+          status: result.opportunity?.status,
+          email: result.opportunity?.email,
+          name: result.opportunity?.name,
+          visitorId: result.opportunity?.visitorId,
+        },
+      });
+    } catch (error) {
+      console.error('opportunity draft failed', error);
+      return json({ error: error instanceof Error ? error.message.slice(0, 240) : 'Draft failed' }, 502);
+    }
+  });
+}
+
+async function saveOpportunityDraftRoute(request: Request, env: Env, projectId: string, opportunityId: string) {
+  if (!uuid.test(projectId) || !uuid.test(opportunityId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to save drafts.' }, 401);
+  const raw = await readText(request, 200_000);
+  if (raw === null) return json({ error: 'Payload too large.' }, 413);
+  let body: { draft?: Record<string, unknown>; page?: Record<string, unknown> } | null;
+  try { body = JSON.parse(raw); } catch { return json({ error: 'Invalid JSON.' }, 400); }
+  if (!body?.draft || !body?.page) return json({ error: 'draft and page required.' }, 400);
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    const row = await saveOpportunityDraft(db, projectId, opportunityId, body!.draft as never, body!.page as never);
+    if (!row) return json({ error: 'Not found.' }, 404);
+    return json({ ok: true, status: row.status });
+  });
+}
+
+async function sendOpportunityRoute(request: Request, env: Env, projectId: string, opportunityId: string) {
+  if (!uuid.test(projectId) || !uuid.test(opportunityId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to send.' }, 401);
+  if (!sesConfigured()) return json({ error: 'SES is not configured yet.' }, 503);
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    try {
+      const result = await sendOpportunityEmail(db, projectId, opportunityId);
+      return json({ message: result.message, tracking: result.tracking });
+    } catch (error) {
+      console.error('opportunity send failed', error);
+      return json({ error: error instanceof Error ? error.message.slice(0, 240) : 'Send failed' }, 502);
+    }
+  });
+}
+
 async function getCampaignSuggestions(request: Request, env: Env, projectId: string) {
   if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
   const owner = await ownerID(request);
@@ -1779,6 +1843,17 @@ export default {
       if (brandMatch) {
         if (request.method === 'GET') return await getBrand(request, env, brandMatch[1]);
         if (request.method === 'PUT') return await putBrand(request, env, brandMatch[1]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const opportunityDraft = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/opportunities\/([0-9a-f-]{36})\/draft$/i);
+      if (opportunityDraft) {
+        if (request.method === 'POST') return await draftOpportunityRoute(request, env, opportunityDraft[1], opportunityDraft[2]);
+        if (request.method === 'PUT') return await saveOpportunityDraftRoute(request, env, opportunityDraft[1], opportunityDraft[2]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const opportunitySend = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/opportunities\/([0-9a-f-]{36})\/send$/i);
+      if (opportunitySend) {
+        if (request.method === 'POST') return await sendOpportunityRoute(request, env, opportunitySend[1], opportunitySend[2]);
         return json({ error: 'Method not allowed.' }, 405);
       }
       const opportunityOne = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/opportunities\/([0-9a-f-]{36})$/i);
