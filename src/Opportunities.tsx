@@ -56,29 +56,14 @@ export function Opportunities({ demo, editing, onEdit, onPeople, onBack, start }
   const [device, setDevice] = useState<'desktop' | 'phone'>('desktop');
 
   if (!demo) {
-    // Nothing to review yet: the shape of the list and the email behind one next step, like the empty home.
-    const ghost = (cls: string, rows: number[]) => (
-      <div className={`v2-ghost ${cls}`}>{rows.map((w) => <p key={w} className="v2-ghost-t" style={{ width: `${w}%` }}>Loading</p>)}</div>
-    );
+    // Nothing to review yet — quiet blank, same language as Live / Profile.
     return (
-      <div className="v2-empty-home op-empty">
+      <div className="omer-blank op-empty">
         <h1 className="sr-only">Opportunities</h1>
-        <div className="v2-backdrop" aria-hidden="true" inert>
-          <div className="v2-row op-empty-split">
-            <div className="op-empty-list">{ghost('', [44, 70])}{ghost('', [38, 62])}{ghost('', [48, 58])}</div>
-            {ghost('op-empty-mail', [30, 82, 76, 64, 40])}
-          </div>
-        </div>
-        <div className="v2-connect">
-          <div className="v2-link">
-            <span className="v2-tile"><Icon name="eye" /></span>
-            <i className="v2-dots" aria-hidden="true" />
-            <span className="v2-tile v2-tile-us"><Icon name="mail" /></span>
-          </div>
-          <h2>Nothing to review yet</h2>
-          <p>When someone leaves without buying, their follow-up email waits here for you to approve.</p>
-          <button type="button" className="btn btn-primary v2-cta" onClick={onPeople}>See who’s visiting</button>
-        </div>
+        <span className="omer-blank-ic" aria-hidden="true"><Icon name="mail" /></span>
+        <h2>Nothing to review yet</h2>
+        <p>When someone leaves without buying, their follow-up email waits here for you to approve.</p>
+        <button type="button" className="btn btn-primary" onClick={onPeople}>See who’s visiting</button>
       </div>
     );
   }

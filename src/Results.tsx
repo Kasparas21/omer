@@ -78,30 +78,16 @@ export function Results({ project, demo, onCampaign, onCampaigns }: { project: P
   ];
   const topFunnel = Math.max(t.written, 1);
 
-  // Nothing sent and nothing sold yet: faint cards behind one next step, like the kit's empty home.
+  // Nothing sent and nothing sold yet — quiet blank, same language as Live / Profile.
   const allTime = series(project, demo, 30).now;
   if (!demo && sum(allTime.sent) === 0 && sum(allTime.orders) === 0 && campaigns.length === 0) {
-    const ghost = (cls: string, rows: number[]) => (
-      <div className={`v2-ghost ${cls}`}>{rows.map((w) => <p key={w} className="v2-ghost-t" style={{ width: `${w}%` }}>Loading</p>)}</div>
-    );
     return (
-      <div className="v2-empty-home rs-empty">
+      <div className="omer-blank rs-empty">
         <h1 className="sr-only">Results</h1>
-        <div className="v2-backdrop" aria-hidden="true" inert>
-          <div className="v2-row v2-two">{ghost('', [30, 48])}{ghost('', [26, 44])}</div>
-          <div className="v2-row v2-two">{ghost('', [32, 46])}{ghost('', [28, 40])}</div>
-          <div className="v2-row v2-two">{ghost('v2-ghost-mid', [36])}{ghost('v2-ghost-mid', [30])}</div>
-        </div>
-        <div className="v2-connect">
-          <div className="v2-link">
-            <span className="v2-tile"><Icon name="send" /></span>
-            <i className="v2-dots" aria-hidden="true" />
-            <span className="v2-tile v2-tile-us"><Icon name="dollar" /></span>
-          </div>
-          <h2>No results yet</h2>
-          <p>Sales, orders and the time you saved show up here after the first follow-up email goes out.</p>
-          {onCampaigns ? <button type="button" className="btn btn-primary v2-cta" onClick={onCampaigns}>Set up follow-ups</button> : null}
-        </div>
+        <span className="omer-blank-ic" aria-hidden="true"><Icon name="dollar" /></span>
+        <h2>No results yet</h2>
+        <p>Sales, orders, and time saved show up here after the first follow-up email goes out.</p>
+        {onCampaigns ? <button type="button" className="btn btn-primary" onClick={onCampaigns}>Set up follow-ups</button> : null}
       </div>
     );
   }

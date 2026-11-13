@@ -72,8 +72,24 @@
   --lp-w: clamp(300px, 22cqw, 360px);
   --lp-inset: clamp(16px, 3cqw, 48px);
   --lp-stage-start: calc(var(--lp-inset) + var(--lp-w) + 24px);
+  /* First paint of Live: soft stage fade + panel glide — no bounce, no glow. */
+  animation: live-wrap-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
-.globe-wrap.has-panel .globe-stage { left: var(--lp-stage-start); }
+.globe-wrap.has-panel .globe-stage {
+  left: var(--lp-stage-start);
+  animation: live-stage-in 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.globe-wrap.has-panel .live-panel {
+  animation: live-panel-in 480ms cubic-bezier(0.22, 1, 0.36, 1) 40ms both;
+}
+@keyframes live-wrap-in { from { opacity: 0; } }
+@keyframes live-panel-in { from { opacity: 0; transform: translateX(-12px); } }
+@keyframes live-stage-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .globe-wrap.has-panel,
+  .globe-wrap.has-panel .live-panel,
+  .globe-wrap.has-panel .globe-stage { animation: none; }
+}
 /* Dots globe: the canvas spans the whole width and the panel's room is padding, so the globe can
    glide to the centre (and back) when the panel goes away in full screen. */
 .globe-wrap.has-panel[data-style="dots"] .globe-stage { left: 0; padding-left: var(--lp-stage-start); transition: padding-left 0.6s cubic-bezier(0.32, 0.72, 0, 1), opacity 420ms var(--ease); }
@@ -92,10 +108,14 @@
 .lvp-visits-toggle.btn { display: none; }
 .lvp-breakdown { flex: none; display: grid; gap: 10px; }
 @container app (width > 820px) {
-  .app.globe-mode .app-body { overflow-y: auto; }
+  /* Keep Live locked to the viewport — page rubber-banding was showing empty space below. */
+  .app.globe-mode .app-body {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
   .globe-wrap.has-panel:not(.is-fs) {
-    height: auto;
-    min-height: 100%;
+    height: 100%;
+    min-height: 0;
     grid-template-columns: minmax(0, 1fr);
     justify-items: start;
   }
@@ -103,12 +123,17 @@
     position: relative;
     inset: auto;
     align-self: stretch;
+    max-height: calc(100% - 100px);
     margin: 16px 0 84px var(--lp-inset);
     gap: 8px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
   }
   .app.has-shelf.globe-mode .globe-wrap:not(.is-fs) .live-panel {
     top: auto;
     margin-top: calc(var(--app-shelf-h) + 8px);
+    max-height: calc(100% - var(--app-shelf-h) - 100px);
   }
   .globe-wrap.has-panel[data-style="flat"]:not(.is-fs) { padding-left: 0; }
   .globe-wrap.has-panel[data-style="flat"]:not(.is-fs) svg.globe {
@@ -174,9 +199,13 @@
 .lvp-src { flex: none; display: grid; place-items: center; width: 15px; height: 15px; color: var(--c); }
 .lvp-src svg, .lvp-src .brand-logo { display: block; width: 100%; height: 100%; object-fit: contain; }
 .lvp-src.direct { color: var(--ink-3); }
-.live-panel .lvp-feed { flex: 1 1 0; min-height: 144px; }
+.live-panel .lvp-feed { flex: 1 1 0; min-height: 0; }
+/* Empty visits should stay compact under Sources — not a tall hollow card. */
+.live-panel .lvp-feed[data-empty="1"] { flex: 0 0 auto; min-height: 0; }
+.live-panel .lvp-feed[data-empty="0"] { min-height: 120px; }
 .lvp-feed .v2-in { padding: 6px; }
-.lvp-feed ol { height: 100%; margin: 0; padding: 0; list-style: none; overflow-y: auto; scrollbar-width: none;
+.lvp-feed[data-empty="1"] .v2-in { padding: 12px 14px; }
+.lvp-feed ol { height: 100%; margin: 0; padding: 0; list-style: none; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none;
   mask-image: linear-gradient(to bottom, #000 calc(100% - 36px), transparent); -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 36px), transparent); }
 .lvp-feed ol::-webkit-scrollbar { display: none; }
 .lvp-feed button { display: grid; grid-template-columns: 7px 16px minmax(0, 1fr) auto auto; align-items: center; gap: 9px; width: 100%; padding: 6px 10px; border: 0; border-radius: 11px; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
@@ -215,6 +244,7 @@
   .lvp-visits-toggle.btn { display: inline-flex; align-self: flex-start; background: var(--v2-card); }
   .live-panel .lvp-breakdown, .live-panel:not(.visits-open) .lvp-feed { display: none; }
   .live-panel .lvp-feed { flex: none; margin-top: auto; width: min(100%, 360px); height: min(40%, 220px); min-height: 92px; }
+  .live-panel .lvp-feed[data-empty="1"] { height: auto; min-height: 0; }
   .globe-wrap.is-fs .live-panel > * { pointer-events: none; }
   .live-panel .lvp-big b { font-size: 34px; }
   .live-panel .lvp-bars { height: 34px; margin-top: 12px; }

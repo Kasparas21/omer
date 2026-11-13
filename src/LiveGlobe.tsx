@@ -252,32 +252,6 @@ export function LiveGlobe({ data: live, loading, failed: connectionFailed, focus
           </div>
         </section>
 
-        <button className="btn btn-sm lvp-visits-toggle" type="button" aria-expanded={showVisits} aria-controls="liveVisits" onClick={() => setShowVisits(!showVisits)}>Recent visits</button>
-        <section className="v2-card lvp-feed" id="liveVisits">
-          <header><h3>Recent visits</h3></header>
-          <div className="v2-in">
-            {data.visits.length === 0 ? (
-              <p className="omer-empty-note">{loading ? 'Loading visits…' : connectionFailed ? 'Live connection interrupted. Reconnecting…' : 'Waiting for a visit with analytics consent.'}</p>
-            ) : (
-              <ol id="lpFeed">
-                {data.visits.slice(0, 24).map((visit) => (
-                  <li key={visit.id}>
-                    <button type="button" data-livego={visit.seed} aria-current={focus === visit.seed ? 'true' : undefined} disabled={!isOnline(visit, now) || visit.lat == null || visit.lng == null} onClick={() => focusVisit(visit)}>
-                      <i className={`lvp-dot${isOnline(visit, now) ? ' is-live' : ' is-gone'}`} aria-hidden="true" />
-                      {visit.cc
-                        ? <img className="flag" src={`/assets/flags/${visit.cc}.svg`} alt="" width={16} height={16} draggable={false} />
-                        : <span className="flag" aria-hidden="true" />}
-                      <span className="lvp-page">{visit.path}</span>
-                      <span className="lvp-city">{visit.city || visit.place || 'Location unavailable'}</span>
-                      <time dateTime={visit.seenAt}>{ago(visit.seenAt, now)}</time>
-                    </button>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </div>
-        </section>
-
         <div className="lvp-breakdown">
           <section className="v2-card lvp-from">
             <header><h3>Sources</h3></header>
@@ -305,6 +279,32 @@ export function LiveGlobe({ data: live, loading, failed: connectionFailed, focus
             </div>
           </section>
         </div>
+
+        <button className="btn btn-sm lvp-visits-toggle" type="button" aria-expanded={showVisits} aria-controls="liveVisits" onClick={() => setShowVisits(!showVisits)}>Recent visits</button>
+        <section className="v2-card lvp-feed" id="liveVisits" data-empty={data.visits.length === 0 ? '1' : '0'}>
+          <header><h3>Recent visits</h3></header>
+          <div className="v2-in">
+            {data.visits.length === 0 ? (
+              <p className="omer-empty-note">{loading ? 'Loading visits…' : connectionFailed ? 'Live connection interrupted. Reconnecting…' : 'Waiting for a visit with analytics consent.'}</p>
+            ) : (
+              <ol id="lpFeed">
+                {data.visits.slice(0, 24).map((visit) => (
+                  <li key={visit.id}>
+                    <button type="button" data-livego={visit.seed} aria-current={focus === visit.seed ? 'true' : undefined} disabled={!isOnline(visit, now) || visit.lat == null || visit.lng == null} onClick={() => focusVisit(visit)}>
+                      <i className={`lvp-dot${isOnline(visit, now) ? ' is-live' : ' is-gone'}`} aria-hidden="true" />
+                      {visit.cc
+                        ? <img className="flag" src={`/assets/flags/${visit.cc}.svg`} alt="" width={16} height={16} draggable={false} />
+                        : <span className="flag" aria-hidden="true" />}
+                      <span className="lvp-page">{visit.path}</span>
+                      <span className="lvp-city">{visit.city || visit.place || 'Location unavailable'}</span>
+                      <time dateTime={visit.seenAt}>{ago(visit.seenAt, now)}</time>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        </section>
       </aside>
 
       <div className="globe-stage" id="globeStage" ref={stage} tabIndex={-1} inert={regionOpen || undefined}>

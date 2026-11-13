@@ -529,32 +529,18 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
     setWipe(!reduced());
   };
 
-  // Connected but nobody has come yet: the kit's empty home, faint cards behind one clear next step.
+  // Connected but nobody has come yet — quiet blank, same language as Live / Profile.
   const loaded = Array.isArray(project.visitors) && Array.isArray(project.pageViews);
   const nobodyYet = !demo && loaded && sum((project.pageViews ?? []).map((row) => row.count)) === 0
     && sum((project.sales ?? []).map((row) => row.count)) === 0;
   if (nobodyYet) {
-    const ghost = (cls: string, rows: number[]) => (
-      <div className={`v2-ghost ${cls}`}>{rows.map((w) => <p key={w} className="v2-ghost-t" style={{ width: `${w}%` }}>Loading</p>)}</div>
-    );
     return (
-      <div className="v2-empty-home">
+      <div className="omer-blank">
         <h1 className="sr-only" tabIndex={-1} ref={headingRef}>Dashboard</h1>
-        <div className="v2-backdrop" aria-hidden="true" inert>
-          <div className="v2-row">{ghost('v2-ghost-tall', [28, 44, 62])}</div>
-          <div className="v2-row v2-three">{ghost('', [34, 52])}{ghost('', [36, 50])}{ghost('', [32, 54])}</div>
-          <div className="v2-row v2-two">{ghost('v2-ghost-mid', [38])}{ghost('v2-ghost-mid', [30])}</div>
-        </div>
-        <div className="v2-connect">
-          <div className="v2-link is-on">
-            <span className="v2-tile"><Icon name="globe" /></span>
-            <i className="v2-dots" aria-hidden="true" />
-            <span className="v2-tile v2-tile-us"><Icon name="ghost" /></span>
-          </div>
-          <h2>Watching {hostname}</h2>
-          <p>Your store is connected. Visitors, sales and the emails behind them show up here as soon as people arrive.</p>
-          <button type="button" className="btn btn-primary v2-cta" onClick={onGlobe}>See who’s on the site</button>
-        </div>
+        <span className="omer-blank-ic" aria-hidden="true"><Icon name="ghost" /></span>
+        <h2>Watching {hostname}</h2>
+        <p>Your store is connected. Visitors, sales, and the emails behind them show up here as soon as people arrive.</p>
+        <button type="button" className="btn btn-primary" onClick={onGlobe}>See who’s on the site</button>
       </div>
     );
   }
