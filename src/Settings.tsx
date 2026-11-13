@@ -143,18 +143,18 @@ export function Settings({ project, topPages, snippet, onCopy, onGuide, onSetup,
                 <span className="status-pill received"><Icon name="check" />Required</span>
               </Row>
               <Row title="Session replay" hint={storageReady
-                ? 'Masked rrweb recordings, kept for 7 days. Inputs and checkout fields stay blocked.'
-                : 'Needs Cloudflare R2 storage on the server before it can turn on.'}>
+                ? 'Masked recordings for 7 days. Typed input stays blocked.'
+                : 'Needs R2 storage on the server before it can turn on.'}>
                 {storageReady ? (
-                  <button
-                    type="button"
-                    className={`status-pill${replayOn ? ' received' : ''}`}
-                    disabled={replayBusy || !onReplay}
-                    onClick={() => onReplay?.(!replayOn)}
-                    aria-pressed={replayOn}
-                  >
-                    {replayBusy ? 'Saving…' : replayOn ? 'On' : 'Off'}
-                  </button>
+                  <label className={`switch${replayBusy ? ' is-busy' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={replayOn}
+                      disabled={replayBusy || !onReplay}
+                      aria-label="Session replay"
+                      onChange={(e) => onReplay?.(e.target.checked)}
+                    />
+                  </label>
                 ) : <span className="status-pill">Storage not configured</span>}
               </Row>
               <Row title="Location" hint="City and country from the request, never the IP address"><span className="omer-set-val">City level</span></Row>
