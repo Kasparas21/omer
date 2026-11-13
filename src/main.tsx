@@ -21,7 +21,6 @@ import { useLive } from './live';
 import { Icon, type IconName } from './ui/Icon';
 import { Dock } from './ui/Dock';
 import { ProjectMenu } from './ui/ProjectMenu';
-import { runViewTransition } from './ui/viewTransition';
 import { isDemo } from './demo';
 
 type ProjectError = { field?: 'name' | 'website'; error: string };
@@ -94,45 +93,31 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
   useNewVersion();
   // Where a Dashboard row sent you: the screen opens there (a tab, a person, a filter). The key remounts it.
   const [start, setStart] = useState<{ n: number; op?: { tab?: OpTab; id?: string }; people?: { source?: string; country?: string }; settings?: SettingsTab }>({ n: 0 });
-  function swapScreen(apply: () => void, next: AppScreen) {
-    // Live mount can stall the main thread — CSS enter handles polish; VT would freeze mid-morph.
-    if (next === 'globe') {
-      apply();
-      return;
-    }
-    const types = screen === 'globe' ? ['page', 'from-live'] : ['page'];
-    runViewTransition(apply, types);
-  }
-
   function go(to: Go) {
-    swapScreen(() => {
-      setProfile(undefined);
-      setEditing(false);
-      setCampaignId(to.to === 'campaigns' ? to.id : undefined);
-      setStart((s) => ({
-        n: s.n + 1,
-        op: to.to === 'inbox' ? { tab: to.tab, id: to.id } : undefined,
-        people: to.to === 'visitors' ? { source: to.source, country: to.country } : undefined,
-        settings: to.to === 'settings' ? to.tab : undefined,
-      }));
-      setScreen(to.to);
-      window.scrollTo({ top: 0 });
-    }, to.to);
+    setProfile(undefined);
+    setEditing(false);
+    setCampaignId(to.to === 'campaigns' ? to.id : undefined);
+    setStart((s) => ({
+      n: s.n + 1,
+      op: to.to === 'inbox' ? { tab: to.tab, id: to.id } : undefined,
+      people: to.to === 'visitors' ? { source: to.source, country: to.country } : undefined,
+      settings: to.to === 'settings' ? to.tab : undefined,
+    }));
+    setScreen(to.to);
+    window.scrollTo({ top: 0 });
   }
 
   function openScreen(id: AppScreen, opts?: { liveFocus?: string | undefined }) {
     if (id === screen && opts?.liveFocus === undefined) return;
-    swapScreen(() => {
-      if (id === 'globe') setLiveFocus(opts?.liveFocus);
-      if (id !== 'visitors') setProfile(undefined);
-      setCampaignId(undefined);
-      setEditing(false);
-      setForceSetup(false);
-      setStart((s) => ({ n: s.n + 1 }));
-      setScreen(id);
-      if (dockMode !== 'auto') setCollapsed(false);
-      window.scrollTo({ top: 0 });
-    }, id);
+    if (id === 'globe') setLiveFocus(opts?.liveFocus);
+    if (id !== 'visitors') setProfile(undefined);
+    setCampaignId(undefined);
+    setEditing(false);
+    setForceSetup(false);
+    setStart((s) => ({ n: s.n + 1 }));
+    setScreen(id);
+    if (dockMode !== 'auto') setCollapsed(false);
+    window.scrollTo({ top: 0 });
   }
   const [replayStorage, setReplayStorage] = useState(false);
   const [replayBusy, setReplayBusy] = useState(false);

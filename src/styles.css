@@ -100,52 +100,6 @@ body { background: var(--v2-page, var(--bg)); }
   overscroll-behavior: none;
   padding: 0;
 }
-
-/* ---- Screen transitions (View Transitions API) ----
-   Shelf + dock stay put; only the main stage crossfades. Quiet, short, interruptible-feeling. */
-.app-shelf { view-transition-name: app-shelf; }
-.app-dock { view-transition-name: app-dock; }
-.app-body { view-transition-name: app-main; }
-::view-transition-group(app-shelf),
-::view-transition-group(app-dock) {
-  animation-duration: 0.01ms;
-}
-::view-transition-old(app-main),
-::view-transition-new(app-main) {
-  animation-duration: 260ms;
-  animation-timing-function: var(--ease, cubic-bezier(0.2, 0.7, 0.2, 1));
-  mix-blend-mode: normal;
-}
-::view-transition-old(app-main) {
-  animation-name: omer-screen-out;
-}
-::view-transition-new(app-main) {
-  animation-name: omer-screen-in;
-}
-/* Leaving Live: fade only — no vertical travel against the globe. */
-html:active-view-transition-type(from-live)::view-transition-old(app-main) {
-  animation-duration: 220ms;
-  animation-name: omer-live-out;
-}
-html:active-view-transition-type(from-live)::view-transition-new(app-main) {
-  animation-duration: 300ms;
-}
-@keyframes omer-screen-out {
-  to { opacity: 0; transform: translateY(4px); }
-}
-@keyframes omer-screen-in {
-  from { opacity: 0; transform: translateY(6px); }
-}
-@keyframes omer-live-out {
-  to { opacity: 0; }
-}
-@media (prefers-reduced-motion: reduce) {
-  ::view-transition-group(*),
-  ::view-transition-old(*),
-  ::view-transition-new(*) {
-    animation: none !important;
-  }
-}
 /* Kit dock (.dock-host): fixed to the viewport here instead of the kit's browser frame. */
 .app-dock.dock-host {
   position: fixed; z-index: 6; left: 0; right: 0; bottom: max(18px, env(safe-area-inset-bottom));
