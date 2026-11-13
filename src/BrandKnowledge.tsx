@@ -15,12 +15,12 @@ import {
 import { demoFacts, useDemoFacts } from './DemoSettings';
 
 const FOLDERS: { id: FolderId; name: string; icon: IconName; one: string; many: string; empty: string }[] = [
-  { id: 'logo', name: 'Logo', icon: 'star', one: 'file', many: 'files', empty: 'Add your logo' },
-  { id: 'colors', name: 'Colors', icon: 'layers', one: 'color', many: 'colors', empty: 'Add brand colors' },
-  { id: 'fonts', name: 'Fonts', icon: 'fontsize', one: 'font', many: 'fonts', empty: 'Pick your fonts' },
-  { id: 'products', name: 'Products', icon: 'tag', one: 'product', many: 'products', empty: 'Add products' },
-  { id: 'brand', name: 'Photos & voice', icon: 'image', one: 'item', many: 'items', empty: 'Add photos and tone' },
-  { id: 'facts', name: 'Store facts', icon: 'book', one: 'fact', many: 'facts', empty: 'Add store facts' },
+  { id: 'logo', name: 'Logo', icon: 'star', one: 'file', many: 'files', empty: 'Empty' },
+  { id: 'colors', name: 'Colors', icon: 'layers', one: 'color', many: 'colors', empty: 'Empty' },
+  { id: 'fonts', name: 'Fonts', icon: 'fontsize', one: 'font', many: 'fonts', empty: 'Empty' },
+  { id: 'products', name: 'Products', icon: 'tag', one: 'product', many: 'products', empty: 'Empty' },
+  { id: 'brand', name: 'Photos & voice', icon: 'image', one: 'item', many: 'items', empty: 'Empty' },
+  { id: 'facts', name: 'Store facts', icon: 'book', one: 'fact', many: 'facts', empty: 'Empty' },
 ];
 
 const loadedFonts = new Set<string>();
@@ -115,12 +115,9 @@ export function BrandKnowledge({ space, host, demo = false }: { space: string; h
     <section className="bk" aria-label="Brand knowledge">
       {canImport ? (
         <div className="bk-import">
-          <div>
-            <b>Import from {host}</b>
-            <p>Pulls colours, fonts, photos, Product Information and a Brand Voice Guide for follow-up emails.</p>
-          </div>
-          <button type="button" className={`btn btn-secondary${importing ? ' loading' : ''}`} disabled={importing} onClick={() => void runImport()}>
-            {importing ? 'Reading your site…' : brand.importedAt ? 'Import again' : 'Import from website'}
+          <b>{host}</b>
+          <button type="button" className={`btn btn-secondary btn-sm${importing ? ' loading' : ''}`} disabled={importing} onClick={() => void runImport()}>
+            <Icon name="download" />{importing ? 'Importing…' : brand.importedAt ? 'Import again' : 'Import'}
           </button>
         </div>
       ) : null}
@@ -128,7 +125,7 @@ export function BrandKnowledge({ space, host, demo = false }: { space: string; h
         {FOLDERS.map((f, i) => (
           <button key={f.id} type="button" className={`bk-item${open === f.id ? ' is-open' : ''}`} style={{ order: i * 2 }}
             aria-expanded={open === f.id} aria-controls="bkDrawer" onClick={() => setOpen(open === f.id ? null : f.id)}>
-            <GlassFolder icon={f.icon} papers={f.id === 'facts' ? facts.list.slice(0, 3).map(() => ({})) : papersFor(brand, f.id)} />
+            <GlassFolder papers={f.id === 'facts' ? facts.list.slice(0, 3).map(() => ({})) : papersFor(brand, f.id)} />
             <span className="bk-name">{f.name}</span>
             <span className="bk-count">{count(f.id)}</span>
           </button>
@@ -168,7 +165,7 @@ function papersFor(b: Brand, id: FolderId): Paper[] {
   return b.photos.slice(0, 3).map((p) => ({ img: p.src }));
 }
 
-function GlassFolder({ papers, icon }: { papers: Paper[]; icon: IconName }) {
+function GlassFolder({ papers }: { papers: Paper[] }) {
   const shown = papers.length ? papers : [{}, {}];
   return (
     <span className="gf" aria-hidden="true">
@@ -182,7 +179,7 @@ function GlassFolder({ papers, icon }: { papers: Paper[]; icon: IconName }) {
           </span>
         ))}
       </span>
-      <span className="gf-front"><span className="gf-shine" /><Icon name={icon} /></span>
+      <span className="gf-front"><span className="gf-shine" /></span>
     </span>
   );
 }
@@ -207,10 +204,10 @@ function Items({ children, className = '' }: { children: ReactNode; className?: 
 const fanIn = (i: number) => ({ ['--i' as string]: i }) as CSSProperties;
 
 // ---------- Logo
-const LOGO_SLOTS: { id: LogoSlot; name: string; hint: string }[] = [
-  { id: 'primary', name: 'Main logo', hint: 'Top of every email' },
-  { id: 'mark', name: 'Square icon', hint: 'Small spaces and avatars' },
-  { id: 'dark', name: 'Logo on dark', hint: 'White or light version' },
+const LOGO_SLOTS: { id: LogoSlot; name: string }[] = [
+  { id: 'primary', name: 'Main logo' },
+  { id: 'mark', name: 'Square icon' },
+  { id: 'dark', name: 'Logo on dark' },
 ];
 function LogoFolder({ brand, set }: FolderProps) {
   const put = (slot: LogoSlot, file: File | null) => set((b) => ({ ...b, logos: { ...b.logos, [slot]: file ? fileFrom(file) : null } }));
@@ -223,11 +220,11 @@ function LogoFolder({ brand, set }: FolderProps) {
             {f ? (
               <div className={`bk-logo-stage${s.id === 'dark' ? ' is-dark' : ''}`}><img src={f.src} alt={s.name} /></div>
             ) : (
-              <Uploader accept="image/*,.svg" title={`Add ${s.name.toLowerCase()}`} hint="SVG or PNG · up to 5 MB" maxMb={5} tone={s.id === 'dark' ? 'dark' : 'light'} className="bk-logo-up"
+              <Uploader accept="image/*,.svg" title={`Add ${s.name.toLowerCase()}`} maxMb={5} tone={s.id === 'dark' ? 'dark' : 'light'} className="bk-logo-up"
                 onFiles={(files) => { const img = images(files)[0]; if (img) put(s.id, img); else toast('Pick an image file', { kind: 'warn' }); }} />
             )}
             <div className="bk-card-foot">
-              <span><b>{s.name}</b><small>{f ? f.name : s.hint}</small></span>
+              <span><b>{s.name}</b></span>
               {f ? <span className="bk-card-acts">
                 <PickButton accept="image/*,.svg" label="Replace" icon="refund" onFile={(file) => put(s.id, file)} />
                 <button type="button" className="bk-icon-btn" aria-label={`Remove ${s.name.toLowerCase()}`} onClick={() => put(s.id, null)}><Icon name="trash" /></button>
@@ -241,10 +238,10 @@ function LogoFolder({ brand, set }: FolderProps) {
 }
 
 // ---------- Colors: main, secondary and accent first, then any others
-const ROLES: { id: ColorRole; name: string; hint: string; def: string }[] = [
-  { id: 'main', name: 'Main color', hint: 'Buttons, links and your mark', def: '#6360F0' },
-  { id: 'secondary', name: 'Secondary color', hint: 'Backgrounds and soft panels', def: '#EDEBFF' },
-  { id: 'accent', name: 'Accent color', hint: 'Prices, badges and highlights', def: '#1F1F24' },
+const ROLES: { id: ColorRole; name: string; def: string }[] = [
+  { id: 'main', name: 'Main color', def: '#6360F0' },
+  { id: 'secondary', name: 'Secondary color', def: '#EDEBFF' },
+  { id: 'accent', name: 'Accent color', def: '#1F1F24' },
 ];
 function orderedColors(colors: BrandColor[]) {
   return [...ROLES.map((r) => colors.find((c) => c.role === r.id)).filter(Boolean) as BrandColor[], ...colors.filter((c) => !c.role)];
@@ -283,7 +280,7 @@ function ColorFolder({ brand, set }: FolderProps) {
             <button key={r.id} type="button" className="bk-card bk-color is-empty" style={fanIn(i)}
               onClick={() => set((b) => ({ ...b, colors: [...b.colors, { id: newId(), name: r.name, hex: r.def, role: r.id }] }))}>
               <span className="bk-swatch bk-swatch-empty"><Icon name="plus" /></span>
-              <span className="bk-card-foot"><span><b>{r.name}</b><small>{r.hint}</small></span></span>
+              <span className="bk-card-foot"><span><b>{r.name}</b></span></span>
             </button>
           );
         })}
@@ -322,7 +319,7 @@ function FontCard({ font, onChange, i }: { font: Brand['fonts'][number]; onChang
         <p>{font.role === 'Headings' ? 'Kibble or pâté? Here’s the difference.' : 'Your cart is saved, and you can pay another way here.'}</p>
       </div>
       <div className="bk-card-foot">
-        <span><b>{font.role}</b><small>{font.file ? font.file.name : font.family || 'Not set yet'}</small></span>
+        <span><b>{font.role}</b></span>
         <Dropdown label={`${font.role} font`} value={font.family} align="end" className="bk-font-dd"
           options={[...(font.family ? [] : [{ value: '', label: 'Choose a font' }]), ...families.map((f) => ({ value: f, label: f }))]}
           onChange={(v) => onChange({ family: v })} />
@@ -333,7 +330,7 @@ function FontCard({ font, onChange, i }: { font: Brand['fonts'][number]; onChang
           <button type="button" className="bk-icon-btn" aria-label="Remove font file" onClick={() => onChange({ file: null })}><Icon name="trash" /></button>
         </div>
       ) : (
-        <Uploader compact accept=".woff2,.woff,.ttf,.otf" maxMb={5} title="Upload your own font" hint=".woff2, .ttf or .otf"
+        <Uploader compact accept=".woff2,.woff,.ttf,.otf" maxMb={5} title="Upload font"
           onFiles={([file]) => onChange({ file: fileFrom(file), family: font.family || file.name.replace(/\.[^.]+$/, '') })} />
       )}
     </div>
@@ -387,14 +384,14 @@ function ProductFolder({ brand, set }: FolderProps) {
   return (
     <Items className="bk-products">
       {brand.products.map((p, i) => <ProductCard key={p.id} p={p} i={i} set={set} />)}
-      <Uploader accept="image/*" multiple title="Add products" hint={false} onFiles={add} className="bk-fill" />
+      <Uploader accept="image/*" multiple title="Add products" onFiles={add} className="bk-fill" />
     </Items>
   );
 }
 
 // ---------- Brand photos & voice: photos, then voice as settings rows (plain text you click to edit)
 /** Text that reads as text and grows as you type; no box, no resize handle. */
-function PlainText({ value, placeholder, label, onChange, lines = false }: { value: string; placeholder: string; label: string; onChange: (v: string) => void; lines?: boolean }) {
+function PlainText({ value, placeholder, label, onChange, lines = false, long = false }: { value: string; placeholder: string; label: string; onChange: (v: string) => void; lines?: boolean; long?: boolean }) {
   const el = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
     const t = el.current;
@@ -406,15 +403,15 @@ function PlainText({ value, placeholder, label, onChange, lines = false }: { val
     return () => ro.disconnect();
   }, [value]);
   return (
-    <textarea ref={el} className="bk-plain" rows={1} value={value} placeholder={placeholder} aria-label={label} spellCheck
+    <textarea ref={el} className={`bk-plain${long ? ' is-long' : ''}`} rows={1} value={value} placeholder={placeholder} aria-label={label} spellCheck
       onChange={(e) => onChange(lines ? e.target.value : e.target.value.replace(/\n/g, ' '))}
       onKeyDown={(e) => { if (!lines && e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }} />
   );
 }
-const VOICE_ROWS: { id: keyof Brand['voice']; name: string; hint: string; placeholder: string; lines?: boolean }[] = [
-  { id: 'tagline', name: 'Tagline', hint: 'One line about the store', placeholder: 'Add a tagline' },
-  { id: 'tone', name: 'Tone of voice', hint: 'How every email should sound', placeholder: 'e.g. warm, short sentences, never pushy', lines: true },
-  { id: 'about', name: 'About', hint: 'Who you are and what you sell', placeholder: 'Add a few lines in your own words', lines: true },
+const VOICE_ROWS: { id: keyof Brand['voice']; name: string; placeholder: string; lines?: boolean }[] = [
+  { id: 'tagline', name: 'Tagline', placeholder: 'Empty' },
+  { id: 'tone', name: 'Tone of voice', placeholder: 'Empty', lines: true },
+  { id: 'about', name: 'About', placeholder: 'Empty', lines: true },
 ];
 function BrandFolder({ brand, set }: FolderProps) {
   const add = (files: File[]) => {
@@ -433,18 +430,18 @@ function BrandFolder({ brand, set }: FolderProps) {
             <button type="button" className="bk-icon-btn" aria-label={`Remove ${p.name}`} onClick={() => set((b) => ({ ...b, photos: b.photos.filter((x, j) => !(x.id === p.id && j === i)) }))}><Icon name="trash" /></button>
           </div>
         ))}
-        <Uploader accept="image/*" multiple title="Add photos" hint={false} onFiles={add} className="bk-fill" />
+        <Uploader accept="image/*" multiple title="Add photos" onFiles={add} className="bk-fill" />
       </Items>
       <div className="bk-rows" style={fanIn(brand.photos.length + 1)}>
         {VOICE_ROWS.map((r) => (
           <div key={r.id} className="bk-row">
-            <div className="bk-row-k"><b>{r.name}</b><small>{r.hint}</small></div>
+            <div className="bk-row-k"><b>{r.name}</b></div>
             <PlainText value={brand.voice[r.id]} placeholder={r.placeholder} label={r.name} lines={r.lines} onChange={(v) => voice(r.id, v)} />
           </div>
         ))}
         <div className="bk-row">
-          <div className="bk-row-k"><b>Voice guide</b><small>The longer version: how emails sound and what they never say</small></div>
-          <PlainText value={brand.docs?.voice ?? ''} placeholder="Import your site to draft this, or write it yourself" label="Voice guide" lines onChange={guide} />
+          <div className="bk-row-k"><b>Voice guide</b></div>
+          <PlainText value={brand.docs?.voice ?? ''} placeholder="Empty" label="Voice guide" lines long onChange={guide} />
         </div>
       </div>
     </div>
@@ -470,7 +467,7 @@ function useFacts(space: string, demo: boolean, brand: Brand): Facts {
   if (demo || space === DEMO_BRAND_SPACE) {
     return {
       list: d.facts.filter((f) => f.group !== 'Visual'),
-      ask: d.ask ? { q: 'Do you ship to Australia?', who: 'Dana Okafor asked and your site doesn’t say.' } : null,
+      ask: d.ask ? { q: 'Do you ship to Australia?', who: 'Asked by Dana Okafor' } : null,
       ...demoFacts,
     };
   }
@@ -501,7 +498,7 @@ function FactsFolder({ facts, product, onProduct }: { facts: Facts; product: str
           <span className="bk-ask-ic" aria-hidden="true"><Icon name="alert" /></span>
           <span className="bk-ask-q"><b>{facts.ask.q}</b><small>{facts.ask.who}</small></span>
           <span className="bk-ask-a">
-            <input value={answer} placeholder="e.g. Yes, 7–10 days, duty included" aria-label="Your answer" onChange={(e) => setAnswer(e.target.value)} />
+            <input value={answer} placeholder="Your answer" aria-label="Your answer" onChange={(e) => setAnswer(e.target.value)} />
             <button type="submit" className="btn btn-primary btn-sm" disabled={!answer.trim()}>Save</button>
           </span>
         </form>
@@ -517,7 +514,7 @@ function FactsFolder({ facts, product, onProduct }: { facts: Facts; product: str
                 <li key={f.id} className={`bk-fact${f.off ? ' is-off' : ''}`} style={fanIn(n++)}>
                   <span className="bk-fact-name">
                     {f.own ? <input className="bk-inline bk-strong" value={f.name} placeholder="What it’s about" aria-label="What it’s about" onChange={(e) => facts.rename(f.id, e.target.value)} /> : <b>{f.name}</b>}
-                    <small>{f.own ? 'Added by you' : f.src}</small>
+                    
                   </span>
                   <input className="bk-inline bk-fact-val" value={f.value} placeholder="What emails can say" aria-label={`${f.name || 'Fact'} value`} disabled={f.off}
                     onChange={(e) => facts.edit(f.id, e.target.value)} />
@@ -533,7 +530,7 @@ function FactsFolder({ facts, product, onProduct }: { facts: Facts; product: str
           </section>
         );
       })}
-      {!facts.list.length ? <p className="bk-mon-empty">Nothing yet. Add your shipping, returns and current offers so emails get them right.</p> : null}
+      {!facts.list.length ? <p className="bk-mon-empty">No facts yet</p> : null}
       <form className="bk-fact-add" onSubmit={(e) => { e.preventDefault(); if (!name.trim() || !value.trim()) return; facts.add(name.trim(), value.trim(), group); setName(''); setValue(''); }}>
         <Dropdown label="Group" value={group} className="bk-fact-dd" options={FACT_GROUPS.map((g) => ({ value: g, label: g }))} onChange={setGroup} />
         <input value={name} placeholder="What it’s about" aria-label="What the fact is about" onChange={(e) => setName(e.target.value)} />
@@ -542,8 +539,8 @@ function FactsFolder({ facts, product, onProduct }: { facts: Facts; product: str
       </form>
       <div className="bk-rows bk-product-info">
         <div className="bk-row">
-          <div className="bk-row-k"><b>Product information</b><small>What emails can promise about what you sell</small></div>
-          <PlainText value={product} placeholder="Import your site to draft this, or write it yourself" label="Product information" lines onChange={onProduct} />
+          <div className="bk-row-k"><b>Product information</b></div>
+          <PlainText value={product} placeholder="Empty" label="Product information" lines long onChange={onProduct} />
         </div>
       </div>
     </div>
@@ -588,11 +585,10 @@ function Monitoring({ brand, set, host, topPages, onChanges }: FolderProps & { h
     <section className="v2-card bk-monitor" aria-labelledby="bkMonT">
       <header><Icon name="eye" /><h3 id="bkMonT">Monitoring</h3><span className="bk-panel-count">{pages.length}/{MONITOR_LIMIT}</span></header>
       <div className="v2-in bk-monitor-in">
-        <p className="bk-monitor-lede">Watch pages for price, stock, and content changes.</p>
         <form className={`bk-mon-add${error ? ' has-error' : ''}`} onSubmit={(e) => { e.preventDefault(); add(value); }}>
           <label className="bk-mon-field">
             <span className="bk-mon-host">{host}</span>
-            <input value={value} placeholder="/products/best-seller" aria-label={`Path on ${host}`} disabled={full}
+            <input value={value} placeholder="/products/…" aria-label={`Page on ${host} to monitor`} disabled={full}
               onChange={(e) => { setValue(e.target.value); if (error) setError(''); }} />
           </label>
           <button type="submit" className="btn btn-secondary btn-sm" disabled={full || !value.trim()}><Icon name="plus" />Add</button>
@@ -620,7 +616,7 @@ function Monitoring({ brand, set, host, topPages, onChanges }: FolderProps & { h
             ))}
           </ul>
         ) : (
-          <p className="bk-mon-empty">No pages yet. Add a product or shipping path above.</p>
+          <p className="bk-mon-empty">No pages yet</p>
         )}
       </div>
     </section>

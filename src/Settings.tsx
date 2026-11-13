@@ -1,6 +1,6 @@
-/* Settings: sliding pill tabs on top. Brand knowledge first (folders with everything emails are written
-   with, store facts included), then the store's setup, website changes, monitored pages, sending and privacy.
-   The dock's behaviour lives in the account menu. */
+/* Settings: pill tabs on top, then plain rows: a label and its value, nothing else. Brand knowledge first
+   (folders with everything emails are written with), then the store's setup, website changes, monitored
+   pages, sending and privacy. The dock's behaviour lives in the account menu. */
 import { useState } from 'react';
 import type { Project } from './project';
 import { Icon } from './ui/Icon';
@@ -21,18 +21,18 @@ export const DOCK_MODES: { id: DockMode; label: string }[] = [
   { id: 'auto', label: 'Always hidden' },
 ];
 
-function Row({ title, hint, children, wide }: { title: string; hint?: string; children: React.ReactNode; wide?: boolean }) {
+function Row({ title, children, wide }: { title: string; children: React.ReactNode; wide?: boolean }) {
   return (
     <div className={`set-row${wide ? ' wide' : ''}`}>
-      <div className="set-k"><b>{title}</b>{hint && <small>{hint}</small>}</div>
+      <div className="set-k"><b>{title}</b></div>
       <div className="set-v">{children}</div>
     </div>
   );
 }
 
-const Soon = () => <span className="status-pill">Coming next</span>;
+const Soon = () => <span className="status-pill">Soon</span>;
 
-export function Settings({ project, topPages, snippet, onCopy, onGuide, onSetup, startTab, demo = false, onGo, onReplay, storageReady = false, replayBusy = false }: {
+export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab, demo = false, onGo, onReplay, storageReady = false, replayBusy = false }: {
   startTab?: Tab;
   /** The demo store shows the kit's full example Settings. */
   demo?: boolean;
@@ -85,96 +85,55 @@ export function Settings({ project, topPages, snippet, onCopy, onGuide, onSetup,
           {demo && tab === 'changes' && <DemoChanges onGo={onGo} />}
           {demo && tab === 'sending' && <DemoSending />}
           {demo && tab === 'privacy' && <DemoPrivacy />}
-          {tab === 'company' && <>
-            <div className="set-main">
-              <header className="set-head"><h2>Store</h2></header>
-              <Row title="Name" hint="Shown in the switcher at the top"><span className="omer-set-val">{project.name}</span></Row>
-              <Row title="Website" hint="Events are accepted only from this exact address">
-                <a className="omer-set-link" href={project.origin} target="_blank" rel="noreferrer">{project.origin}<Icon name="arrowUpRight" /></a>
+          {tab === 'company' && (
+            <div className="set-main solo">
+              <Row title="Name"><span className="omer-set-val">{project.name}</span></Row>
+              <Row title="Website">
+                <a className="omer-set-link" href={project.origin} target="_blank" rel="noreferrer">{host}<Icon name="arrowUpRight" /></a>
               </Row>
-              <Row title="Tracking" hint="The first consented page view turns this on">
-                <span className={`status-pill ${project.firstEventAt ? 'received' : ''}`}><span className="lvp-dot" aria-hidden="true" />{project.firstEventAt ? 'Receiving events' : 'Waiting for install'}</span>
+              <Row title="Tracking">
+                <span className={`status-pill ${project.firstEventAt ? 'received' : ''}`}><span className="lvp-dot" aria-hidden="true" />{project.firstEventAt ? 'Live' : 'Not installed'}</span>
               </Row>
-              <Row title="Install script" hint={`Once, in the shared head of ${host}`} wide>
+              <Row title="Install script" wide>
                 <div className="su-code omer-set-snippet"><pre>{snippet}</pre>
                   <button className="btn btn-secondary btn-sm" type="button" onClick={() => onCopy('script')}><Icon name="copy" />Copy</button>
                 </div>
               </Row>
-              <Row title="Coding assistant" hint="A ready prompt that installs it and wires consent">
-                <button className="btn btn-secondary btn-sm" type="button" onClick={() => onCopy('prompt')}><Icon name="copy" />Copy install prompt</button>
+              <Row title="Install prompt">
+                <span className="omer-set-acts">
+                  <button className="btn btn-ghost btn-sm" type="button" onClick={onGuide}><Icon name="book" />Guide</button>
+                  <button className="btn btn-secondary btn-sm" type="button" onClick={() => onCopy('prompt')}><Icon name="copy" />Copy</button>
+                </span>
               </Row>
             </div>
-            <aside className="set-side"><div className="set-side-in">
-              <div className="set-side-k">Brand knowledge</div>
-              <p className="su-side-p">Your logo, colors, products, voice and the facts emails can use live in Brand knowledge.</p>
-              <button className="btn btn-ghost btn-sm" type="button" onClick={() => setTab('brand')}><Icon name="arrowRight" />Open Brand knowledge</button>
-              <div className="set-side-k gap">Setup</div>
-              <button className="btn btn-ghost btn-sm" type="button" onClick={onSetup}><Icon name="list" />First-time setup</button>
-              <button className="btn btn-ghost btn-sm" type="button" onClick={onGuide}><Icon name="book" />Installation guide</button>
-            </div></aside>
-          </>}
+          )}
           {!demo && tab === 'changes' && (
             <div className="set-main solo">
-              <header className="set-head"><h2>Website changes</h2></header>
               <div className="empty omer-set-empty">
                 <span className="empty-ico"><Icon name="checkCircle" /></span>
                 <h4>Nothing to review</h4>
-                <p>When prices, codes or products on {host} change, the facts emails rely on show up here to check.</p>
               </div>
             </div>
           )}
-          {!demo && tab === 'sending' && <>
-            <div className="set-main">
-              <header className="set-head"><h2>Sending</h2></header>
-              <Row title="Sent by" hint="The name people see in their inbox"><Soon /></Row>
-              <Row title="Sent from" hint="Replies come back here"><Soon /></Row>
-              <Row title="Daily limit" hint="Across all your emails"><Soon /></Row>
-              <Row title="Quiet hours" hint="In each person’s own time zone"><Soon /></Row>
+          {!demo && tab === 'sending' && (
+            <div className="set-main solo">
+              <Row title="From name"><Soon /></Row>
+              <Row title="From email"><Soon /></Row>
+              <Row title="Daily limit"><Soon /></Row>
+              <Row title="Quiet hours"><Soon /></Row>
             </div>
-            <aside className="set-side"><div className="set-side-in">
-              <div className="set-side-k">Today</div>
-              <p className="omer-set-note">No emails are sent until a sending domain is connected.</p>
-            </div></aside>
-          </>}
-          {!demo && tab === 'privacy' && <>
-            <div className="set-main">
-              <header className="set-head"><h2>Privacy</h2></header>
-              <Row title="Analytics consent" hint="Nothing is recorded until the visitor allows analytics">
-                <span className="status-pill received"><Icon name="check" />Required</span>
-              </Row>
-              <Row title="Session replay" hint={storageReady
-                ? 'Masked recordings for 7 days. Typed input stays blocked.'
-                : 'Needs R2 storage on the server before it can turn on.'}>
+          )}
+          {!demo && tab === 'privacy' && (
+            <div className="set-main solo">
+              <Row title="Consent"><span className="status-pill received"><Icon name="check" />Required</span></Row>
+              <Row title="Session replay">
                 {storageReady ? (
-                  <label className={`switch${replayBusy ? ' is-busy' : ''}`}>
-                    <input
-                      type="checkbox"
-                      checked={replayOn}
-                      disabled={replayBusy || !onReplay}
-                      aria-label="Session replay"
-                      onChange={(e) => onReplay?.(e.target.checked)}
-                    />
-                  </label>
-                ) : <span className="status-pill">Storage not configured</span>}
+                  <label className={`switch${replayBusy ? ' is-busy' : ''}`}><input type="checkbox" checked={replayOn} disabled={replayBusy || !onReplay} aria-label="Session replay" onChange={(e) => onReplay?.(e.target.checked)} /></label>
+                ) : <span className="status-pill">Not set up</span>}
               </Row>
-              <Row title="Location" hint="City and country from the request, never the IP address"><span className="omer-set-val">City level</span></Row>
-              <Row title="Purchase events" hint="Call window.unfairweekend.purchase on thank-you pages">
-                <span className="omer-set-val">amount, currency, orderId</span>
-              </Row>
-              <Row title="Identify" hint="Call window.unfairweekend.identify when you know the shopper">
-                <span className="omer-set-val">email, name</span>
-              </Row>
-              <Row title="Email performance" hint="Open/click ingest only — Unfair Weekend does not send yet">
-                <span className="omer-set-val">emailOpen / emailClick</span>
-              </Row>
+              <Row title="Location"><span className="omer-set-val">City</span></Row>
             </div>
-            <aside className="set-side"><div className="set-side-in">
-              <div className="set-side-k">What we keep</div>
-              <ul className="set-list"><li>Pages they looked at</li><li>Where they came from</li><li>How long they stayed</li><li>Purchases and identified email when you send them</li><li>Email open and click events you report</li>{replayOn && <li>Masked session recordings for 7 days</li>}</ul>
-              <div className="set-side-k gap">What we never keep</div>
-              <ul className="set-list no"><li>IP addresses</li><li>Passwords or card numbers</li><li>Anything typed in a form</li>{!replayOn && <li>Session recordings while replay is off</li>}</ul>
-            </div></aside>
-          </>}
+          )}
         </div>
       </div>
       )}

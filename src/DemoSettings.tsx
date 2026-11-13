@@ -1,7 +1,7 @@
 /* Settings for the demo store, as in the UI kit: the facts emails may use (shown in Brand knowledge's Store
    facts folder); website changes with real choices; sending; privacy. Everything is clickable and stays changed while the
    app is open. Real projects see the plain Settings (what the product really does today). */
-import { useState, useSyncExternalStore } from 'react';
+import { useSyncExternalStore } from 'react';
 import { Icon } from './ui/Icon';
 import { toast } from './ui/toast';
 import { STORE } from './storeData';
@@ -82,8 +82,8 @@ export const demoFacts = {
   answer: (value: string) => set((x) => ({ ...x, shipAsked: false, facts: [...x.facts, { id: `f-${Date.now()}`, group: 'FAQs', name: 'Shipping to Australia', value, src: 'Added by you', age: 'Now', usedBy: [], own: true }] })),
 };
 
-function Row({ title, hint, children, wide }: { title: string; hint?: string; children: React.ReactNode; wide?: boolean }) {
-  return <div className={`set-row${wide ? ' wide' : ''}`}><div className="set-k"><b>{title}</b>{hint ? <small>{hint}</small> : null}</div><div className="set-v">{children}</div></div>;
+function Row({ title, children, wide }: { title: string; children: React.ReactNode; wide?: boolean }) {
+  return <div className={`set-row${wide ? ' wide' : ''}`}><div className="set-k"><b>{title}</b></div><div className="set-v">{children}</div></div>;
 }
 function Select({ value, options, label, onChange }: { value: string; options: string[]; label: string; onChange: (v: string) => void }) {
   return <span className="cpe-select-wrap"><select className="select" aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>{options.map((o) => <option key={o}>{o}</option>)}</select><Icon name="chevronDown" /></span>;
@@ -93,7 +93,6 @@ const saved = () => toast('Saved');
 
 export function DemoChanges({ onGo }: { onGo?: (go: Go) => void }) {
   const x = useS();
-  const [page, setPage] = useState('');
   const failed = x.pages.find((p) => p.failed);
   const open = x.changes.filter((c) => !c.done);
   const done = x.changes.filter((c) => c.done);
@@ -105,13 +104,13 @@ export function DemoChanges({ onGo }: { onGo?: (go: Go) => void }) {
       <header><b>{c.title}</b><span className="ch-vals"><s>{c.old}</s><Icon name="arrowRight" /><span>{c.now}</span></span><small>{c.page} · {c.when}</small></header>
       {c.done ? <p className="ch-done"><Icon name="check" />{c.done}{c.see ? <button type="button" className="kn-link" onClick={() => onGo?.({ to: 'inbox', id: c.see })}>See the email</button> : null}</p>
         : c.kind === 'ship' ? <>
-          <p className="ch-why">Your shipping page still says over $35, so your site gives two answers. Emails say over $35 until you choose.</p>
+          <p className="ch-why">Your shipping page still says over $35</p>
           <div className="ch-act">
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => { fact('ship', { value: 'Orders over $35', review: false }); resolve('ship', 'Emails keep saying free shipping over $35'); }}>Keep over $35</button>
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => { fact('ship', { value: 'Orders over $50', review: false, site: 'Orders over $35' }); resolve('ship', 'Emails now say free shipping over $50'); }}>Use over $50</button>
           </div>
         </> : c.kind === 'returns' ? <>
-          <p className="ch-why">The email to {link('alex')} still says 30-day returns.</p>
+          <p className="ch-why">The email to {link('alex')} still says 30 days</p>
           <div className="ch-act">
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => { fact('returns', { value: '14 days', review: false }); resolve('returns', 'Facts and the email now say 14-day returns', 'alex'); }}>Update the email</button>
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => { people.updatePerson('alex', { status: 'hold' }); resolve('returns', 'The email to Alex Morgan is on hold', 'alex'); }}>Hold it</button>
@@ -119,7 +118,7 @@ export function DemoChanges({ onGo }: { onGo?: (go: Go) => void }) {
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => resolve('returns', 'Ignored')}>Ignore</button>
           </div>
         </> : c.kind === 'stock' ? <>
-          <p className="ch-why">{link('taylor')} came back twice for this, and their email is on hold until it’s in stock.</p>
+          <p className="ch-why">The email to {link('taylor')} is on hold</p>
           <div className="ch-act">
             <button type="button" className="btn btn-primary btn-sm" onClick={() => { people.updatePerson('taylor', { status: 'review', warn: false, evidenceGone: false, note: 'In stock, checked just now', offer: 'Sending: it’s back in stock', sendAt: 'today 7:00 PM' }); resolve('stock', 'The email to tbrooks@outlook.com is ready for review', 'taylor'); }}>Move their email to review</button>
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => resolve('stock', 'Ignored. Their email stays on hold')}>Ignore</button>
@@ -129,11 +128,9 @@ export function DemoChanges({ onGo }: { onGo?: (go: Go) => void }) {
   );
 
   return <>
-    <div className="set-main">
-      <header className="set-head"><h2>Website changes</h2></header>
-      <p className="kn-lead">When something on your site changes, the emails that mention it are checked before they go out. Today this is a demo; it will be fed by page monitoring.</p>
+    <div className="set-main solo">
       {failed ? (
-        <div className="alert alert-warning ch-fail"><Icon name="alert" /><div><b>Couldn’t check Salmon Kibble 4 kg</b><p>The page timed out {failed.age}, so it may have changed. The email to tbrooks@outlook.com stays on hold.</p></div>
+        <div className="alert alert-warning ch-fail"><Icon name="alert" /><div><b>Couldn’t check Salmon Kibble 4 kg</b><p>Timed out {failed.age}</p></div>
           <button type="button" className={`btn btn-secondary btn-sm${x.retrying ? ' loading' : ''}`} disabled={x.retrying} onClick={() => {
             set((y) => ({ ...y, retrying: true }));
             window.setTimeout(() => {
@@ -142,17 +139,9 @@ export function DemoChanges({ onGo }: { onGo?: (go: Go) => void }) {
             }, 1200);
           }}>{x.retrying ? 'Checking…' : 'Try again'}</button></div>
       ) : null}
-      {open.length ? <><h3 className="kn-group-h">To review</h3><div className="ch-rows">{open.map(row)}</div></> : failed ? null : <p className="ch-none">Nothing to review. New changes show up here.</p>}
+      {open.length ? <><h3 className="kn-group-h">To review</h3><div className="ch-rows">{open.map(row)}</div></> : failed ? null : <p className="ch-none">Nothing to review</p>}
       {done.length ? <><h3 className="kn-group-h">Handled</h3><div className="ch-rows">{done.map(row)}</div></> : null}
     </div>
-    <aside className="set-side"><div className="set-side-in">
-      <div className="set-side-k ch-side-head"><span>Pages we watch</span><button type="button" className="kn-link" onClick={() => { set((y) => ({ ...y, pages: y.pages.map((p) => (p.failed ? p : { ...p, age: 'just now' })) })); toast('Checked every page'); }}>Check now</button></div>
-      <ul className="ch-pages">{x.pages.map((p) => <li key={p.url} className={p.failed ? 'warn' : undefined}><Icon name={p.failed ? 'alert' : 'check'} /><div><b>{p.url}</b><small>{p.failed ? `Couldn’t check, last tried ${p.age}` : `Checked ${p.age}`}</small></div></li>)}</ul>
-      <div className="set-side-k gap">Watch another page</div>
-      <div className="su-test"><input className="input" placeholder="/pages/about" aria-label="Page to watch" value={page} onChange={(e) => setPage(e.target.value)} />
-        <button type="button" className="btn btn-secondary btn-sm" disabled={!page.trim()} onClick={() => { const url = page.trim().startsWith('/') ? page.trim() : `/${page.trim()}`; set((y) => ({ ...y, pages: [...y.pages, { url, age: 'just now' }] })); setPage(''); toast(`Watching ${url}`); }}>Add</button></div>
-      <label className="field ch-every"><span className="label">Check every</span><Select label="Check every" value={x.every} options={['Hour', '15 minutes', 'Day']} onChange={(v) => { set((y) => ({ ...y, every: v })); saved(); }} /></label>
-    </div></aside>
   </>;
 }
 
@@ -162,29 +151,27 @@ export function DemoSending() {
   const sent = 700;
   return <>
     <div className="set-main">
-      <header className="set-head"><h2>Sending</h2></header>
-      <Row title="Sent by" hint="The name people see in their inbox"><input className="input" value={x.sending.by} onChange={(e) => put('by', e.target.value)} onBlur={saved} /></Row>
-      <Row title="Sent from" hint="Replies come back here"><input className="input" value={x.sending.from} onChange={(e) => put('from', e.target.value)} onBlur={saved} /></Row>
-      <Row title="Daily limit" hint="Across all your emails"><Select label="Daily limit" value={x.sending.limit} options={['2,000 per day', '5,000 per day', '10,000 per day']} onChange={(v) => { put('limit', v); saved(); }} /></Row>
-      <Row title="Quiet hours" hint="In each person’s own time zone"><Select label="Quiet hours" value={x.sending.quiet} options={['9 PM to 8 AM', '10 PM to 7 AM', 'No quiet hours']} onChange={(v) => { put('quiet', v); saved(); }} /></Row>
-      <Row title="Stop everything" hint="Holds every scheduled email until you turn it back on">
+      <Row title="From name"><input className="input" value={x.sending.by} onChange={(e) => put('by', e.target.value)} onBlur={saved} /></Row>
+      <Row title="From email"><input className="input" value={x.sending.from} onChange={(e) => put('from', e.target.value)} onBlur={saved} /></Row>
+      <Row title="Daily limit"><Select label="Daily limit" value={x.sending.limit} options={['2,000 per day', '5,000 per day', '10,000 per day']} onChange={(v) => { put('limit', v); saved(); }} /></Row>
+      <Row title="Quiet hours"><Select label="Quiet hours" value={x.sending.quiet} options={['9 PM to 8 AM', '10 PM to 7 AM', 'No quiet hours']} onChange={(v) => { put('quiet', v); saved(); }} /></Row>
+      <Row title="Pause sending">
         {x.paused
-          ? <button type="button" className="btn btn-secondary btn-sm" onClick={() => { set((y) => ({ ...y, paused: false })); toast('Sending is back on'); }}><Icon name="play" />Turn sending back on</button>
-          : <button type="button" className="btn btn-danger-soft btn-sm" onClick={() => { set((y) => ({ ...y, paused: true })); toast('All sending paused', { undo: () => set((y) => ({ ...y, paused: false })) }); }}><Icon name="pause" />Stop all sending</button>}
+          ? <button type="button" className="btn btn-secondary btn-sm" onClick={() => { set((y) => ({ ...y, paused: false })); toast('Sending is back on'); }}><Icon name="play" />Resume</button>
+          : <button type="button" className="btn btn-danger-soft btn-sm" onClick={() => { set((y) => ({ ...y, paused: true })); toast('All sending paused', { undo: () => set((y) => ({ ...y, paused: false })) }); }}><Icon name="pause" />Pause all</button>}
       </Row>
     </div>
     <aside className="set-side"><div className="set-side-in">
       <div className="set-side-k">Today</div>
       <div className="set-stat"><b>{sent.toLocaleString('en-US')}</b><span>of {x.sending.limit.replace(' per day', '')} sent</span></div>
       <div className="progress"><span style={{ ['--v' as string]: `${(sent / Number(x.sending.limit.replace(/\D/g, ''))) * 100}%` }} /></div>
-      {x.paused ? <p className="set-paused"><Icon name="pause" />Paused. Nothing goes out until you turn it back on.</p> : null}
+      {x.paused ? <p className="set-paused"><Icon name="pause" />Paused</p> : null}
       <div className="set-side-k gap">mail.pawsome.shop</div>
       <ul className="set-dns">
-        <li><Icon name="check" /><div><b>DKIM</b><small>Your emails are signed</small></div></li>
-        <li><Icon name="check" /><div><b>SPF</b><small>We’re allowed to send for you</small></div></li>
-        <li className="warn"><Icon name="alert" /><div><b>DMARC</b><small>Emails still send. A stricter rule would protect your domain better.</small></div></li>
+        <li><Icon name="check" /><div><b>DKIM</b></div></li>
+        <li><Icon name="check" /><div><b>SPF</b></div></li>
+        <li className="warn"><Icon name="alert" /><div><b>DMARC</b><small>Could be stricter</small></div></li>
       </ul>
-      <small className="set-side-note">Checked 2 minutes ago</small>
     </div></aside>
   </>;
 }
@@ -193,19 +180,12 @@ export function DemoPrivacy() {
   const x = useS();
   const put = (k: keyof S['privacy'], v: string | boolean) => { set((y) => ({ ...y, privacy: { ...y.privacy, [k]: v } })); saved(); };
   return <>
-    <div className="set-main">
-      <header className="set-head"><h2>Privacy</h2></header>
-      <Row title="Session replay" hint="Anything typed is hidden before it’s saved"><label className="switch"><input type="checkbox" checked={x.privacy.replay} aria-label="Session replay" onChange={(e) => put('replay', e.target.checked)} /></label></Row>
-      <Row title="AI" hint="What the AI can see when it writes">
+    <div className="set-main solo">
+      <Row title="Session replay"><label className="switch"><input type="checkbox" checked={x.privacy.replay} aria-label="Session replay" onChange={(e) => put('replay', e.target.checked)} /></label></Row>
+      <Row title="AI">
         <div className="seg" role="group" aria-label="AI mode">{['Standard', 'Strict', 'Off'].map((m) => <button key={m} type="button" aria-pressed={x.privacy.ai === m} onClick={() => put('ai', m)}>{m}</button>)}</div>
       </Row>
-      <Row title="Keep data for" hint="Recordings and visits, then deleted"><Select label="Keep data for" value={x.privacy.keep} options={['90 days', '30 days', '1 year']} onChange={(v) => put('keep', v)} /></Row>
+      <Row title="Keep data for"><Select label="Keep data for" value={x.privacy.keep} options={['90 days', '30 days', '1 year']} onChange={(v) => put('keep', v)} /></Row>
     </div>
-    <aside className="set-side"><div className="set-side-in">
-      <div className="set-side-k">What we keep</div>
-      <ul className="set-list"><li>Pages they looked at</li><li>What they added to the cart</li><li>Discount codes they tried</li></ul>
-      <div className="set-side-k gap">What we never keep</div>
-      <ul className="set-list no"><li>Passwords</li><li>Card numbers</li><li>Anything else typed in a form</li></ul>
-    </div></aside>
   </>;
 }
