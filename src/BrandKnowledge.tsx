@@ -1,4 +1,4 @@
-/* Brand knowledge: six folders (logo, colours, fonts, products, brand photos & voice, store facts). Hovering
+/* Brand knowledge: four folders (logo, colours & fonts; products; photos & voice; store facts). Hovering
    tips a folder's frosted front open; clicking opens it in place: the other folders step back and the folder's
    card slides out under its row. Click the folder again or anywhere outside to close it. A real store can fill
    the folders by importing its website. Monitored pages live in their own Settings tab (MonitoringSection). */
@@ -9,15 +9,13 @@ import { Uploader } from './ui/Uploader';
 import { toast } from './ui/toast';
 import { FONTS } from './Mail';
 import {
-  DEMO_BRAND_SPACE, MONITOR_LIMIT, fileFrom, folderCount, importBrandFromSite, newId, updateBrand, useBrand,
+  DEMO_BRAND_SPACE, MONITOR_LIMIT, fileFrom, folderCount, identityLabel, importBrandFromSite, newId, updateBrand, useBrand,
   type Brand, type BrandColor, type BrandFile, type ColorRole, type FolderId, type LogoSlot,
 } from './brandStore';
 import { demoFacts, useDemoFacts } from './DemoSettings';
 
 const FOLDERS: { id: FolderId; name: string; icon: IconName; one: string; many: string; empty: string }[] = [
-  { id: 'logo', name: 'Logo', icon: 'star', one: 'file', many: 'files', empty: 'Empty' },
-  { id: 'colors', name: 'Colors', icon: 'layers', one: 'color', many: 'colors', empty: 'Empty' },
-  { id: 'fonts', name: 'Fonts', icon: 'fontsize', one: 'font', many: 'fonts', empty: 'Empty' },
+  { id: 'identity', name: 'Logo, colors & fonts', icon: 'star', one: 'item', many: 'items', empty: 'Empty' },
   { id: 'products', name: 'Products', icon: 'tag', one: 'product', many: 'products', empty: 'Empty' },
   { id: 'brand', name: 'Photos & voice', icon: 'image', one: 'item', many: 'items', empty: 'Empty' },
   { id: 'facts', name: 'Store facts', icon: 'book', one: 'fact', many: 'facts', empty: 'Empty' },
@@ -57,7 +55,7 @@ export function BrandKnowledge({ space, host, demo = false }: { space: string; h
     const t = window.setTimeout(() => setSettled(true), 520);
     return () => clearTimeout(t);
   }, [open]);
-  const [cols, setCols] = useState(6);
+  const [cols, setCols] = useState(4);
   const grid = useRef<HTMLDivElement>(null);
   const set = (next: (b: Brand) => Brand) => updateBrand(space, next);
 
@@ -92,6 +90,7 @@ export function BrandKnowledge({ space, host, demo = false }: { space: string; h
   const notch = openIndex < 0 ? 50 : ((openIndex % cols) + 0.5) * (100 / Math.min(cols, FOLDERS.length));
   const count = (id: FolderId) => {
     const f = FOLDERS.find((x) => x.id === id)!;
+    if (id === 'identity') return identityLabel(brand, f.empty);
     const n = id === 'facts' ? facts.list.length + (brand.docs?.product.trim() ? 1 : 0) : folderCount(brand, id);
     return n ? `${n} ${n === 1 ? f.one : f.many}` : f.empty;
   };
@@ -137,9 +136,7 @@ export function BrandKnowledge({ space, host, demo = false }: { space: string; h
               <section className="bk-panel v2-card" key={shownFolder.id}>
                 <header><Icon name={shownFolder.icon} /><h3>{shownFolder.name}</h3><span className="bk-panel-count">{count(shownFolder.id)}</span></header>
                 <div className="v2-in bk-panel-in">
-                  {shownFolder.id === 'logo' && <LogoFolder brand={brand} set={set} />}
-                  {shownFolder.id === 'colors' && <ColorFolder brand={brand} set={set} />}
-                  {shownFolder.id === 'fonts' && <FontFolder brand={brand} set={set} />}
+                  {shownFolder.id === 'identity' && <IdentityFolder brand={brand} set={set} />}
                   {shownFolder.id === 'products' && <ProductFolder brand={brand} set={set} />}
                   {shownFolder.id === 'brand' && <BrandFolder brand={brand} set={set} />}
                   {shownFolder.id === 'facts' && <FactsFolder facts={facts} product={brand.docs?.product ?? ''}
@@ -157,9 +154,17 @@ export function BrandKnowledge({ space, host, demo = false }: { space: string; h
 // ---------- the folder itself
 type Paper = { img?: string; color?: string; text?: string; font?: string; dark?: boolean };
 function papersFor(b: Brand, id: FolderId): Paper[] {
-  if (id === 'logo') return (['primary', 'mark', 'dark'] as LogoSlot[]).map((k) => b.logos[k] ? { img: b.logos[k]!.src, dark: k === 'dark' } : null).filter(Boolean) as Paper[];
-  if (id === 'colors') return orderedColors(b.colors).slice(0, 3).map((c) => ({ color: c.hex }));
-  if (id === 'fonts') return b.fonts.filter((f) => f.family || f.file).slice(0, 2).map((f) => ({ text: 'Aa', font: fontStack(f) }));
+  if (id === 'identity') {
+    // One of each: the logo, the main color, the heading font.
+    const logo = (['mark', 'primary', 'dark'] as LogoSlot[]).find((k) => b.logos[k]);
+    const color = orderedColors(b.colors)[0];
+    const font = b.fonts.find((f) => f.family || f.file);
+    return [
+      logo ? { img: b.logos[logo]!.src, dark: logo === 'dark' } : null,
+      color ? { color: color.hex } : null,
+      font ? { text: 'Aa', font: fontStack(font) } : null,
+    ].filter(Boolean) as Paper[];
+  }
   if (id === 'products') return b.products.filter((p) => p.image).slice(0, 3).map((p) => ({ img: p.image!.src }));
   if (id === 'facts') return (b.facts || []).slice(0, 3).map(() => ({}));
   return b.photos.slice(0, 3).map((p) => ({ img: p.src }));
@@ -202,6 +207,20 @@ function Items({ children, className = '' }: { children: ReactNode; className?: 
   return <div className={`bk-items ${className}`.trim()}>{children}</div>;
 }
 const fanIn = (i: number) => ({ ['--i' as string]: i }) as CSSProperties;
+
+// ---------- Identity: logo, colors and fonts in one folder
+function IdentityFolder({ brand, set }: FolderProps) {
+  return (
+    <div className="bk-identity">
+      <h4 className="bk-sub">Logo</h4>
+      <LogoFolder brand={brand} set={set} />
+      <h4 className="bk-sub">Colors</h4>
+      <ColorFolder brand={brand} set={set} />
+      <h4 className="bk-sub">Fonts</h4>
+      <FontFolder brand={brand} set={set} />
+    </div>
+  );
+}
 
 // ---------- Logo
 const LOGO_SLOTS: { id: LogoSlot; name: string }[] = [
