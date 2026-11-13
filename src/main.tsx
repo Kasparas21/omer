@@ -6,14 +6,16 @@ import {
 import { installPrompt, installSnippet, type Project } from './project';
 import './styles.css';
 import { AuthGate } from './auth';
-import { DashboardV2 } from './DashboardV2';
+import { DashboardV2, type Go } from './DashboardV2';
 import { LiveGlobe } from './LiveGlobe';
 import { People } from './People';
 import { Profile } from './Profile';
-import { Opportunities } from './Opportunities';
+import { Opportunities, type OpTab } from './Opportunities';
 import { Campaigns } from './Campaigns';
 import { Results } from './Results';
-import { Settings, type DockMode } from './Settings';
+import { Toasts } from './ui/toast';
+import { useDemo } from './demoState';
+import { Settings, type DockMode, type SettingsTab } from './Settings';
 import { useLive } from './live';
 import { Icon, type IconName } from './ui/Icon';
 import { Dock } from './ui/Dock';
@@ -84,6 +86,24 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [initial, setInitial] = useState('');
   const [liveFocus, setLiveFocus] = useState<string>();
   const [profile, setProfile] = useState<ProfileFocus>();
+  const [campaignId, setCampaignId] = useState<string>();
+  const [editing, setEditing] = useState(false);
+  // Where a Dashboard row sent you: the screen opens there (a tab, a person, a filter). The key remounts it.
+  const [start, setStart] = useState<{ n: number; op?: { tab?: OpTab; id?: string }; people?: { source?: string; country?: string }; settings?: SettingsTab }>({ n: 0 });
+  function go(to: Go) {
+    setProfile(undefined);
+    setEditing(false);
+    setCampaignId(to.to === 'campaigns' ? to.id : undefined);
+    setStart((s) => ({
+      n: s.n + 1,
+      op: to.to === 'inbox' ? { tab: to.tab, id: to.id } : undefined,
+      people: to.to === 'visitors' ? { source: to.source, country: to.country } : undefined,
+      settings: to.to === 'settings' ? to.tab : undefined,
+    }));
+    setScreen(to.to);
+    window.scrollTo({ top: 0 });
+  }
+  const demoState = useDemo();
   const [dockMode, setDockMode] = useState<DockMode>(() => {
     try {
       const saved = localStorage.getItem('omer.dock');
@@ -121,7 +141,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
     return () => { delete document.documentElement.dataset.dash; delete document.documentElement.dataset.dock; };
   }, []);
 
-  useEffect(() => { setProfile(undefined); }, [project?.id]);
+  useEffect(() => { setProfile(undefined); setCampaignId(undefined); setEditing(false); }, [project?.id]);
 
   useEffect(() => {
     const id = project?.id;
@@ -454,8 +474,12 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
     return null;
   }
 
+  // Inside a campaign the shelf trades the store switcher for the way back, as in the kit.
+  const openCampaign = screen === 'campaigns' && project && isDemo(project) ? demoState.campaigns.find((c) => c.id === campaignId) : undefined;
+  const nested = !inSetup && openCampaign ? { back: 'Campaigns', title: openCampaign.name, go: () => { setCampaignId(undefined); setEditing(false); } } : undefined;
+
   return (
-    <div className={`app has-shelf${screen === 'globe' && !inSetup ? ' globe-mode' : ''}`} data-screen={inSetup ? 'setup' : screen}>
+    <div className={`app has-shelf${screen === 'globe' && !inSetup ? ' globe-mode' : ''}${nested ? ' shelf-nested' : ''}${editing && !inSetup ? ' is-editing' : ''}`} data-screen={inSetup ? 'setup' : screen}>
       <a href="#dashboard" className="skip">Skip to dashboard</a>
       <header className="app-shelf">
         <div className="app-shelf-in">
@@ -469,7 +493,8 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
                 setNotice('');
               }} />
             )}
-            {!inSetup && WHERE[screen] ? <span className="app-shelf-where">{WHERE[screen]}</span> : null}
+            {nested ? <button type="button" className="app-shelf-back" aria-label={`Back to ${nested.back}`} onClick={nested.go}><Icon name="arrowLeft" /><span>{nested.back}</span></button> : null}
+            {!inSetup && (nested?.title ?? WHERE[screen]) ? <span className="app-shelf-where">{nested?.title ?? WHERE[screen]}</span> : null}
           </div>
           <div className="app-shelf-r">
             <details className="omer-account" onToggle={(event) => {
@@ -536,7 +561,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
       ) : (
         <main id="dashboard" className={`app-body ${screen === 'home' ? 'ho v2' : screen === 'globe' ? 'globe-body' : 'v2-screen'}`}>
           {screen === 'home' && project ? (
-            <DashboardV2 key={project.id} project={analytics?.id === project.id ? analytics : project} headingRef={dashboardHeading}
+            <DashboardV2 key={project.id} project={analytics?.id === project.id ? analytics : project} headingRef={dashboardHeading} onGo={go}
               onGlobe={() => { setLiveFocus(undefined); setScreen('globe'); }} onPeople={() => setScreen('visitors')} onInbox={() => setScreen('inbox')} onSetup={() => {
                 setForceSetup(true);
                 setStep('check');
@@ -549,22 +574,24 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
               onBack={() => setProfile(undefined)}
               onLive={() => { setLiveFocus(profile.seed); setProfile(undefined); setScreen('globe'); }} />
           ) : screen === 'visitors' && project ? (
-            <People key={project.id} {...live} demo={isDemo(project)} onLive={() => { setLiveFocus(undefined); setScreen('globe'); }}
+            <People key={`${project.id}-${start.n}`} {...live} demo={isDemo(project)} start={start.people} onLive={() => { setLiveFocus(undefined); setScreen('globe'); }}
               onOpen={(seed) => setProfile({ projectId: project.id, seed })} />
           ) : screen === 'settings' && project ? (
-            <Settings project={project} snippet={snippet} dockMode={dockMode} onDockMode={setDockMode}
+            <Settings key={`settings-${start.n}`} startTab={start.settings} project={project} snippet={snippet} dockMode={dockMode} onDockMode={setDockMode}
               onCopy={(kind) => void copy(kind)} onGuide={openGuide} onSetup={() => {
                 setForceSetup(true);
                 setStep('install');
                 setReached((value) => Math.max(value, stepIndex('install')));
               }} />
           ) : screen === 'inbox' && project ? (
-            <Opportunities key={project.id} demo={isDemo(project)} storeName={project.name}
-              onProfile={() => setScreen('visitors')} onBack={() => setScreen('home')} />
+            <Opportunities key={`${project.id}-${start.n}`} start={start.op} demo={isDemo(project)} editing={editing} onEdit={setEditing}
+              onPeople={() => setScreen('visitors')} onBack={() => setScreen('home')} />
           ) : screen === 'campaigns' && project ? (
-            <Campaigns key={project.id} demo={isDemo(project)} onBack={() => setScreen('home')} />
+            <Campaigns key={project.id} demo={isDemo(project)} openId={campaignId} editing={editing}
+              onOpen={(id) => { setCampaignId(id); setEditing(false); window.scrollTo({ top: 0 }); }} onEdit={(on) => { setEditing(on); window.scrollTo({ top: 0 }); }} onBack={() => setScreen('home')} />
           ) : screen === 'results' && project ? (
-            <Results key={project.id} project={analytics?.id === project.id ? analytics : project} demo={isDemo(project)} />
+            <Results key={project.id} project={analytics?.id === project.id ? analytics : project} demo={isDemo(project)}
+              onCampaign={(id) => { setCampaignId(id); setEditing(false); setScreen('campaigns'); window.scrollTo({ top: 0 }); }} />
           ) : (
             <div className="v2-empty-screen">
               <h1 className="v2-title">{WHERE[screen] || 'Soon'}</h1>
@@ -592,7 +619,8 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
         </main>
       )}
 
-      {!inSetup && (
+      <Toasts />
+      {!inSetup && !editing && (
         <Dock
           items={DOCK.map((item) => (item.live ? { ...item, count: liveCount } : item))}
           current={screen}
@@ -602,6 +630,9 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
           onPick={(id) => {
             if (id === 'globe') setLiveFocus(undefined);
             if (id !== 'visitors') setProfile(undefined);
+            setCampaignId(undefined);
+            setEditing(false);
+            setStart((s) => ({ n: s.n + 1 }));
             setScreen(id);
             if (dockMode !== 'auto') setCollapsed(false);
             window.scrollTo({ top: 0 });

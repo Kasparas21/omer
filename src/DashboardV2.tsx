@@ -5,7 +5,16 @@ import type { Project } from './project';
 import { Icon, type IconName } from './ui/Icon';
 import { SourceMark, sourceKey, sourceLabel } from './ui/sources';
 import { Orb } from './ui/Orb';
-import { CAMPAIGN_COLORS, DEMO_CAMPAIGNS, DEMO_NEEDS, DEMO_PRODUCTS, DEMO_SCHEDULE, RETURNING, demoSeries, isDemo } from './demo';
+import { CAMPAIGN_COLORS, DEMO_CAMPAIGNS, DEMO_NEEDS, DEMO_PRODUCTS, DEMO_SCHEDULE, RETURNING, demoSeries, isDemo, type NeedRow } from './demo';
+import { useDemo } from './demoState';
+
+/** Where a Dashboard row takes you, as in the kit. */
+export type Go =
+  | { to: 'inbox'; tab?: 'review' | 'hold' | 'approved' | 'replies'; id?: string }
+  | { to: 'campaigns'; id?: string }
+  | { to: 'results' }
+  | { to: 'settings'; tab?: 'company' | 'changes' | 'sending' }
+  | { to: 'visitors'; source?: string; country?: string };
 
 type Metric = 'people' | 'views' | 'dwell' | 'clicked' | 'sales';
 const RANGES = [1, 7, 14, 30] as const;
@@ -255,12 +264,15 @@ export function Card({ icon, title, children, extra, className = '' }: {
   );
 }
 
+const CAMPAIGN_IDS: Record<string, string | undefined> = { 'Interest match': 'interest', 'Expired code rescue': 'expired', 'Free shipping nudge': 'shipping' };
+
 function Link({ label, onClick }: { label: string; onClick: () => void }) {
   return <button type="button" className="ho-link" onClick={onClick}>{label}<Icon name="chevronRight" /></button>;
 }
 
 
-export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, headingRef }: {
+export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo, headingRef }: {
+  onGo: (go: Go) => void;
   project: Project;
   onSetup: () => void;
   onGlobe: () => void;
@@ -321,6 +333,17 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, head
   // One shape for both modes: n points now, n points before, labels, totals and the comparison.
   const demo = isDemo(project);
   const [need, setNeed] = useState(DEMO_NEEDS[0].id);
+  const demoState = useDemo();
+  const who = (p: { name: string | null; email: string | null }) => p.name || p.email || 'Unknown visitor';
+  const needs: { id: string; label: string; go: string; rows: NeedRow[] }[] = [
+    { id: 'review', label: 'To approve', go: 'Opportunities', rows: demoState.people.filter((p) => !p.skipped && p.status === 'review').map((p) => ({ seed: p.id, who: who(p), what: p.offer, when: p.time })) },
+    { id: 'hold', label: 'On hold', go: 'Opportunities', rows: demoState.people.filter((p) => !p.skipped && p.status === 'hold').map((p) => ({ seed: p.id, who: who(p), what: p.offer, when: p.time })) },
+    { id: 'replies', label: 'Replies', go: 'Replies', rows: demoState.replies.filter((r) => r.state === 'open').map((r) => ({ seed: r.id, who: who(r), what: `“${r.text[0]}”`, when: r.time, icon: 'reply' as const })) },
+    ...DEMO_NEEDS.filter((t) => t.id === 'facts' || t.id === 'changes').map((t) => ({ ...t, go: t.id === 'facts' ? 'Company' : 'Website changes' })),
+  ];
+  const needGo = (id: string, seed?: string): Go => (id === 'facts' ? { to: 'settings', tab: 'company' }
+    : id === 'changes' ? { to: 'settings', tab: 'changes' }
+    : { to: 'inbox', tab: id === 'replies' ? 'replies' : id === 'hold' ? 'hold' : 'review', id: seed });
   const data = useMemo(() => withDemo(demo, (() => {
     if (range === 1) {
       const hourly = { views: Array(24).fill(0), people: Array(24).fill(0) };
@@ -592,7 +615,7 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, head
 
     <div className="v2-rest">
       <div className="v2-row v2-two">
-        <Card icon="ghost" title="Brand read" extra={<Link label="Brand DNA" onClick={onSetup} />}>
+        <Card icon="ghost" title="Brand read" extra={<Link label="Brand DNA" onClick={() => onGo({ to: 'settings', tab: 'company' })} />}>
           {demo && data.mail ? (
             <div className="v2-brand-read">
               <b className="v2-brand-word">Credible</b>
@@ -615,12 +638,12 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, head
       </div>
 
       <div className="v2-row v2-two">
-        <Card icon="clock" title="Schedule" extra={<Link label="Opportunities" onClick={onInbox} />}>
+        <Card icon="clock" title="Schedule" extra={<Link label="Opportunities" onClick={() => onGo({ to: 'inbox', tab: 'review' })} />}>
           <div className="v2-sched">
             <b className="v2-val">{demo && data.mail ? DEMO_SCHEDULE.length : 0} <span>sends lined up</span></b>
             {demo && data.mail ? (
               <ul>{DEMO_SCHEDULE.map((row) => (
-                <li key={row.seed}><button type="button" onClick={onInbox}><Orb seed={row.seed} size={22} /><span><b>{row.name}</b><small>{row.when}</small></span></button></li>
+                <li key={row.seed}><button type="button" onClick={() => onGo({ to: 'inbox', tab: 'review', id: row.seed })}><Orb seed={row.seed} size={22} /><span><b>{row.name}</b><small>{row.when}</small></span></button></li>
               ))}</ul>
             ) : <p className="ho-empty">Follow-ups you approve are scheduled here once email sending ships.</p>}
           </div>
@@ -646,7 +669,7 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, head
               </div>
               {parts.length ? (
                 <div className="v2-legend">{parts.map((c) => (
-                  <button key={c.name} type="button"><i style={{ ['--c' as string]: c.color }} /><span>{c.name}</span><small>{Math.round(c.share * 100)}%</small><b>{money.format(Math.round(c.revenue))}</b></button>
+                  <button key={c.name} type="button" onClick={() => onGo({ to: 'campaigns', id: CAMPAIGN_IDS[c.name] })}><i style={{ ['--c' as string]: c.color }} /><span>{c.name}</span><small>{Math.round(c.share * 100)}%</small><b>{money.format(Math.round(c.revenue))}</b></button>
                 ))}</div>
               ) : <p className="ho-empty omer-center">No campaigns yet. Tag purchases with a campaign or wait for email clicks.</p>}
             </>;
@@ -667,7 +690,7 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, head
               }));
             return products.length ? (
               <div className="v2-products">{products.map((item) => (
-                <button key={item.name} type="button" className="v2-prod">
+                <button key={item.name} type="button" className="v2-prod" onClick={() => onGo({ to: 'results' })}>
                   <span className="omer-thumb" style={{ background: item.tint }} aria-hidden="true"><Icon name="tag" /></span>
                   <span className="v2-prod-t"><b>{item.name}</b><small>{countFmt.format(Math.max(1, Math.round(item.count)))} orders</small></span>
                   <b className="v2-prod-v">{money.format(Math.round(item.revenue))}</b>
@@ -720,7 +743,7 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, head
               <tbody>
                 {sources.map((row) => (
                   <tr key={row.name}>
-                    <th scope="row"><button type="button" className="v2-stat-src" onClick={onGlobe}><span className={`lvp-src ${sourceKey(row.name)}`} aria-hidden="true"><SourceMark referrer={row.name} /></span>{sourceLabel(row.name)}</button></th>
+                    <th scope="row"><button type="button" className="v2-stat-src" onClick={() => onGo({ to: 'visitors', source: sourceKey(row.name) })}><span className={`lvp-src ${sourceKey(row.name)}`} aria-hidden="true"><SourceMark referrer={row.name} /></span>{sourceLabel(row.name)}</button></th>
                     <td className="num">{countFmt.format(row.count)}</td>
                     <td className="num">{money.format(Math.round(demo
                       ? data.totals.sales * (row.count / sourceTotal) * (sourceKey(row.name) === 'direct' ? 0.7 : 1.05)
@@ -756,18 +779,19 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, head
       <div className="v2-row">
         <Card icon="inbox" title="Needs you" className="v2-wide">
           {demo && data.mail ? (() => {
-            const tab = DEMO_NEEDS.find((t) => t.id === need) ?? DEMO_NEEDS[0];
+            const tabs = needs;
+            const tab = tabs.find((t) => t.id === need) ?? tabs[0];
             return (
               <section className="ho-needs" aria-label="What needs you">
                 <header className="ho-needs-h">
                   <nav className="ib-tabs" aria-label="What needs you">
-                    {DEMO_NEEDS.map((t) => <button key={t.id} type="button" className="ib-tab" aria-pressed={t.id === tab.id} onClick={() => setNeed(t.id)}>{t.label}<span>{t.rows.length}</span></button>)}
+                    {tabs.map((t) => <button key={t.id} type="button" className="ib-tab" aria-pressed={t.id === tab.id} onClick={() => setNeed(t.id)}>{t.label}<span>{t.rows.length}</span></button>)}
                   </nav>
-                  <Link label={tab.go} onClick={tab.go === 'Settings' ? onSetup : onInbox} />
+                  <Link label={tab.go} onClick={() => onGo(needGo(tab.id))} />
                 </header>
                 <div className="ho-need-rows">
                   {tab.rows.slice(0, 3).map((row) => (
-                    <button key={row.who} type="button" className="ho-need" onClick={tab.go === 'Settings' ? onSetup : onInbox}>
+                    <button key={row.who} type="button" className="ho-need" onClick={() => onGo(needGo(tab.id, row.seed))}>
                       {row.seed ? <Orb seed={row.seed} size={26} /> : <span className="ho-need-ic"><Icon name={row.icon ?? 'alert'} /></span>}
                       <b>{row.who}</b><span>{row.what}</span><time>{row.when ?? ''}</time>
                     </button>

@@ -6,7 +6,8 @@ import { Icon } from './ui/Icon';
 import { useThumb } from './ui/useThumb';
 
 export type DockMode = 'always' | 'scroll' | 'auto';
-type Tab = 'company' | 'changes' | 'sending' | 'privacy' | 'dock';
+export type SettingsTab = 'company' | 'changes' | 'sending' | 'privacy' | 'dock';
+type Tab = SettingsTab;
 
 const DOCK_MODES: { id: DockMode; label: string }[] = [
   { id: 'always', label: 'Always show' },
@@ -25,7 +26,8 @@ function Row({ title, hint, children, wide }: { title: string; hint?: string; ch
 
 const Soon = () => <span className="status-pill">Coming next</span>;
 
-export function Settings({ project, snippet, dockMode, onDockMode, onCopy, onGuide, onSetup }: {
+export function Settings({ project, snippet, dockMode, onDockMode, onCopy, onGuide, onSetup, startTab }: {
+  startTab?: Tab;
   project: Project;
   snippet: string;
   dockMode: DockMode;
@@ -34,7 +36,7 @@ export function Settings({ project, snippet, dockMode, onDockMode, onCopy, onGui
   onGuide: () => void;
   onSetup: () => void;
 }) {
-  const [tab, setTab] = useState<Tab>('company');
+  const [tab, setTab] = useState<Tab>(startTab ?? 'company');
   const seg = useThumb<HTMLDivElement>('button[aria-pressed="true"]', `${tab}:${dockMode}`, true);
   const host = (() => { try { return new URL(project.origin).host; } catch { return project.origin; } })();
   const tabs: { id: Tab; title: string; desc: string }[] = [

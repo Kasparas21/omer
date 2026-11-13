@@ -6,6 +6,7 @@
 @import './ui/dashboard.css';
 @import './ui/omer.css';
 @import './ui/screens.css';
+@import './ui/mail.css';
 
 
 * { box-sizing: border-box; }

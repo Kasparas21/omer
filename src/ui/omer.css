@@ -263,3 +263,10 @@
   .v2-card > header:has(.v2-side) { flex-wrap: wrap; row-gap: 0; padding-block: 8px; }
   .v2-card > header .v2-side { margin-left: 0; font-size: 12.5px; }
 }
+
+/* ---------- Live: the globe fills the window and the shelf floats over it, as in the kit ---------- */
+.app.has-shelf.globe-mode .app-shelf { position: fixed; inset: 0 0 auto; }
+.app.globe-mode .app-body.globe-body { height: 100dvh; min-height: 0; overflow: hidden; }
+.app.globe-mode .globe-wrap.has-panel:not(.is-fs) { min-height: 0; height: 100%; }
+.app.globe-mode .globe-wrap.is-fs { height: 100dvh; }
+.app.has-shelf.globe-mode .globe-wrap:not(.is-fs) .live-region { top: calc(var(--app-shelf-h) + 10px); }

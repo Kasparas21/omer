@@ -31,8 +31,10 @@ function ago(iso: string, now: number) {
   return minutes < 60 ? `${minutes}m ago` : `${Math.floor(minutes / 60)}h ago`;
 }
 
-export function People({ data, loading, failed, onLive, onOpen, demo = false }: {
+export function People({ data, loading, failed, onLive, onOpen, demo = false, start }: {
   demo?: boolean;
+  /** Opened from a Dashboard row: start filtered to that source or country. */
+  start?: { source?: string; country?: string };
   data: LivePayload;
   loading: boolean;
   failed: boolean;
@@ -41,8 +43,8 @@ export function People({ data, loading, failed, onLive, onOpen, demo = false }: 
 }) {
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState<Tab>('all');
-  const [source, setSource] = useState('all');
-  const [country, setCountry] = useState('all');
+  const [source, setSource] = useState(start?.source ?? 'all');
+  const [country, setCountry] = useState(start?.country ?? 'all');
   const [sort, setSort] = useState<Sort>('recent');
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
