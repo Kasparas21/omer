@@ -12,8 +12,8 @@
 .bk-import .btn .ico { width: 15px; height: 15px; }
 
 /* ---------- the folders */
-.bk-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 10px; align-items: start; }
-@media (max-width: 900px) { .bk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.bk-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px 10px; align-items: start; }
+@media (max-width: 1080px) { .bk-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .bk-item {
   display: grid; justify-items: center; gap: 2px; min-width: 0; padding: 18px 10px 14px;
   border: 0; border-radius: 20px; background: transparent; font: inherit; color: inherit; cursor: pointer; text-align: center;
@@ -118,9 +118,6 @@
 .bk-items > * { animation: bk-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: calc(var(--i, 0) * 45ms + 80ms); }
 .bk-product-info { margin-top: 14px; }
 .bk-sub { margin: 20px 0 10px; font-size: 13px; font-weight: 560; color: var(--ink-3); }
-.bk-identity { display: grid; gap: 4px; }
-.bk-identity > .bk-sub:first-child { margin-top: 0; }
-.bk-identity > .bk-sub { margin-top: 22px; }
 
 .bk-card { display: flex; flex-direction: column; min-width: 0; overflow: hidden; border: 1px solid var(--v2-line); border-radius: 17px; background: var(--v2-card); box-shadow: var(--v2-lift); }
 .bk-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 11px 12px 12px 14px; border-top: 1px solid var(--v2-line); }
@@ -324,35 +321,38 @@
 .bk-fact-add .btn .ico { width: 15px; height: 15px; }
 
 /* ---------- Monitoring */
-.bk-monitor-in { display: grid; gap: 14px; padding: 18px; }
-.bk-monitor-lede { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--ink-3); }
-.bk-mon-add { display: flex; gap: 8px; }
+.bk-monitor-in { display: grid; gap: 12px; padding: 18px; }
+.bk-monitor-lede { margin: 0; font-size: 13.5px; line-height: 1.4; color: var(--ink-3); }
+.bk-mon-add { display: flex; gap: 8px; align-items: center; }
 .bk-mon-field {
-  display: flex; align-items: center; flex: 1; min-width: 0; height: 42px; padding: 0 6px 0 16px;
-  border: 1px solid var(--v2-line); border-radius: 99px; background: var(--v2-card); cursor: text;
+  display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; height: 40px; padding: 0 14px;
+  border: 1px solid var(--v2-line); border-radius: 12px; background: var(--v2-card); cursor: text;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .bk-mon-field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .bk-mon-add.has-error .bk-mon-field { border-color: var(--danger, #E5484D); }
-.bk-mon-host { flex: none; font-size: 14px; color: var(--ink-3); }
-.bk-mon-field input { flex: 1; min-width: 0; height: 100%; padding: 0 0 0 1px; border: 0; outline: none; background: transparent; font: inherit; font-size: 14px; color: var(--ink); }
-.bk-mon-add .btn { flex: none; height: 42px; min-height: 42px; padding-inline: 16px; border-radius: 99px; }
+.bk-mon-host { flex: none; max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--ink-3); }
+.bk-mon-field input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: none; background: transparent; font: inherit; font-size: 14px; color: var(--ink); }
+.bk-mon-add .btn { flex: none; }
 .bk-mon-add .btn .ico { width: 15px; height: 15px; }
-.bk-mon-error { margin: -6px 0 0 16px; font-size: 12.5px; color: var(--danger-text, #C2333A); }
-.bk-mon-suggest { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.bk-mon-suggest > span { margin-inline-end: 4px; font-size: 12.5px; color: var(--ink-3); }
-.bk-mon-chip { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; height: 30px; padding: 0 12px 0 9px; border: 1px solid var(--v2-line); border-radius: 99px; background: var(--v2-shell); font: inherit; font-size: 12.5px; color: var(--ink-2); cursor: pointer; transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease; }
-.bk-mon-chip:hover { border-color: var(--ink-3); background: var(--v2-card); color: var(--ink); }
-.bk-mon-chip .ico { width: 13px; height: 13px; flex: none; }
-.bk-mon-list { display: grid; margin: 0; padding: 0; list-style: none; border: 1px solid var(--v2-line); border-radius: 15px; overflow: hidden; }
-.bk-mon-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 10px 8px 10px 12px; border-top: 1px solid var(--v2-line); animation: bk-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: calc(var(--i, 0) * 35ms); }
+.bk-mon-error { margin: -4px 0 0 4px; font-size: 12.5px; color: var(--danger-text, #C2333A); }
+.bk-mon-suggest { display: flex; flex-wrap: wrap; gap: 6px; }
+.bk-mon-chip {
+  display: inline-flex; align-items: center; max-width: 100%; height: 28px; padding: 0 11px;
+  border: 1px solid transparent; border-radius: 999px; background: var(--v2-shell);
+  font: inherit; font-size: 12.5px; color: var(--ink-2); cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.bk-mon-chip:hover { background: color-mix(in srgb, var(--ink) 8%, var(--v2-shell)); color: var(--ink); }
+.bk-mon-list { display: grid; margin: 0; padding: 0; list-style: none; border: 1px solid var(--v2-line); border-radius: 14px; overflow: hidden; background: var(--v2-card); }
+.bk-mon-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px;
+  padding: 11px 10px 11px 14px; border-top: 1px solid var(--v2-line);
+  animation: bk-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: calc(var(--i, 0) * 35ms);
+}
 .bk-mon-row:first-child { border-top: 0; }
-.bk-mon-ic { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; background: var(--v2-shell); color: var(--ink-3); }
-.bk-mon-ic .ico { width: 15px; height: 15px; }
-.bk-mon-page { display: grid; gap: 1px; min-width: 0; }
-.bk-mon-page b, .bk-mon-page small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bk-mon-page b { font-size: 13.5px; font-weight: 560; color: var(--ink); }
-.bk-mon-page small { font-size: 12px; color: var(--ink-3); }
+.bk-mon-page { min-width: 0; }
+.bk-mon-page b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: 560; color: var(--ink); }
 .bk-mon-state { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 11px; border: 0; border-radius: 99px; background: var(--v2-shell); font: inherit; font-size: 12.5px; color: var(--ink-3); white-space: nowrap; }
 .bk-mon-state i { width: 7px; height: 7px; flex: none; border-radius: 50%; background: color-mix(in srgb, var(--ink) 25%, transparent); }
 .bk-mon-state.is-ok { color: var(--ink-2); }
@@ -361,7 +361,7 @@
 .bk-mon-state.is-change i { background: #F59E0B; }
 .bk-mon-state.is-change .ico { width: 13px; height: 13px; margin-inline-start: -2px; }
 .bk-mon-state.is-change:hover { background: color-mix(in srgb, #F59E0B 22%, var(--v2-card)); }
-.bk-mon-empty { margin: 0; padding: 18px; border: 1px dashed var(--v2-line); border-radius: 15px; font-size: 13px; color: var(--ink-3); text-align: center; }
+.bk-mon-empty { margin: 0; padding: 16px; border: 1px dashed var(--v2-line); border-radius: 14px; font-size: 13px; color: var(--ink-3); text-align: center; }
 
 /* touch screens: actions that wait for hover are always shown */
 @media (hover: none) {
@@ -369,9 +369,9 @@
 }
 @media (max-width: 760px) {
   .bk-logos, .bk-fonts, .bk-roles { grid-template-columns: minmax(0, 1fr); }
-  .bk-mon-row { grid-template-columns: auto minmax(0, 1fr) auto; }
-  .bk-mon-row .bk-mon-state { grid-column: 2 / 3; justify-self: start; }
-  .bk-mon-row .bk-icon-btn { grid-column: 3; grid-row: 1; }
+  .bk-mon-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+  .bk-mon-row .bk-mon-state { grid-column: 1; justify-self: start; }
+  .bk-mon-row .bk-icon-btn { grid-column: 2; grid-row: 1 / 3; align-self: center; }
 }
 @media (max-width: 620px) {
   .bk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

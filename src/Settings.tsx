@@ -128,7 +128,7 @@ export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab
               <Row title="Consent"><span className="status-pill received"><Icon name="check" />Required</span></Row>
               <Row title="Session replay">
                 {storageReady ? (
-                  <label className="switch"><input type="checkbox" checked={replayOn} disabled={replayBusy || !onReplay} aria-label="Session replay" onChange={(e) => onReplay?.(e.target.checked)} /></label>
+                  <label className={`switch${replayBusy ? ' is-busy' : ''}`}><input type="checkbox" checked={replayOn} disabled={replayBusy || !onReplay} aria-label="Session replay" onChange={(e) => onReplay?.(e.target.checked)} /></label>
                 ) : <span className="status-pill">Not set up</span>}
               </Row>
               <Row title="Location"><span className="omer-set-val">City</span></Row>
