@@ -40,6 +40,21 @@ function fmtDay(iso: string | null) {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function dayLabel(iso: string) {
+  const day = new Date(iso);
+  day.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.round((today.getTime() - day.getTime()) / 86_400_000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  return day.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+function pct(part: number, whole: number) {
+  return whole ? `${Math.round((Math.min(part, whole) / whole) * 100)}%` : '0%';
+}
+
 type JourneySession = {
   sessionId: string;
   startedAt: string;
@@ -48,7 +63,7 @@ type JourneySession = {
   device: string;
   referrer: string;
   live: boolean;
-  events: { id: string; path: string; seenAt: string }[];
+  events: { id: string; path: string; seenAt: string; durationMs?: number }[];
   purchases: { id: string; amount: number; path: string | null; products: { name: string; price?: number; qty?: number }[] | null; seenAt: string }[];
   replay: { id: string; status: string; hasFullSnapshot: boolean } | null;
 };
@@ -72,11 +87,11 @@ type ProfileData = {
   replayEnabled: boolean;
 };
 
-export function Profile({ projectId, seed, onBack, onLive, onName }: {
+export function Profile({ projectId, seed, onLive, onName }: {
   projectId: string;
   seed: string;
-  onBack: () => void;
-  onLive: () => void;
+  onBack?: () => void;
+  onLive?: () => void;
   onName?: (name: string) => void;
 }) {
   const [data, setData] = useState<ProfileData>();
@@ -138,22 +153,30 @@ export function Profile({ projectId, seed, onBack, onLive, onName }: {
     return () => { gone = true; instance?.destroy(); };
   }, [data?.place, seed]);
 
+  const title = data?.identity?.name || handle(seed);
+  useEffect(() => { if (data) onName?.(title); }, [data, onName, title]);
+
   if (replayId) {
     return <ReplayPlayer projectId={projectId} replayId={replayId} onBack={() => setReplayId(undefined)} />;
   }
-
-  const title = data?.identity?.name || handle(seed);
-  useEffect(() => { if (data) onName?.(title); }, [data, onName, title]);
   const email = data?.identity?.email;
   const identity = !email ? 'Anonymous visitor' : data?.identity?.name ? 'Known visitor' : 'Email only';
   const country = data?.place?.cc ? (regions.of(data.place.cc.toUpperCase()) ?? data.place.cc.toUpperCase()) : null;
   const city = data?.place?.city || data?.place?.place || country || 'Unknown';
   const sessions = (data?.journey ?? []).filter((s) => filter === 'all' || s.purchases.length > 0);
   const hasPurchases = (data?.journey ?? []).some((s) => s.purchases.length > 0);
+  // Campaign tags only count as follow-up sales once we have actually emailed this person.
+  const followUpOrders = data?.mail.sent ? data.mail.attributed : 0;
+  const elig = !email
+    ? { k: 'unverified', title: 'Email unavailable', detail: 'A recipient address is required to send a follow-up.' }
+    : !data?.identity?.name
+      ? { k: 'weak', title: 'Email known, name uncertain', detail: 'Only an email address is linked to this profile.' }
+      : data.live
+        ? { k: 'wait', title: 'Waiting for the session to end', detail: 'Follow-up is paused while they’re browsing.' }
+        : { k: 'ok', title: data.mail.sent ? 'Has been emailed' : 'Eligible to email', detail: email };
 
   return (
     <div className="profile people-page">
-      <button type="button" className="profile-back" onClick={onBack}><Icon name="arrowLeft" /> People</button>
       {!data && !failed && <p className="omer-empty-note" role="status">Loading profile…</p>}
       {failed && <p className="omer-empty-note" role="status">Unable to load this visitor.</p>}
       {data && (
@@ -168,7 +191,9 @@ export function Profile({ projectId, seed, onBack, onLive, onName }: {
                     <div className="profile-title-row">
                       <h1 className="profile-name" tabIndex={-1}>{title}</h1>
                       {data.live
-                        ? <span className="profile-live">Online now</span>
+                        ? onLive
+                          ? <button type="button" className="profile-live" onClick={onLive} title="See them on Live">Online now</button>
+                          : <span className="profile-live">Online now</span>
                         : <span className="profile-seen">Last seen {ago(data.lastSeenAt)}</span>}
                     </div>
                     <div className="profile-byline">
@@ -198,9 +223,6 @@ export function Profile({ projectId, seed, onBack, onLive, onName }: {
                 Came from <b>{sourceLabel(data.firstReferrer)}</b> ({sourceKind(data.firstReferrer)}), landed on <b>{data.firstPath}</b>.{' '}
                 {data.live ? 'They’re on the site right now.' : `Last seen ${ago(data.lastSeenAt)}.`}
               </p>
-              <div className="profile-top-actions">
-                <button type="button" className="btn btn-secondary btn-sm" onClick={onLive}>Open on Live</button>
-              </div>
             </div>
             <div className="profile-bento">
               <section className="profile-place" aria-label="First location">
@@ -217,13 +239,15 @@ export function Profile({ projectId, seed, onBack, onLive, onName }: {
               <div className="profile-mail" aria-label="Email engagement">
                 <div className="profile-mail-rows">
                   <div className="profile-mail-row"><span className="profile-mail-label">Sent</span><b className="profile-mail-value num">{data.mail.sent}</b></div>
-                  <div className="profile-mail-row"><span className="profile-mail-label">Opened</span><b className="profile-mail-value num">{data.mail.opened}</b></div>
-                  <div className={`profile-mail-row${data.mail.clicked ? '' : ' is-muted'}`}><span className="profile-mail-label">Clicked</span><b className="profile-mail-value num">{data.mail.clicked}</b></div>
+                  <div className={`profile-mail-row${data.mail.sent ? '' : ' is-muted'}`}><span className="profile-mail-label">Opened</span><b className="profile-mail-value num">{pct(data.mail.opened, data.mail.sent)}</b></div>
+                  <div className={`profile-mail-row${data.mail.clicked ? '' : ' is-muted'}`}><span className="profile-mail-label">Clicked</span><b className="profile-mail-value num">{pct(data.mail.clicked, data.mail.sent)}</b></div>
                 </div>
-                <p className={`profile-mail-foot${data.mail.attributed ? ' pos' : ''}`}>
-                  {data.mail.attributed
-                    ? <><b>{data.mail.attributed}</b> attributed from a follow-up</>
-                    : <>Last opened <b>{data.mail.lastOpenedAt ? ago(data.mail.lastOpenedAt) : 'never'}</b> · emails not sent from Unfair Weekend yet</>}
+                <p className={`profile-mail-foot${followUpOrders ? ' pos' : ''}`}>
+                  {followUpOrders
+                    ? <><b>{followUpOrders} order{followUpOrders === 1 ? '' : 's'}</b> attributed from a follow-up</>
+                    : data.mail.lastOpenedAt
+                      ? <>Last opened <b>{ago(data.mail.lastOpenedAt)}</b> · {fmtDay(data.mail.lastOpenedAt)}</>
+                      : data.mail.sent ? <>Not opened yet</> : <>No emails sent to them yet</>}
                 </p>
               </div>
             </div>
@@ -253,13 +277,14 @@ export function Profile({ projectId, seed, onBack, onLive, onName }: {
                   <div className="profile-followup-expand"><div className="profile-followup-expand-in">
                     <div className="v2-in profile-followup-body">
                       <div className="profile-fu">
-                        <div className="profile-fu-status profile-elig-wait">
-                          <span className="profile-fu-dot" />
+                        <div className={`profile-fu-status profile-elig-${elig.k}`}>
+                          <span className="profile-fu-dot" aria-hidden="true" />
                           <div className="profile-fu-status-copy">
-                            <b>No follow-ups yet</b>
-                            <span>Email drafting and sending ship next. Profiles already collect the visit evidence.</span>
+                            <b>{elig.title}</b>
+                            <span>{elig.detail}</span>
                           </div>
                         </div>
+                        <p className="profile-empty">No messages or campaign enrollments yet.</p>
                       </div>
                     </div>
                   </div></div>
@@ -280,56 +305,16 @@ export function Profile({ projectId, seed, onBack, onLive, onName }: {
                   {sessions.length === 0 ? (
                     <p className="profile-journey-empty">{filter === 'purchases' ? 'No purchases in this journey yet.' : 'No sessions yet.'}</p>
                   ) : sessions.map((session, index) => {
-                    const day = new Date(session.startedAt).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-                    const prevDay = index ? new Date(sessions[index - 1].startedAt).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : '';
-                    const showDate = day !== prevDay;
-                    const titleLabel = session.live ? 'Active session' : `Session lasted for ${fmtDur(session.durationMs)}`;
+                    const day = dayLabel(session.startedAt);
+                    const showDate = !index || day !== dayLabel(sessions[index - 1].startedAt);
                     return (
-                      <div key={session.sessionId}>
-                        {showDate && <h3 className="profile-date">{day}</h3>}
-                        <article className="profile-session" aria-label={titleLabel}>
-                          <div className="profile-session-body">
-                            <header className="profile-session-head">
-                              <span>{session.live ? <span className="people-live">Active session</span> : <>Session lasted for <strong>{fmtDur(session.durationMs)}</strong></>}</span>
-                              {session.replay?.status === 'expired' ? (
-                                <span className="profile-replay-gone">Replay expired</span>
-                              ) : session.replay?.hasFullSnapshot && data.replayEnabled ? (
-                                <button type="button" className="btn btn-ghost btn-sm profile-play" onClick={() => setReplayId(session.replay!.id)}>
-                                  <Icon name="play" />Watch replay
-                                </button>
-                              ) : !data.replayEnabled ? (
-                                <span className="profile-replay-gone">Replay off</span>
-                              ) : session.live ? (
-                                <span className="profile-replay-gone">Recording…</span>
-                              ) : session.replay ? (
-                                <span className="profile-replay-gone">Replay incomplete</span>
-                              ) : (
-                                <span className="profile-replay-gone">No replay</span>
-                              )}
-                            </header>
-                            <ol className="session-rows">
-                              {[...session.events].reverse().map((event) => (
-                                <li key={event.id} className="event">
-                                  <Icon name="eye" />
-                                  <span className="profile-event-label">{event.path}</span>
-                                  <span className="meta">{ago(event.seenAt)}</span>
-                                </li>
-                              ))}
-                              {session.purchases.map((buy) => (
-                                <li key={buy.id} className="event">
-                                  <Icon name="dollar" />
-                                  <span className="profile-event-label">Purchase</span>
-                                  <span className="amt">{money.format(buy.amount)}</span>
-                                </li>
-                              ))}
-                            </ol>
-                            <footer className="profile-session-footer">
-                              <span className="people-source"><span className="people-source-mark"><SourceMark referrer={session.referrer} /></span>{sourceLabel(session.referrer)}</span>
-                              <span className="profile-device"><Icon name={session.device === 'phone' ? 'phone' : 'monitor'} />{new Date(session.startedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</span>
-                            </footer>
-                          </div>
-                        </article>
-                      </div>
+                      <JourneyCard
+                        key={session.sessionId}
+                        session={session}
+                        date={showDate ? day : null}
+                        replayEnabled={data.replayEnabled}
+                        onReplay={setReplayId}
+                      />
                     );
                   })}
                   {filter === 'all' && data.stats.firstSeen && (
@@ -345,5 +330,91 @@ export function Profile({ projectId, seed, onBack, onLive, onName }: {
         </>
       )}
     </div>
+  );
+}
+
+function JourneyCard({ session, date, replayEnabled, onReplay }: {
+  session: JourneySession;
+  date: string | null;
+  replayEnabled: boolean;
+  onReplay: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const [openBuy, setOpenBuy] = useState<string | null>(session.purchases[0]?.id ?? null);
+  const title = session.live ? 'Active session' : `Session lasted for ${fmtDur(session.durationMs)}`;
+  const rowsId = `profile-events-${session.sessionId}`;
+  const replay = session.replay;
+  return (
+    <>
+      {date && <h3 className="profile-date">{date}</h3>}
+      <article className="profile-session" aria-label={title}>
+        <div className="profile-session-body">
+          <header className="profile-session-head">
+            <button type="button" className="profile-session-toggle" aria-expanded={open} aria-controls={rowsId} onClick={() => setOpen((v) => !v)}>
+              <span>{session.live ? <span className="people-live">Active session</span> : <>Session lasted for <strong>{fmtDur(session.durationMs)}</strong></>}</span>
+              <Icon name="chevronDown" className="profile-session-chevron" />
+            </button>
+            {replay?.status === 'expired' ? (
+              <span className="profile-replay-gone">Replay expired</span>
+            ) : replay?.hasFullSnapshot && replayEnabled ? (
+              <button type="button" className="btn btn-ghost btn-sm profile-play" aria-label={`Watch replay for ${title.toLowerCase()}`} onClick={() => onReplay(replay.id)}>
+                <Icon name="play" />Watch replay
+              </button>
+            ) : !replayEnabled ? (
+              <span className="profile-replay-gone">Replay off</span>
+            ) : session.live ? (
+              <span className="profile-replay-gone">Recording…</span>
+            ) : (
+              <span className="profile-replay-gone">{replay ? 'Replay incomplete' : 'No replay'}</span>
+            )}
+          </header>
+          <ol className="session-rows" id={rowsId}>
+            {[...session.events].reverse().map((event) => (
+              <li key={event.id} className="event">
+                <Icon name="eye" />
+                <span className="profile-event-label">{event.path}</span>
+                {event.durationMs ? <span className="meta">{fmtDur(event.durationMs)}</span> : null}
+              </li>
+            ))}
+            {session.purchases.map((buy) => {
+              const expanded = openBuy === buy.id;
+              const items = buy.products ?? [];
+              return (
+                <li key={buy.id} className="event-group profile-purchase">
+                  <button type="button" className="event" aria-expanded={expanded} aria-controls={`purchase-${buy.id}`} onClick={() => setOpenBuy(expanded ? null : buy.id)}>
+                    <Icon name="dollar" />
+                    <span className="profile-event-label">Purchase</span>
+                    <span className="amt">{money.format(buy.amount)}</span>
+                    <Icon name="chevronDown" className="chev" />
+                  </button>
+                  <div className="event-detail" id={`purchase-${buy.id}`}>
+                    <div>
+                      <div className="event-detail-body">
+                        {items.map((item, i) => (
+                          <div key={i} className="line">
+                            <span>{item.name}</span>
+                            <span className="qty">{item.qty ?? 1}</span>
+                            <b className="num">{item.price != null ? money.format(item.price) : ''}</b>
+                          </div>
+                        ))}
+                        <div>Paid at {new Date(buy.seenAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}{buy.path ? ` on ${buy.path}` : ''}.</div>
+                      </div>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+          <footer className="profile-session-footer">
+            <span className="people-source"><span className="people-source-mark"><SourceMark referrer={session.referrer} /></span>{sourceLabel(session.referrer)}</span>
+            <span className="profile-device">
+              <Icon name={session.device === 'phone' ? 'phone' : 'monitor'} />
+              <span className="sr-only">{session.device === 'phone' ? 'Mobile' : 'Desktop'}</span>
+              {new Date(session.startedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+            </span>
+          </footer>
+        </div>
+      </article>
+    </>
   );
 }

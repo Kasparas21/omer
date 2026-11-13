@@ -1,20 +1,20 @@
 /* People profile — ported from unfairweekend-ui kit */
 
-.profile-top-actions { margin-top: 12px; }
 .rp-page { width: var(--v2-rail); margin-inline: auto; padding-block: var(--page-start) 112px; display: grid; gap: 12px; }
 .rp-shell header { display: flex; align-items: center; gap: 8px; }
 .rp-status { margin-inline-start: auto; color: var(--ink-2); font-size: 13px; }
 .rp-stage { min-height: 480px; overflow: hidden; border-radius: 12px; background: var(--surface-2); }
 .people-source-mark { display: inline-flex; }
 .people-source-mark > :is(svg, img) { width: 14px; height: 14px; }
-.profile.people-page { width: var(--v2-rail); margin-inline: auto; }
 .people-page, .profile.people-page {
+  --people-rail: var(--v2-rail, min(100% - 32px, 920px));
   --people-card: var(--v2-card, var(--surface));
   --people-line: var(--v2-line, var(--line));
   --people-soft: var(--v2-shell, var(--surface-2));
 }
 .profile.people-page {
   width: var(--people-rail);
+  margin-inline: auto;
   min-height: 100%;
   padding-block: calc(var(--top-h) + 22px) 112px;
   background: transparent;
@@ -516,13 +516,13 @@
 .profile-journey-empty { margin: 0; padding: 22px 16px; border: 1px dashed var(--line-strong); border-radius: 14px; color: var(--ink-2); text-align: center; }
 .profile-timeline:has(.profile-journey-empty)::before { display: none; }
 
-@container app (max-width: 900px) {
+@media (max-width: 900px) {
   .profile-bento { grid-template-columns: 1fr; }
   .profile-place, .profile-mail { min-height: 0; }
   .profile-mail { min-height: 0; }
   .profile-mail-row { min-height: 48px; }
 }
-@container app (max-width: 760px) {
+@media (max-width: 760px) {
   .people-page { --people-rail: var(--v2-rail, min(100% - 32px, 1080px)); }
   .profile-columns { grid-template-columns: minmax(0, 1fr); grid-template-areas: "left" "journey"; }
   .profile-top-stats { width: 100%; justify-content: flex-start; }
@@ -533,11 +533,11 @@
   .profile-mail { border-radius: 20px; }
   .profile-mini-globe { min-height: 210px; margin-block: -16px; }
 }
-@container app (max-width: 760px) {
+@media (max-width: 760px) {
   .vl-directory { --vl-cols: minmax(145px, 1.3fr) minmax(100px, 1fr) minmax(85px, 0.7fr) 65px 64px 16px; }
   .vl-directory .vl-sessions, .vl-directory .vl-head > :nth-child(4) { display: none; }
 }
-@container app (max-width: 620px) {
+@media (max-width: 620px) {
   .people-page { --people-rail: var(--v2-rail, calc(100% - 24px)); }
   .app-frame.full:has(.people-page) { margin: 0; }
   .people-intro { margin-bottom: 18px; }
@@ -657,3 +657,15 @@ button.event:hover { background: var(--surface-hover); }
   .act-grid i[data-tip] { animation: none; transition: none; }
   .act-grid i[data-tip]:hover, .act-grid i[data-tip]:focus-visible { transform: none; }
 }
+/* Phones: four stats in one even row, then two by two when that gets too tight. */
+@media (max-width: 620px) {
+  .profile-top-stats { display: grid; grid-template-columns: repeat(4, minmax(0, auto)); justify-content: space-between; }
+  .profile-top-stats > div { min-width: 0; padding-inline: 10px; }
+  .profile-top-stats > div:last-child { padding-inline-end: 0; }
+}
+@media (max-width: 400px) {
+  .profile-top-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 12px; }
+  .profile-top-stats > div:nth-child(odd) { border-inline-start: 0; padding-inline-start: 0; }
+}
+button.profile-live { border: 0; font-family: inherit; cursor: pointer; }
+button.profile-live:hover { background: color-mix(in srgb, var(--success) 18%, var(--people-card)); }

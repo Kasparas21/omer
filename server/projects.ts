@@ -654,8 +654,9 @@ function groupSessions<T extends {
     device: string;
     referrer: string;
     live: boolean;
-    events: { id: string; path: string; seenAt: string }[];
+    events: { id: string; path: string; seenAt: string; durationMs: number }[];
   }[] = [];
+  const dwellOf: number[][] = [];
   let current: typeof sessions[number] | null = null;
   let lastAt = 0;
   for (const row of chronological) {
@@ -667,18 +668,19 @@ function groupSessions<T extends {
         sessionId: sid,
         startedAt: new Date(at).toISOString(),
         endedAt: new Date(at).toISOString(),
-        durationMs: Number(row.dwellMs) || 0,
+        durationMs: 0,
         device: row.device === 'phone' ? 'phone' : 'monitor',
         referrer: row.referrer || '(direct)',
         live: false,
         events: [],
       };
       sessions.push(current);
+      dwellOf.push([]);
     }
     current.endedAt = new Date(at).toISOString();
-    current.durationMs += Number(row.dwellMs) || 0;
     if (row.device === 'phone') current.device = 'phone';
-    current.events.push({ id: row.id, path: cleanPath(row.path) ?? '/', seenAt: new Date(at).toISOString() });
+    current.events.push({ id: row.id, path: cleanPath(row.path) ?? '/', seenAt: new Date(at).toISOString(), durationMs: 0 });
+    dwellOf[dwellOf.length - 1].push(Number(row.dwellMs) || 0);
     // Only real presence counts — never fall back to seenAt or leave looks "still online".
     if (row.activeAt) {
       const active = Date.parse(String(row.activeAt));
@@ -686,6 +688,18 @@ function groupSessions<T extends {
     }
     lastAt = at;
   }
+  // Time per page: the reported dwell when the tracker sent one, otherwise the gap to the next page
+  // (or, for a page someone is still on, the time since it opened). A last page with neither stays 0.
+  sessions.forEach((session, s) => {
+    session.events.forEach((event, i) => {
+      const reported = dwellOf[s][i];
+      const next = session.events[i + 1];
+      const start = Date.parse(event.seenAt);
+      const gap = next ? Date.parse(next.seenAt) - start : session.live ? Date.now() - start : 0;
+      event.durationMs = reported > 0 ? reported : Math.max(0, Math.min(gap, SESSION_GAP_MS));
+    });
+    session.durationMs = session.events.reduce((sum, event) => sum + event.durationMs, 0);
+  });
   return sessions.reverse();
 }
 
@@ -779,7 +793,7 @@ async function visitorProfile(request: Request, env: Env, projectId: string, vis
     const firstSeen = rows.length
       ? new Date(Math.min(...rows.map((r) => Date.parse(String(r.seenAt))))).toISOString()
       : null;
-    const dwellMs = rows.reduce((sum, row) => sum + (Number(row.dwellMs) || 0), 0);
+    const dwellMs = sessions.reduce((sum, session) => sum + session.durationMs, 0);
     const pageviews = rows.length;
     const firstGeo = [...rows].reverse().find((r) => r.cc || r.lat != null) ?? rows[rows.length - 1];
     const firstReferrer = sessions[sessions.length - 1]?.referrer ?? rows[rows.length - 1]?.referrer ?? '(direct)';
