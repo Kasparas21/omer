@@ -1,12 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from './ui/Icon';
 
+type Insight = {
+  status: string;
+  summary: string | null;
+  outcome: string | null;
+  friction: number | null;
+  worthWatching: boolean | null;
+  primaryInterest: string | null;
+  generatedAt?: string | null;
+  error?: string | null;
+};
+
 type Manifest = {
   id: string;
   status: string;
   hasFullSnapshot: boolean;
   gaps: boolean;
   chunks: { seq: number; url: string; hasFullSnapshot: boolean }[];
+  insight?: Insight | null;
+  insightsEnabled?: boolean;
 };
 
 type RrwebEvent = { type: number; timestamp?: number; data?: unknown };
@@ -74,6 +87,14 @@ function fmtClock(ms: number) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
+function frictionLabel(value: number | null) {
+  if (value == null || !Number.isFinite(value)) return null;
+  if (value < 0.75) return 'No friction';
+  if (value < 1.5) return 'Low friction';
+  if (value < 2.25) return 'Medium friction';
+  return 'High friction';
+}
+
 export function ReplayPlayer({ projectId, replayId, onBack }: {
   projectId: string;
   replayId: string;
@@ -84,18 +105,46 @@ export function ReplayPlayer({ projectId, replayId, onBack }: {
   const [progress, setProgress] = useState(0);
   const [failed, setFailed] = useState(false);
   const [meta, setMeta] = useState<{ spanLabel: string; chunks: number } | null>(null);
+  const [insight, setInsight] = useState<Insight | null>(null);
+  const [insightsEnabled, setInsightsEnabled] = useState(false);
+  const [insightBusy, setInsightBusy] = useState(false);
+  const [insightError, setInsightError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     let player: { $destroy?: () => void; destroy?: () => void } | null = null;
 
+    async function requestSummary() {
+      setInsightBusy(true);
+      setInsightError(null);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/replays/${replayId}/summary`, {
+          method: 'POST',
+          credentials: 'same-origin',
+        });
+        const body = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!res.ok) {
+          setInsightError(typeof body.error === 'string' ? body.error : 'Unable to generate summary');
+          if (body.insight) setInsight(body.insight as Insight);
+          return;
+        }
+        setInsight((body.insight as Insight) || null);
+      } catch {
+        if (!cancelled) setInsightError('Unable to generate summary');
+      } finally {
+        if (!cancelled) setInsightBusy(false);
+      }
+    }
+
     async function load() {
       try {
         setFailed(false);
         setMeta(null);
+        setInsight(null);
+        setInsightError(null);
         setProgress(8);
         setStatus('Fetching recording…');
-        // Start player download in parallel with the manifest + chunks.
         const playerReady = loadPlayer();
         const res = await fetch(`/api/projects/${projectId}/replays/${replayId}`, {
           cache: 'no-store',
@@ -104,6 +153,8 @@ export function ReplayPlayer({ projectId, replayId, onBack }: {
         if (!res.ok) throw new Error(res.status === 401 ? 'Sign in again to view replays' : `Replay missing (${res.status})`);
         const manifest: Manifest = await res.json();
         if (cancelled) return;
+        setInsightsEnabled(Boolean(manifest.insightsEnabled));
+        if (manifest.insight?.status === 'ready') setInsight(manifest.insight);
         if (manifest.status === 'expired') {
           setStatus('Replay expired');
           setFailed(true);
@@ -115,6 +166,11 @@ export function ReplayPlayer({ projectId, replayId, onBack }: {
             : 'No recording chunks yet — keep the tab open a few more seconds, then reopen.');
           setFailed(true);
           return;
+        }
+
+        // Kick off summary without blocking playback.
+        if (manifest.insightsEnabled && manifest.insight?.status !== 'ready') {
+          void requestSummary();
         }
 
         setProgress(18);
@@ -149,7 +205,6 @@ export function ReplayPlayer({ projectId, replayId, onBack }: {
         }
         events.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
         const spanMs = (events[events.length - 1]?.timestamp || 0) - (events[0]?.timestamp || 0);
-        // rrweb-player throws unless there are at least two timestamps to span.
         if (events.length === 1 || spanMs < 50) {
           const base = events[0].timestamp || Date.now();
           if (!events.some((e) => e?.type === 4)) {
@@ -202,6 +257,7 @@ export function ReplayPlayer({ projectId, replayId, onBack }: {
   }, [projectId, replayId]);
 
   const loading = !failed && progress < 100 && status !== 'Playing' && status !== 'Partial recording' && !status.startsWith('Still');
+  const friction = frictionLabel(insight?.friction ?? null);
 
   return (
     <div className="rp-page">
@@ -218,6 +274,50 @@ export function ReplayPlayer({ projectId, replayId, onBack }: {
             <span className={`rp-status${failed ? ' is-bad' : ''}${loading ? ' is-load' : ''}`}>{status}</span>
           </div>
         </header>
+
+        {insightsEnabled && (
+          <div className="rp-insight">
+            {insightBusy && !insight?.summary && <p className="rp-insight-status">Writing summary…</p>}
+            {insight?.summary && (
+              <>
+                <p className="rp-insight-text">{insight.summary}</p>
+                <div className="rp-insight-chips">
+                  {insight.outcome && <span className="rp-chip">{insight.outcome}</span>}
+                  {friction && <span className="rp-chip muted">{friction}</span>}
+                  {insight.worthWatching != null && (
+                    <span className="rp-chip muted">{insight.worthWatching ? 'Worth watching' : 'Low priority'}</span>
+                  )}
+                  {insight.primaryInterest && <span className="rp-chip muted">{insight.primaryInterest}</span>}
+                </div>
+              </>
+            )}
+            {!insightBusy && !insight?.summary && (
+              <div className="rp-insight-actions">
+                <p className="rp-insight-status">{insightError || 'No summary yet.'}</p>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => {
+                  setInsightBusy(true);
+                  setInsightError(null);
+                  void fetch(`/api/projects/${projectId}/replays/${replayId}/summary`, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                  }).then(async (res) => {
+                    const body = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                      setInsightError(typeof body.error === 'string' ? body.error : 'Unable to generate summary');
+                      if (body.insight) setInsight(body.insight as Insight);
+                      return;
+                    }
+                    setInsight((body.insight as Insight) || null);
+                  }).catch(() => setInsightError('Unable to generate summary'))
+                    .finally(() => setInsightBusy(false));
+                }}>
+                  Generate summary
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="rp-body">
           {failed && <p className="ho-empty rp-empty">{status}</p>}
           {loading && (

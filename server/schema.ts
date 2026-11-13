@@ -138,3 +138,17 @@ export const replayChunks = pgTable('project_replay_chunks', {
   index('project_replay_chunks_session_idx').on(table.sessionPk, table.seq),
   uniqueIndex('project_replay_chunks_batch_uidx').on(table.sessionPk, table.clientBatchId),
 ]);
+
+export const replayInsights = pgTable('project_replay_insights', {
+  sessionPk: uuid('session_pk').primaryKey().references(() => replaySessions.id, { onDelete: 'cascade' }),
+  status: text('status').default('pending').notNull(),
+  summaryText: text('summary_text'),
+  outcome: text('outcome'),
+  friction: doublePrecision('friction'),
+  worthWatching: boolean('worth_watching'),
+  primaryInterest: text('primary_interest'),
+  decisionsJson: jsonb('decisions_json'),
+  model: text('model'),
+  generatedAt: timestamp('generated_at', { withTimezone: true }),
+  error: text('error'),
+});

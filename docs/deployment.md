@@ -76,6 +76,16 @@ R2_BUCKET=omer-replays
 
 Create the bucket with `npx wrangler r2 bucket create omer-replays`, then an R2 API token with Object Read & Write on that bucket. Until these vars are present, Settings shows “Storage not configured” and replay stays off. Raw recordings expire after 7 days.
 
+## Replay AI summaries (OpenAI)
+
+Session replay summaries use the OpenAI Platform Decisions API and Responses API (`gpt-6-luna`). Add one secret to `/opt/omer/runtime.env` (and local `.env`):
+
+```sh
+OPENAI_API_KEY=sk-...
+```
+
+Create the key at https://platform.openai.com/api-keys. Until it is present, `/api/config` reports `replayInsights: false` and the summary panel stays hidden; playback still works. After adding the key, recreate `omer-app` and apply migration `0008_replay_insights` if it has not run yet.
+
 ## Update app image
 
 Create a release archive with `git archive` from the reviewed commit. Extract it under `/opt/omer/releases/<release>` on the VPS so only committed source is deployed. Keep env files outside that directory. Build before stopping the running app:

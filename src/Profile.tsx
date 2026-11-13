@@ -50,7 +50,19 @@ type JourneySession = {
   live: boolean;
   events: { id: string; path: string; seenAt: string }[];
   purchases: { id: string; amount: number; path: string | null; products: { name: string; price?: number; qty?: number }[] | null; seenAt: string }[];
-  replay: { id: string; status: string; hasFullSnapshot: boolean } | null;
+  replay: {
+    id: string;
+    status: string;
+    hasFullSnapshot: boolean;
+    insight?: {
+      status: string;
+      summary: string | null;
+      outcome: string | null;
+      friction: number | null;
+      worthWatching: boolean | null;
+      primaryInterest: string | null;
+    } | null;
+  } | null;
 };
 
 type ProfileData = {
@@ -70,6 +82,7 @@ type ProfileData = {
   activity: Record<string, number>;
   journey: JourneySession[];
   replayEnabled: boolean;
+  replayInsights?: boolean;
 };
 
 export function Profile({ projectId, seed, onBack, onLive }: {
@@ -292,15 +305,23 @@ export function Profile({ projectId, seed, onBack, onLive }: {
                               {session.replay?.status === 'expired' ? (
                                 <span className="profile-replay-gone">Replay expired</span>
                               ) : session.replay?.hasFullSnapshot && data.replayEnabled ? (
-                                <button
-                                  type="button"
-                                  className="btn btn-ghost btn-sm profile-play"
-                                  onMouseEnter={() => prefetchReplayPlayer()}
-                                  onFocus={() => prefetchReplayPlayer()}
-                                  onClick={() => setReplayId(session.replay!.id)}
-                                >
-                                  <Icon name="play" />Watch replay
-                                </button>
+                                <span className="profile-replay-actions">
+                                  {session.replay?.insight?.status === 'ready' && session.replay.insight.outcome && (
+                                    <span className="profile-insight-chip">
+                                      {session.replay.insight.outcome}
+                                      {session.replay.insight.worthWatching ? ' · watch' : ''}
+                                    </span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    className="btn btn-ghost btn-sm profile-play"
+                                    onMouseEnter={() => prefetchReplayPlayer()}
+                                    onFocus={() => prefetchReplayPlayer()}
+                                    onClick={() => setReplayId(session.replay!.id)}
+                                  >
+                                    <Icon name="play" />Watch replay
+                                  </button>
+                                </span>
                               ) : !data.replayEnabled ? (
                                 <span className="profile-replay-gone">Replay off</span>
                               ) : session.live ? (

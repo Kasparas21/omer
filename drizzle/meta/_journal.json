@@ -57,6 +57,13 @@
       "when": 1794660000001,
       "tag": "0007_replay_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794665000000,
+      "tag": "0008_replay_insights",
+      "breakpoints": true
     }
   ]
 }

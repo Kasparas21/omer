@@ -44,6 +44,22 @@
 .rp-hint {
   margin: 0; padding: 0 16px 14px; color: var(--ink-2); font-size: 12px; line-height: 1.4;
 }
+.rp-insight {
+  margin: 10px 16px 0; padding: 12px 14px; border-radius: 14px;
+  border: 1px solid var(--people-line, var(--line));
+  background: color-mix(in oklab, var(--people-soft, var(--surface-2)) 88%, transparent);
+  display: grid; gap: 8px;
+}
+.rp-insight-text { margin: 0; font-size: 14px; line-height: 1.45; color: var(--ink); }
+.rp-insight-status { margin: 0; font-size: 13px; color: var(--ink-2); }
+.rp-insight-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.rp-insight-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.profile-replay-actions { display: inline-flex; align-items: center; gap: 8px; margin-inline-start: auto; }
+.profile-insight-chip {
+  display: inline-flex; align-items: center; height: 24px; padding: 0 9px;
+  border-radius: 999px; border: 1px solid var(--people-line, var(--line));
+  background: var(--people-soft, var(--surface-2)); color: var(--ink-2); font-size: 12px; text-transform: capitalize;
+}
 .people-source-mark { display: inline-flex; }
 .people-source-mark > :is(svg, img) { width: 14px; height: 14px; }
 .profile.people-page { width: var(--v2-rail); margin-inline: auto; }
