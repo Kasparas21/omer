@@ -105,6 +105,8 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
     window.scrollTo({ top: 0 });
   }
   const demoState = useDemo();
+  const [replayStorage, setReplayStorage] = useState(false);
+  const [replayBusy, setReplayBusy] = useState(false);
   const [dockMode, setDockMode] = useState<DockMode>(() => {
     try {
       const saved = localStorage.getItem('omer.dock');
@@ -131,6 +133,12 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
       .then((data: { user?: { name?: string; email?: string } } | null) => {
         const who = data?.user?.name?.trim() || data?.user?.email || '';
         setInitial(who.charAt(0).toUpperCase());
+      })
+      .catch(() => {});
+    fetch('/api/config', { cache: 'no-store', signal: controller.signal })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data: { replayStorage?: boolean } | null) => {
+        if (data) setReplayStorage(Boolean(data.replayStorage));
       })
       .catch(() => {});
     return () => controller.abort();
@@ -575,7 +583,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
           ) : screen === 'globe' && project ? (
             <LiveGlobe key={project.id} {...live} focusSeed={liveFocus} demo={isDemo(project)} />
           ) : screen === 'visitors' && project && profile?.projectId === project.id ? (
-            <Profile key={profile.seed} projectId={project.id} seed={profile.seed} demo={isDemo(project)} host={(() => { try { return new URL(project.origin).host; } catch { return project.origin; } })()}
+            <Profile key={profile.seed} projectId={project.id} seed={profile.seed}
               onName={setProfileName}
               onBack={() => setProfile(undefined)}
               onLive={() => { setLiveFocus(profile.seed); setProfile(undefined); setScreen('globe'); }} />
@@ -584,6 +592,27 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
               onOpen={(seed) => { setProfileName(''); setProfile({ projectId: project.id, seed }); window.scrollTo({ top: 0 }); }} />
           ) : screen === 'settings' && project ? (
             <Settings key={`settings-${start.n}`} startTab={start.settings} demo={isDemo(project)} onGo={go} project={project} snippet={snippet} dockMode={dockMode} onDockMode={setDockMode}
+              storageReady={replayStorage} replayBusy={replayBusy}
+              onReplay={async (enabled) => {
+                setReplayBusy(true);
+                try {
+                  const response = await fetch(`/api/projects/${project.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ replayEnabled: enabled }),
+                  });
+                  const data: { project?: Project; storageReady?: boolean; error?: string } = await response.json();
+                  if (!response.ok) throw new Error(data.error || 'Unable to update replay');
+                  if (typeof data.storageReady === 'boolean') setReplayStorage(data.storageReady);
+                  if (data.project) {
+                    setProjects((list) => list.map((row) => (row.id === data.project!.id ? { ...row, ...data.project } : row)));
+                  }
+                } catch (error) {
+                  setNotice(error instanceof Error ? error.message : 'Unable to update replay');
+                } finally {
+                  setReplayBusy(false);
+                }
+              }}
               onCopy={(kind) => void copy(kind)} onGuide={openGuide} onSetup={() => {
                 setForceSetup(true);
                 setStep('install');

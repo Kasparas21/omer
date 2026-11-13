@@ -28,7 +28,7 @@ function Row({ title, hint, children, wide }: { title: string; hint?: string; ch
 
 const Soon = () => <span className="status-pill">Coming next</span>;
 
-export function Settings({ project, snippet, dockMode, onDockMode, onCopy, onGuide, onSetup, startTab, demo = false, onGo }: {
+export function Settings({ project, snippet, dockMode, onDockMode, onCopy, onGuide, onSetup, startTab, demo = false, onGo, onReplay, storageReady = false, replayBusy = false }: {
   startTab?: Tab;
   /** The demo store shows the kit's full example Settings. */
   demo?: boolean;
@@ -40,16 +40,20 @@ export function Settings({ project, snippet, dockMode, onDockMode, onCopy, onGui
   onCopy: (kind: 'script' | 'prompt') => void;
   onGuide: () => void;
   onSetup: () => void;
+  onReplay?: (enabled: boolean) => void;
+  storageReady?: boolean;
+  replayBusy?: boolean;
 }) {
   const [tab, setTab] = useState<Tab>(startTab ?? 'company');
   const seg = useThumb<HTMLDivElement>('button[aria-pressed="true"]', `${tab}:${dockMode}`, true);
   const host = (() => { try { return new URL(project.origin).host; } catch { return project.origin; } })();
   const counts = useDemoSettingsCounts();
+  const replayOn = Boolean(project.replayEnabled);
   const tabs: { id: Tab; title: string; desc: string }[] = [
     { id: 'company', title: 'Company', desc: demo ? (counts.company ? `${counts.company} need you` : 'All checked') : project.firstEventAt ? host : 'Install needed' },
     { id: 'changes', title: 'Website changes', desc: demo ? (counts.changes ? `${counts.changes} to review` : 'Nothing to review') : 'Nothing to review' },
     { id: 'sending', title: 'Sending', desc: 'Sender, limits and domain' },
-    { id: 'privacy', title: 'Privacy', desc: 'What we keep and for how long' },
+    { id: 'privacy', title: 'Privacy', desc: replayOn ? 'Replay on' : 'What we keep and for how long' },
     { id: 'dock', title: 'Dock', desc: 'How the navigation behaves' },
   ];
 
@@ -128,7 +132,21 @@ export function Settings({ project, snippet, dockMode, onDockMode, onCopy, onGui
               <Row title="Analytics consent" hint="Nothing is recorded until the visitor allows analytics">
                 <span className="status-pill received"><Icon name="check" />Required</span>
               </Row>
-              <Row title="Session replay" hint="Recordings of what people do on the page"><span className="status-pill">Off</span></Row>
+              <Row title="Session replay" hint={storageReady
+                ? 'Masked rrweb recordings, kept for 7 days. Inputs and checkout fields stay blocked.'
+                : 'Needs Cloudflare R2 storage on the server before it can turn on.'}>
+                {storageReady ? (
+                  <button
+                    type="button"
+                    className={`status-pill${replayOn ? ' received' : ''}`}
+                    disabled={replayBusy || !onReplay}
+                    onClick={() => onReplay?.(!replayOn)}
+                    aria-pressed={replayOn}
+                  >
+                    {replayBusy ? 'Saving…' : replayOn ? 'On' : 'Off'}
+                  </button>
+                ) : <span className="status-pill">Storage not configured</span>}
+              </Row>
               <Row title="Location" hint="City and country from the request, never the IP address"><span className="omer-set-val">City level</span></Row>
               <Row title="Purchase events" hint="Call window.unfairweekend.purchase on thank-you pages">
                 <span className="omer-set-val">amount, currency, orderId</span>
@@ -142,9 +160,9 @@ export function Settings({ project, snippet, dockMode, onDockMode, onCopy, onGui
             </div>
             <aside className="set-side"><div className="set-side-in">
               <div className="set-side-k">What we keep</div>
-              <ul className="set-list"><li>Pages they looked at</li><li>Where they came from</li><li>How long they stayed</li><li>Purchases and identified email when you send them</li><li>Email open and click events you report</li></ul>
+              <ul className="set-list"><li>Pages they looked at</li><li>Where they came from</li><li>How long they stayed</li><li>Purchases and identified email when you send them</li><li>Email open and click events you report</li>{replayOn && <li>Masked session recordings for 7 days</li>}</ul>
               <div className="set-side-k gap">What we never keep</div>
-              <ul className="set-list no"><li>IP addresses</li><li>Passwords or card numbers</li><li>Anything typed in a form</li><li>Session recordings (replay stays off)</li></ul>
+              <ul className="set-list no"><li>IP addresses</li><li>Passwords or card numbers</li><li>Anything typed in a form</li>{!replayOn && <li>Session recordings while replay is off</li>}</ul>
             </div></aside>
           </>}
           {tab === 'dock' && (

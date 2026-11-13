@@ -14,6 +14,7 @@ export type Project = {
   origin: string;
   writeKey: string;
   firstEventAt: string | null;
+  replayEnabled?: boolean;
   pageViews?: DayCount[];
   visitors?: DayCount[];
   dwell?: DayDwell[];
@@ -32,7 +33,7 @@ export type Project = {
 };
 
 export function installSnippet(project: Project, appOrigin: string) {
-  return `<script src="${appOrigin}/tracker.js?v=3" data-site="${project.writeKey}" defer></script>`;
+  return `<script src="${appOrigin}/tracker.js?v=6" data-site="${project.writeKey}" defer></script>`;
 }
 
 export function installPrompt(project: Project, appOrigin: string) {
