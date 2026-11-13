@@ -24,6 +24,7 @@ import {
   upsertOpportunityFromInsight,
 } from './opportunities';
 import { loadEmailContext } from './email-context';
+import { CAMPAIGN_ID, MAX_IMAGE_BYTES, deleteCampaign, describeTrigger, imageStorageReady, listCampaigns, saveCampaign, storeImage } from './campaigns';
 import { dailyVisitors, dwell, emailEvents, identities, pageViews, pathViews, projects, purchases, referrerViews, replayChunks, replayInsights, replaySessions, visitorInsights, visits } from './schema';
 import { auth, pool, appURL } from './auth';
 
@@ -1620,6 +1621,70 @@ async function getEmailContextRoute(request: Request, env: Env, projectId: strin
   });
 }
 
+async function getCampaigns(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to view campaigns.' }, 401);
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    return json({ campaigns: await listCampaigns(db, projectId), imageStorage: imageStorageReady() });
+  });
+}
+
+async function putCampaign(request: Request, env: Env, projectId: string, campaignId: string) {
+  if (!uuid.test(projectId) || !CAMPAIGN_ID.test(campaignId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to save campaigns.' }, 401);
+  const raw = await readText(request, 380_000);
+  if (raw === null) return json({ error: 'This email is too big to save. Use fewer or smaller images.' }, 413);
+  let body: { campaign?: unknown } | null;
+  try { body = JSON.parse(raw); } catch { return json({ error: 'Invalid JSON.' }, 400); }
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    const error = await saveCampaign(db, projectId, campaignId, body?.campaign);
+    return error ? json({ error }, error === 'Not found.' ? 404 : 400) : json({ ok: true });
+  });
+}
+
+async function removeCampaign(request: Request, env: Env, projectId: string, campaignId: string) {
+  if (!uuid.test(projectId) || !CAMPAIGN_ID.test(campaignId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to delete campaigns.' }, 401);
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    await deleteCampaign(db, projectId, campaignId);
+    return json({ ok: true });
+  });
+}
+
+async function postDescribe(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in first.' }, 401);
+  const raw = await readText(request, 2000);
+  let text = '';
+  try { text = String((JSON.parse(raw ?? '{}') as { text?: unknown }).text ?? ''); } catch { return json({ error: 'Invalid JSON.' }, 400); }
+  const owned = await withDatabase(env, (db) => ownedProject(db, projectId, owner));
+  if (!owned) return json({ error: 'Not found.' }, 404);
+  return json(await describeTrigger(text));
+}
+
+async function postAsset(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to upload images.' }, 401);
+  if (!imageStorageReady()) return json({ error: 'Image storage isn’t set up on this server.' }, 503);
+  const owned = await withDatabase(env, (db) => ownedProject(db, projectId, owner));
+  if (!owned) return json({ error: 'Not found.' }, 404);
+  const bytes = Buffer.from(await request.arrayBuffer());
+  if (bytes.length > MAX_IMAGE_BYTES) return json({ error: 'Up to 5 MB.' }, 413);
+  try {
+    return json({ url: await storeImage(projectId, request.headers.get('content-type') ?? '', bytes) });
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : 'Upload failed.' }, 400);
+  }
+}
+
 // One app process serves the VPS. Signals only invalidate; the authenticated
 // snapshot remains the source of truth on reconnect or across app restarts.
 function openLiveStream(projectId: string) {
@@ -1691,6 +1756,23 @@ export default {
       const brandImportMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/brand\/import$/i);
       if (brandImportMatch) {
         if (request.method === 'POST') return await postBrandImport(request, env, brandImportMatch[1]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const describeMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/campaigns\/describe$/i);
+      if (describeMatch) {
+        if (request.method === 'POST') return await postDescribe(request, env, describeMatch[1]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const campaignMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/campaigns(?:\/([a-z0-9-]+))?$/i);
+      if (campaignMatch) {
+        if (!campaignMatch[2] && request.method === 'GET') return await getCampaigns(request, env, campaignMatch[1]);
+        if (campaignMatch[2] && request.method === 'PUT') return await putCampaign(request, env, campaignMatch[1], campaignMatch[2]);
+        if (campaignMatch[2] && request.method === 'DELETE') return await removeCampaign(request, env, campaignMatch[1], campaignMatch[2]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const assetMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/assets$/i);
+      if (assetMatch) {
+        if (request.method === 'POST') return await postAsset(request, env, assetMatch[1]);
         return json({ error: 'Method not allowed.' }, 405);
       }
       const brandMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/brand$/i);

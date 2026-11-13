@@ -221,3 +221,14 @@ export const projectCampaignSuggestions = pgTable('project_campaign_suggestions'
   uniqueIndex('project_campaign_suggestions_project_pattern_idx').on(table.projectId, table.patternKey),
   index('project_campaign_suggestions_project_status_idx').on(table.projectId, table.status),
 ]);
+
+/** A store's own campaigns: what starts each one and the email it sends, as the app edits them. */
+export const projectCampaigns = pgTable('project_campaigns', {
+  id: text('id').primaryKey(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  data: jsonb('data').$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index('project_campaigns_project_idx').on(table.projectId),
+]);

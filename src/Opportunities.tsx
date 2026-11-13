@@ -9,7 +9,8 @@ import { toast } from './ui/toast';
 import { MailBody, MailPhone, Sender, pageVars, senderName } from './Mail';
 import { MailEditor } from './MailEditor';
 import { PAGE_STYLE, PEOPLE, STORE, type JourneyDay, type Person, type Reply, type ReplyState } from './storeData';
-import { demo as store, useDemo, type PersonState } from './demoState';
+import { demo as store, useDemo, type PersonState, DEMO_SPACE } from './demoState';
+import { DEMO_BRAND_SPACE, useBrand } from './brandStore';
 
 type RealOpp = {
   id: string;
@@ -61,6 +62,7 @@ export function Opportunities({ demo, projectId, editing, onEdit, onPeople, onBa
   onBack: () => void;
 }) {
   const { people, replies, campaigns } = useDemo();
+  const demoBrand = useBrand(DEMO_BRAND_SPACE);
   const [tab, setTab] = useState<Tab>(start?.tab ?? 'review');
   const [camp, setCamp] = useState('all');
   const [pickedId, setPicked] = useState<string>(start?.tab !== 'replies' && start?.id ? start.id : 'alex');
@@ -162,7 +164,7 @@ export function Opportunities({ demo, projectId, editing, onEdit, onPeople, onBa
 
   if (editing && picked) {
     return (
-      <MailEditor key={picked.id} published={{ doc: picked.mail, page: picked.page ?? PAGE_STYLE }}
+      <MailEditor key={picked.id} space={DEMO_SPACE} brand={demoBrand} published={{ doc: picked.mail, page: picked.page ?? PAGE_STYLE }}
         onPublish={(draft) => { store.updatePerson(picked.id, { mail: draft.doc, page: draft.page }); toast('Saved to the draft'); }} />
     );
   }
