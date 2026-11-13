@@ -10,6 +10,9 @@ import { DashboardV2 } from './DashboardV2';
 import { LiveGlobe } from './LiveGlobe';
 import { People } from './People';
 import { Profile } from './Profile';
+import { Opportunities } from './Opportunities';
+import { Campaigns } from './Campaigns';
+import { Results } from './Results';
 import { Settings, type DockMode } from './Settings';
 import { useLive } from './live';
 import { Icon, type IconName } from './ui/Icon';
@@ -555,6 +558,13 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
                 setStep('install');
                 setReached((value) => Math.max(value, stepIndex('install')));
               }} />
+          ) : screen === 'inbox' && project ? (
+            <Opportunities key={project.id} demo={isDemo(project)} storeName={project.name}
+              onProfile={() => setScreen('visitors')} onBack={() => setScreen('home')} />
+          ) : screen === 'campaigns' && project ? (
+            <Campaigns key={project.id} demo={isDemo(project)} onBack={() => setScreen('home')} />
+          ) : screen === 'results' && project ? (
+            <Results key={project.id} project={analytics?.id === project.id ? analytics : project} demo={isDemo(project)} />
           ) : (
             <div className="v2-empty-screen">
               <h1 className="v2-title">{WHERE[screen] || 'Soon'}</h1>

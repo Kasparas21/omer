@@ -212,7 +212,7 @@ function Gauge({ parts }: { parts: { share: number; color: string }[] }) {
 }
 
 /** A soft line with a fill to the card's bottom edge (kit v2Area); all zeros draws a calm baseline. */
-function Area({ values, color }: { values: number[]; color: string }) {
+export function Area({ values, color }: { values: number[]; color: string }) {
   const n = Math.max(values.length, 2);
   const top = Math.max(...values, 0);
   const low = top ? Math.min(...values) * 0.55 : 0;
@@ -244,7 +244,7 @@ function EmptyGauge() {
   );
 }
 
-function Card({ icon, title, children, extra, className = '' }: {
+export function Card({ icon, title, children, extra, className = '' }: {
   icon: IconName; title: string; children: React.ReactNode; extra?: React.ReactNode; className?: string;
 }) {
   return (
