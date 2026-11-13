@@ -252,10 +252,11 @@
       const batchId = newId();
       const checksum = String(batchId.length + body.length + seq);
       try {
+        // Do not use keepalive here — Chromium caps keepalive bodies at 64KiB, and a
+        // full DOM snapshot is far larger, so every flush would fail and block the queue.
         const res = await fetch(replayURL, {
           method: 'POST',
           credentials: 'omit',
-          keepalive: true,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             key,
