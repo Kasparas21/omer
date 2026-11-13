@@ -5,9 +5,13 @@ import { useEffect, useSyncExternalStore } from 'react';
 import { PHOTOS, STORE, photo } from './storeData';
 
 export type BrandFile = { id: string; name: string; src: string; blob?: Blob; type?: string };
-export type BrandColor = { id: string; name: string; hex: string };
+export type ColorRole = 'main' | 'secondary' | 'accent';
+export type BrandColor = { id: string; name: string; hex: string; role?: ColorRole };
 export type BrandFont = { id: string; role: string; family: string; file?: BrandFile | null };
-export type BrandProduct = { id: string; name: string; price: string; image: BrandFile | null };
+export type BrandProduct = { id: string; name: string; price: string; image: BrandFile | null; image2?: BrandFile | null };
+/** A page on the store we keep an eye on, so emails never quote a stale price, stock level or code. */
+export type MonitoredPage = { id: string; path: string; addedAt: string; checkedAt?: string | null; change?: string | null };
+export const MONITOR_LIMIT = 10;
 export type LogoSlot = 'primary' | 'mark' | 'dark';
 export type Brand = {
   logos: Record<LogoSlot, BrandFile | null>;
@@ -16,6 +20,7 @@ export type Brand = {
   products: BrandProduct[];
   photos: BrandFile[];
   voice: { tagline: string; tone: string; about: string };
+  monitor: MonitoredPage[];
 };
 export type FolderId = 'logo' | 'colors' | 'fonts' | 'products' | 'brand';
 
@@ -29,6 +34,7 @@ const pawSvg = (fill: string, bg?: string) => {
     : `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 32"><g transform="translate(0 4) scale(1)">${paw}</g><text x="28" y="22" font-family="Georgia, serif" font-size="19" font-weight="700" fill="${fill}">Pawsome</text></svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 };
+const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
 const pic = (key: keyof typeof PHOTOS, name: string): BrandFile => ({ id: key, name, src: photo(PHOTOS[key], 480) });
 
 const DEMO: Brand = {
@@ -38,9 +44,9 @@ const DEMO: Brand = {
     dark: { id: 'dark', name: 'pawsome-logo-white.svg', src: pawSvg('#fff') },
   },
   colors: [
-    { id: 'c1', name: 'Terracotta', hex: STORE.color },
-    { id: 'c2', name: 'Oat', hex: '#F4D7BF' },
-    { id: 'c3', name: 'Cocoa', hex: '#2B1B13' },
+    { id: 'c1', name: 'Terracotta', hex: STORE.color, role: 'main' },
+    { id: 'c2', name: 'Oat', hex: '#F4D7BF', role: 'secondary' },
+    { id: 'c3', name: 'Cocoa', hex: '#2B1B13', role: 'accent' },
     { id: 'c4', name: 'Sand', hex: '#8C7A68' },
     { id: 'c5', name: 'Cream', hex: '#FFF8F1' },
   ],
@@ -49,10 +55,10 @@ const DEMO: Brand = {
     { id: 'f2', role: 'Body', family: 'Inter' },
   ],
   products: [
-    { id: 'p1', name: 'Kitten Starter Pack', price: '$49.00', image: pic('starter', 'kitten-starter-pack.jpg') },
+    { id: 'p1', name: 'Kitten Starter Pack', price: '$49.00', image: pic('starter', 'kitten-starter-pack.jpg'), image2: pic('pate', 'kitten-starter-pack-food.jpg') },
     { id: 'p2', name: 'Grain-free Kitten Pâté', price: '$24.00', image: pic('pate', 'kitten-pate.jpg') },
     { id: 'p3', name: 'Salmon Kibble 4 kg', price: '$42.00', image: pic('kibble', 'salmon-kibble.jpg') },
-    { id: 'p4', name: 'Tall Tower', price: '$129.00', image: pic('tower', 'tall-tower.jpg') },
+    { id: 'p4', name: 'Tall Tower', price: '$129.00', image: pic('tower', 'tall-tower.jpg'), image2: pic('nook', 'tall-tower-room.jpg') },
     { id: 'p5', name: 'Cozy Nook', price: '$89.00', image: pic('nook', 'cozy-nook.jpg') },
     { id: 'p6', name: 'Sisal Scratching Post', price: '$34.00', image: pic('post', 'scratching-post.jpg') },
   ],
@@ -62,6 +68,12 @@ const DEMO: Brand = {
     tone: 'Warm and a little playful. Short sentences. Never pushy.',
     about: 'Pawsome is a small Portland shop run by Marc and two very opinionated cats. We sell the food and furniture we trust at home.',
   },
+  monitor: [
+    { id: 'm1', path: '/', addedAt: '2026-11-01', checkedAt: ago(18), change: null },
+    { id: 'm2', path: '/products/tall-tower', addedAt: '2026-11-01', checkedAt: ago(120), change: 'Price changed: $139 → $129' },
+    { id: 'm3', path: '/products/salmon-kibble-4kg', addedAt: '2026-11-02', checkedAt: ago(26), change: 'Back in stock' },
+    { id: 'm4', path: '/pages/shipping', addedAt: '2026-11-04', checkedAt: ago(41), change: null },
+  ],
 };
 
 export const emptyBrand = (): Brand => ({
@@ -71,6 +83,7 @@ export const emptyBrand = (): Brand => ({
   products: [],
   photos: [],
   voice: { tagline: '', tone: '', about: '' },
+  monitor: [],
 });
 
 // ---- the store
@@ -87,7 +100,7 @@ function withUrls(brand: Brand): Brand {
     ...brand,
     logos: { primary: url(brand.logos.primary), mark: url(brand.logos.mark), dark: url(brand.logos.dark) },
     fonts: brand.fonts.map((f) => ({ ...f, file: url(f.file) })),
-    products: brand.products.map((p) => ({ ...p, image: url(p.image) })),
+    products: brand.products.map((p) => ({ ...p, image: url(p.image), image2: url(p.image2) })),
     photos: brand.photos.map((p) => url(p) as BrandFile),
   };
 }
@@ -117,7 +130,7 @@ async function writeSpace(id: string, brand: Brand) {
     ...brand,
     logos: { primary: strip(brand.logos.primary), mark: strip(brand.logos.mark), dark: strip(brand.logos.dark) },
     fonts: brand.fonts.map((f) => ({ ...f, file: strip(f.file) })),
-    products: brand.products.map((p) => ({ ...p, image: strip(p.image) })),
+    products: brand.products.map((p) => ({ ...p, image: strip(p.image), image2: strip(p.image2) })),
     photos: brand.photos.map((p) => strip(p) as BrandFile),
   };
   const d = await db();

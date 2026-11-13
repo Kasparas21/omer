@@ -608,6 +608,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
               onOpen={(seed) => { setProfileName(''); setProfile({ projectId: project.id, seed }); window.scrollTo({ top: 0 }); }} />
           ) : screen === 'settings' && project ? (
             <Settings key={`settings-${start.n}`} startTab={start.settings} demo={isDemo(project)} onGo={go} project={project} snippet={snippet} dockMode={dockMode} onDockMode={setDockMode}
+              topPages={(analytics?.id === project.id ? analytics : project).pages}
               storageReady={replayStorage} replayBusy={replayBusy}
               onReplay={async (enabled) => {
                 setReplayBusy(true);
