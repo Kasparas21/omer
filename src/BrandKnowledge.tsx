@@ -1,13 +1,16 @@
-/* Brand knowledge: five glass folders (logo, colours, fonts, products, brand photos & voice). Hovering tips a
-   folder's frosted front open; clicking opens it in place: the other folders step back and a drawer slides
-   out under its row with everything inside, ready to replace, edit, add or remove. */
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from 'react';
+/* Brand knowledge: five glass folders (logo, colours, fonts, products, brand photos & voice), then the store
+   pages we monitor. Hovering tips a folder's frosted front open; clicking opens it in place: the other folders
+   step back and the folder's card slides out under its row. Click the folder again or anywhere outside to
+   close it. */
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Icon, type IconName } from './ui/Icon';
+import { Dropdown } from './ui/Dropdown';
+import { Uploader } from './ui/Uploader';
 import { toast } from './ui/toast';
 import { FONTS } from './Mail';
 import {
-  fileFrom, folderCount, newId, updateBrand, useBrand,
-  type Brand, type BrandFile, type FolderId, type LogoSlot,
+  MONITOR_LIMIT, fileFrom, folderCount, newId, updateBrand, useBrand,
+  type Brand, type BrandColor, type BrandFile, type ColorRole, type FolderId, type LogoSlot,
 } from './brandStore';
 
 const FOLDERS: { id: FolderId; name: string; icon: IconName; one: string; many: string; empty: string }[] = [
@@ -21,7 +24,7 @@ const FOLDERS: { id: FolderId; name: string; icon: IconName; one: string; many: 
 const loadedFonts = new Set<string>();
 /** An uploaded font file becomes a usable family for the previews. */
 function useFontFile(id: string, blob?: Blob) {
-  const [ready, setReady] = useState(loadedFonts.has(id));
+  const [, setReady] = useState(loadedFonts.has(id));
   useEffect(() => {
     if (!blob || loadedFonts.has(id)) return;
     let gone = false;
@@ -32,22 +35,34 @@ function useFontFile(id: string, blob?: Blob) {
     }).catch(() => toast('That font file could not be read', { kind: 'warn' }));
     return () => { gone = true; };
   }, [id, blob]);
-  return ready;
 }
 const fontStack = (f: { id: string; family: string; file?: BrandFile | null }) =>
   f.file && loadedFonts.has(f.id) ? `"bk-${f.id}", ${f.family || 'system-ui'}` : f.family ? `"${f.family}", system-ui` : 'inherit';
 
-export function BrandKnowledge({ space, storeName, host }: { space: string; storeName: string; host: string }) {
+export function BrandKnowledge({ space, host, topPages, onChanges }: {
+  space: string;
+  host: string;
+  topPages: { path: string; count: number }[];
+  onChanges: () => void;
+}) {
   const brand = useBrand(space);
   const [open, setOpen] = useState<FolderId | null>(null);
-  // Keep showing the last folder's contents while the drawer slides shut.
+  // Keep showing the last folder's contents while its card slides shut.
   const [shown, setShown] = useState<FolderId | null>(null);
   useEffect(() => { if (open) setShown(open); }, [open]);
+  // Once the card has finished sliding open, let menus inside it (the font list) spill over its edges.
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    setSettled(false);
+    if (!open) return;
+    const t = window.setTimeout(() => setSettled(true), 520);
+    return () => clearTimeout(t);
+  }, [open]);
   const [cols, setCols] = useState(5);
   const grid = useRef<HTMLDivElement>(null);
   const set = (next: (b: Brand) => Brand) => updateBrand(space, next);
 
-  // The drawer sits right under the open folder's row, so it needs to know how many folders fit in a row.
+  // The card sits right under the open folder's row, so it needs to know how many folders fit in a row.
   useLayoutEffect(() => {
     const el = grid.current;
     if (!el) return;
@@ -57,62 +72,62 @@ export function BrandKnowledge({ space, storeName, host }: { space: string; stor
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // Close on Escape, or on a click anywhere that isn't the open folder or its card.
   useEffect(() => {
     if (!open) return;
-    const close = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(null); };
-    window.addEventListener('keydown', close);
-    return () => window.removeEventListener('keydown', close);
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(null); };
+    const down = (e: PointerEvent) => {
+      const t = e.target as Element | null;
+      if (!t?.isConnected || t.closest('.bk-drawer, .bk-item, .dd-list, .toasts')) return;
+      setOpen(null);
+    };
+    window.addEventListener('keydown', key);
+    document.addEventListener('pointerdown', down);
+    return () => { window.removeEventListener('keydown', key); document.removeEventListener('pointerdown', down); };
   }, [open]);
 
   const openIndex = FOLDERS.findIndex((f) => f.id === (open ?? shown));
   const shownFolder = FOLDERS[openIndex];
   const rowEnd = openIndex < 0 ? FOLDERS.length - 1 : Math.min(FOLDERS.length - 1, Math.floor(openIndex / cols) * cols + cols - 1);
   const notch = openIndex < 0 ? 50 : ((openIndex % cols) + 0.5) * (100 / Math.min(cols, FOLDERS.length));
+  const count = (id: FolderId) => {
+    const f = FOLDERS.find((x) => x.id === id)!;
+    const n = folderCount(brand, id);
+    return n ? `${n} ${n === 1 ? f.one : f.many}` : f.empty;
+  };
 
   return (
-    <section className="bk" aria-labelledby="bkTitle">
-      <header className="bk-head">
-        <div>
-          <h2 id="bkTitle">Brand knowledge</h2>
-          <p>Everything Ghost uses so emails look and sound like {storeName}.</p>
-        </div>
-        <button type="button" className="btn btn-secondary btn-sm bk-import"
-          onClick={() => toast(`Reading ${host} automatically is coming soon. Add files by hand for now.`, { kind: 'info' })}>
-          <Icon name="download" />Import from {host}<span className="bk-soon">Soon</span>
-        </button>
-      </header>
-
+    <section className="bk" aria-label="Brand knowledge">
       <div className={`bk-grid${open ? ' has-open' : ''}`} ref={grid}>
-        {FOLDERS.map((f, i) => {
-          const n = folderCount(brand, f.id);
-          return (
-            <button key={f.id} type="button" className={`bk-item${open === f.id ? ' is-open' : ''}`} style={{ order: i * 2 }}
-              aria-expanded={open === f.id} aria-controls="bkDrawer" onClick={() => setOpen(open === f.id ? null : f.id)}>
-              <GlassFolder papers={papersFor(brand, f.id)} />
-              <span className="bk-name">{f.name}</span>
-              <span className="bk-count">{n ? `${n} ${n === 1 ? f.one : f.many}` : f.empty}</span>
-            </button>
-          );
-        })}
-        <div id="bkDrawer" className={`bk-drawer${open ? ' is-open' : ''}`} style={{ order: rowEnd * 2 + 1, ['--notch' as string]: `${notch}%` } as CSSProperties}
+        {FOLDERS.map((f, i) => (
+          <button key={f.id} type="button" className={`bk-item${open === f.id ? ' is-open' : ''}`} style={{ order: i * 2 }}
+            aria-expanded={open === f.id} aria-controls="bkDrawer" onClick={() => setOpen(open === f.id ? null : f.id)}>
+            <GlassFolder papers={papersFor(brand, f.id)} />
+            <span className="bk-name">{f.name}</span>
+            <span className="bk-count">{count(f.id)}</span>
+          </button>
+        ))}
+        <div id="bkDrawer" className={`bk-drawer${open ? ' is-open' : ''}${open && settled ? ' is-settled' : ''}`} style={{ order: rowEnd * 2 + 1, ['--notch' as string]: `${notch}%` } as CSSProperties}
           role="region" aria-label={shownFolder ? `${shownFolder.name} folder` : undefined} aria-hidden={!open} inert={!open}>
           <div className="bk-drawer-in">
             {shownFolder && (
-              <div className="bk-panel" key={shownFolder.id}>
-                <header className="bk-panel-head">
-                  <h3><Icon name={shownFolder.icon} />{shownFolder.name}</h3>
-                  <button type="button" className="bk-close" aria-label="Close folder" onClick={() => setOpen(null)}><Icon name="x" /></button>
-                </header>
-                {shownFolder.id === 'logo' && <LogoFolder brand={brand} set={set} />}
-                {shownFolder.id === 'colors' && <ColorFolder brand={brand} set={set} />}
-                {shownFolder.id === 'fonts' && <FontFolder brand={brand} set={set} />}
-                {shownFolder.id === 'products' && <ProductFolder brand={brand} set={set} />}
-                {shownFolder.id === 'brand' && <BrandFolder brand={brand} set={set} />}
-              </div>
+              <section className="bk-panel v2-card" key={shownFolder.id}>
+                <header><Icon name={shownFolder.icon} /><h3>{shownFolder.name}</h3><span className="bk-panel-count">{count(shownFolder.id)}</span></header>
+                <div className="v2-in bk-panel-in">
+                  {shownFolder.id === 'logo' && <LogoFolder brand={brand} set={set} />}
+                  {shownFolder.id === 'colors' && <ColorFolder brand={brand} set={set} />}
+                  {shownFolder.id === 'fonts' && <FontFolder brand={brand} set={set} />}
+                  {shownFolder.id === 'products' && <ProductFolder brand={brand} set={set} />}
+                  {shownFolder.id === 'brand' && <BrandFolder brand={brand} set={set} />}
+                </div>
+              </section>
             )}
           </div>
         </div>
       </div>
+
+      <Monitoring brand={brand} set={set} host={host} topPages={topPages} onChanges={onChanges} />
     </section>
   );
 }
@@ -121,7 +136,7 @@ export function BrandKnowledge({ space, storeName, host }: { space: string; stor
 type Paper = { img?: string; color?: string; text?: string; font?: string; dark?: boolean };
 function papersFor(b: Brand, id: FolderId): Paper[] {
   if (id === 'logo') return (['primary', 'mark', 'dark'] as LogoSlot[]).map((k) => b.logos[k] ? { img: b.logos[k]!.src, dark: k === 'dark' } : null).filter(Boolean) as Paper[];
-  if (id === 'colors') return b.colors.slice(0, 3).map((c) => ({ color: c.hex }));
+  if (id === 'colors') return orderedColors(b.colors).slice(0, 3).map((c) => ({ color: c.hex }));
   if (id === 'fonts') return b.fonts.filter((f) => f.family || f.file).slice(0, 2).map((f) => ({ text: 'Aa', font: fontStack(f) }));
   if (id === 'products') return b.products.filter((p) => p.image).slice(0, 3).map((p) => ({ img: p.image!.src }));
   return b.photos.slice(0, 3).map((p) => ({ img: p.src }));
@@ -149,39 +164,21 @@ function GlassFolder({ papers }: { papers: Paper[] }) {
 // ---------- shared bits
 type FolderProps = { brand: Brand; set: (next: (b: Brand) => Brand) => void };
 
-/** Drop files on it or click to pick: one place to add things in every folder. */
-function DropZone({ accept, multiple, label, hint, onFiles, className = '' }: {
-  accept: string; multiple?: boolean; label: string; hint?: string; onFiles: (files: File[]) => void; className?: string;
-}) {
-  const input = useRef<HTMLInputElement>(null);
-  const [over, setOver] = useState(false);
-  const drop = (e: DragEvent) => { e.preventDefault(); setOver(false); const files = [...e.dataTransfer.files]; if (files.length) onFiles(multiple ? files : files.slice(0, 1)); };
-  return (
-    <button type="button" className={`bk-drop${over ? ' is-over' : ''} ${className}`.trim()} onClick={() => input.current?.click()}
-      onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)} onDrop={drop}>
-      <span className="bk-drop-ic"><Icon name="upload" /></span>
-      <b>{label}</b>
-      {hint ? <small>{hint}</small> : null}
-      <input ref={input} type="file" accept={accept} multiple={multiple} hidden
-        onChange={(e) => { const files = [...(e.target.files ?? [])]; e.target.value = ''; if (files.length) onFiles(files); }} />
-    </button>
-  );
-}
-
-function PickButton({ accept, label, onFile, icon = 'upload' }: { accept: string; label: string; onFile: (f: File) => void; icon?: IconName }) {
+function PickButton({ accept, label, onFile, icon = 'upload', className = 'btn btn-secondary btn-sm', title }: { accept: string; label: string; onFile: (f: File) => void; icon?: IconName; className?: string; title?: string }) {
   const input = useRef<HTMLInputElement>(null);
   return (
     <>
-      <button type="button" className="btn btn-secondary btn-sm" onClick={() => input.current?.click()}><Icon name={icon} />{label}</button>
+      <button type="button" className={className} title={title} aria-label={label ? undefined : title} onClick={() => input.current?.click()}><Icon name={icon} />{label}</button>
       <input ref={input} type="file" accept={accept} hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onFile(f); }} />
     </>
   );
 }
 
-const images = (files: File[]) => files.filter((f) => f.type.startsWith('image/'));
+const images = (files: File[]) => files.filter((f) => f.type.startsWith('image/') || /\.svg$/i.test(f.name));
 function Items({ children, className = '' }: { children: ReactNode; className?: string }) {
   return <div className={`bk-items ${className}`.trim()}>{children}</div>;
 }
+const fanIn = (i: number) => ({ ['--i' as string]: i }) as CSSProperties;
 
 // ---------- Logo
 const LOGO_SLOTS: { id: LogoSlot; name: string; hint: string }[] = [
@@ -196,11 +193,11 @@ function LogoFolder({ brand, set }: FolderProps) {
       {LOGO_SLOTS.map((s, i) => {
         const f = brand.logos[s.id];
         return (
-          <div key={s.id} className="bk-card" style={{ ['--i' as string]: i } as CSSProperties}>
+          <div key={s.id} className="bk-card" style={fanIn(i)}>
             {f ? (
               <div className={`bk-logo-stage${s.id === 'dark' ? ' is-dark' : ''}`}><img src={f.src} alt={s.name} /></div>
             ) : (
-              <DropZone accept="image/*,.svg" label={`Add ${s.name.toLowerCase()}`} hint="SVG or PNG" className={s.id === 'dark' ? 'is-dark' : ''}
+              <Uploader accept="image/*,.svg" title={`Add ${s.name.toLowerCase()}`} hint="SVG or PNG · up to 5 MB" maxMb={5} tone={s.id === 'dark' ? 'dark' : 'light'} className="bk-logo-up"
                 onFiles={(files) => { const img = images(files)[0]; if (img) put(s.id, img); else toast('Pick an image file', { kind: 'warn' }); }} />
             )}
             <div className="bk-card-foot">
@@ -217,57 +214,102 @@ function LogoFolder({ brand, set }: FolderProps) {
   );
 }
 
-// ---------- Colors
-function ColorFolder({ brand, set }: FolderProps) {
-  const edit = (id: string, patch: Partial<{ name: string; hex: string }>) => set((b) => ({ ...b, colors: b.colors.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
+// ---------- Colors: main, secondary and accent first, then any others
+const ROLES: { id: ColorRole; name: string; hint: string; def: string }[] = [
+  { id: 'main', name: 'Main color', hint: 'Buttons, links and your mark', def: '#6360F0' },
+  { id: 'secondary', name: 'Secondary color', hint: 'Backgrounds and soft panels', def: '#EDEBFF' },
+  { id: 'accent', name: 'Accent color', hint: 'Prices, badges and highlights', def: '#1F1F24' },
+];
+function orderedColors(colors: BrandColor[]) {
+  return [...ROLES.map((r) => colors.find((c) => c.role === r.id)).filter(Boolean) as BrandColor[], ...colors.filter((c) => !c.role)];
+}
+function Swatch({ color, label, onHex }: { color: BrandColor; label: string; onHex: (hex: string) => void }) {
   return (
-    <Items className="bk-colors">
-      {brand.colors.map((c, i) => (
-        <div key={c.id} className="bk-card bk-color" style={{ ['--i' as string]: i } as CSSProperties}>
-          <label className="bk-swatch" style={{ background: c.hex }}>
-            <input type="color" value={c.hex} aria-label={`Change ${c.name || 'color'}`} onChange={(e) => edit(c.id, { hex: e.target.value.toUpperCase() })} />
-            <span className="bk-swatch-hint"><Icon name="edit" />Change</span>
-          </label>
-          <div className="bk-card-foot">
-            <span>
-              <input className="bk-inline" value={c.name} placeholder="Name" aria-label="Color name" onChange={(e) => edit(c.id, { name: e.target.value })} />
-              <input className="bk-inline bk-hex" value={c.hex} aria-label="Hex code" spellCheck={false}
-                onChange={(e) => edit(c.id, { hex: e.target.value })}
-                onBlur={(e) => { const v = e.target.value.trim(); if (!/^#[0-9a-f]{6}$/i.test(v)) edit(c.id, { hex: /^[0-9a-f]{6}$/i.test(v) ? `#${v}`.toUpperCase() : '#000000' }); }} />
-            </span>
-            <button type="button" className="bk-icon-btn" aria-label={`Remove ${c.name || 'color'}`} onClick={() => set((b) => ({ ...b, colors: b.colors.filter((x) => x.id !== c.id) }))}><Icon name="trash" /></button>
+    <label className="bk-swatch" style={{ background: color.hex }}>
+      <input type="color" value={/^#[0-9a-f]{6}$/i.test(color.hex) ? color.hex : '#000000'} aria-label={`Change ${label}`} onChange={(e) => onHex(e.target.value.toUpperCase())} />
+      <span className="bk-swatch-hint"><Icon name="edit" />Change</span>
+    </label>
+  );
+}
+function HexInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <input className="bk-inline bk-hex" value={value} aria-label="Hex code" spellCheck={false}
+      onChange={(e) => onChange(e.target.value)}
+      onBlur={(e) => { const v = e.target.value.trim(); if (!/^#[0-9a-f]{6}$/i.test(v)) onChange(/^[0-9a-f]{6}$/i.test(v) ? `#${v}`.toUpperCase() : '#000000'); }} />
+  );
+}
+function ColorFolder({ brand, set }: FolderProps) {
+  const edit = (id: string, patch: Partial<BrandColor>) => set((b) => ({ ...b, colors: b.colors.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
+  const others = brand.colors.filter((c) => !c.role);
+  return (
+    <div className="bk-colors-wrap">
+      <Items className="bk-colors bk-roles">
+        {ROLES.map((r, i) => {
+          const c = brand.colors.find((x) => x.role === r.id);
+          return c ? (
+            <div key={r.id} className="bk-card bk-color" style={fanIn(i)}>
+              <Swatch color={c} label={r.name} onHex={(hex) => edit(c.id, { hex })} />
+              <div className="bk-card-foot">
+                <span><b>{r.name}</b><HexInput value={c.hex} onChange={(hex) => edit(c.id, { hex })} /></span>
+              </div>
+            </div>
+          ) : (
+            <button key={r.id} type="button" className="bk-card bk-color is-empty" style={fanIn(i)}
+              onClick={() => set((b) => ({ ...b, colors: [...b.colors, { id: newId(), name: r.name, hex: r.def, role: r.id }] }))}>
+              <span className="bk-swatch bk-swatch-empty"><Icon name="plus" /></span>
+              <span className="bk-card-foot"><span><b>{r.name}</b><small>{r.hint}</small></span></span>
+            </button>
+          );
+        })}
+      </Items>
+      <h4 className="bk-sub">Other colors</h4>
+      <Items className="bk-colors">
+        {others.map((c, i) => (
+          <div key={c.id} className="bk-card bk-color" style={fanIn(i + 3)}>
+            <Swatch color={c} label={c.name || 'color'} onHex={(hex) => edit(c.id, { hex })} />
+            <div className="bk-card-foot">
+              <span>
+                <input className="bk-inline bk-strong" value={c.name} placeholder="Name" aria-label="Color name" onChange={(e) => edit(c.id, { name: e.target.value })} />
+                <HexInput value={c.hex} onChange={(hex) => edit(c.id, { hex })} />
+              </span>
+              <button type="button" className="bk-icon-btn" aria-label={`Remove ${c.name || 'color'}`} onClick={() => set((b) => ({ ...b, colors: b.colors.filter((x) => x.id !== c.id) }))}><Icon name="trash" /></button>
+            </div>
           </div>
-        </div>
-      ))}
-      <button type="button" className="bk-add" style={{ ['--i' as string]: brand.colors.length } as CSSProperties}
-        onClick={() => set((b) => ({ ...b, colors: [...b.colors, { id: newId(), name: b.colors.length ? `Color ${b.colors.length + 1}` : 'Primary', hex: '#6360F0' }] }))}>
-        <span className="bk-drop-ic"><Icon name="plus" /></span><b>Add color</b>
-      </button>
-    </Items>
+        ))}
+        <button type="button" className="bk-add" style={fanIn(others.length + 3)}
+          onClick={() => set((b) => ({ ...b, colors: [...b.colors, { id: newId(), name: `Color ${b.colors.filter((x) => !x.role).length + 1}`, hex: '#9AA3B2' }] }))}>
+          <span className="bk-add-ic"><Icon name="plus" /></span><b>Add color</b>
+        </button>
+      </Items>
+    </div>
   );
 }
 
 // ---------- Fonts
-function FontRow({ font, onChange, i }: { font: Brand['fonts'][number]; onChange: (patch: Partial<Brand['fonts'][number]>) => void; i: number }) {
+function FontCard({ font, onChange, i }: { font: Brand['fonts'][number]; onChange: (patch: Partial<Brand['fonts'][number]>) => void; i: number }) {
   useFontFile(font.id, font.file?.blob);
-  const options = font.family && !FONTS.includes(font.family) ? [font.family, ...FONTS] : FONTS;
+  const families = font.family && !FONTS.includes(font.family) ? [font.family, ...FONTS] : FONTS;
   return (
-    <div className="bk-card bk-font" style={{ ['--i' as string]: i } as CSSProperties}>
+    <div className="bk-card bk-font" style={fanIn(i)}>
       <div className="bk-font-stage" style={{ fontFamily: fontStack(font) }}>
         <b>Aa</b>
         <p>{font.role === 'Headings' ? 'Kibble or pâté? Here’s the difference.' : 'Your cart is saved, and you can pay another way here.'}</p>
       </div>
       <div className="bk-card-foot">
         <span><b>{font.role}</b><small>{font.file ? font.file.name : font.family || 'Not set yet'}</small></span>
-        <span className="bk-card-acts">
-          <select className="bk-select" value={font.family} aria-label={`${font.role} font`} onChange={(e) => onChange({ family: e.target.value })}>
-            {!font.family && <option value="">Choose…</option>}
-            {options.map((f) => <option key={f}>{f}</option>)}
-          </select>
-          <PickButton accept=".woff2,.woff,.ttf,.otf" label={font.file ? 'Replace file' : 'Upload'} onFile={(file) => onChange({ file: fileFrom(file), family: font.family || file.name.replace(/\.[^.]+$/, '') })} />
-          {font.file ? <button type="button" className="bk-icon-btn" aria-label="Remove font file" onClick={() => onChange({ file: null })}><Icon name="trash" /></button> : null}
-        </span>
+        <Dropdown label={`${font.role} font`} value={font.family} align="end" className="bk-font-dd"
+          options={[...(font.family ? [] : [{ value: '', label: 'Choose a font' }]), ...families.map((f) => ({ value: f, label: f }))]}
+          onChange={(v) => onChange({ family: v })} />
       </div>
+      {font.file ? (
+        <div className="bk-font-file">
+          <span><Icon name="file" />{font.file.name}</span>
+          <button type="button" className="bk-icon-btn" aria-label="Remove font file" onClick={() => onChange({ file: null })}><Icon name="trash" /></button>
+        </div>
+      ) : (
+        <Uploader compact accept=".woff2,.woff,.ttf,.otf" maxMb={5} title="Upload your own font" hint=".woff2, .ttf or .otf"
+          onFiles={([file]) => onChange({ file: fileFrom(file), family: font.family || file.name.replace(/\.[^.]+$/, '') })} />
+      )}
     </div>
   );
 }
@@ -275,38 +317,51 @@ function FontFolder({ brand, set }: FolderProps) {
   return (
     <Items className="bk-fonts">
       {brand.fonts.map((f, i) => (
-        <FontRow key={f.id} font={f} i={i} onChange={(patch) => set((b) => ({ ...b, fonts: b.fonts.map((x) => (x.id === f.id ? { ...x, ...patch } : x)) }))} />
+        <FontCard key={f.id} font={f} i={i} onChange={(patch) => set((b) => ({ ...b, fonts: b.fonts.map((x) => (x.id === f.id ? { ...x, ...patch } : x)) }))} />
       ))}
     </Items>
   );
 }
 
-// ---------- Products
+// ---------- Products: one or two photos each; the second shows on hover
+function ProductCard({ p, i, set }: { p: Brand['products'][number]; i: number; set: FolderProps['set'] }) {
+  const [second, setSecond] = useState(false);
+  const edit = (patch: Partial<Brand['products'][number]>) => set((b) => ({ ...b, products: b.products.map((x) => (x.id === p.id ? { ...x, ...patch } : x)) }));
+  const showing = second && p.image2 ? 'image2' : 'image';
+  return (
+    <div className={`bk-card bk-product${p.image2 ? ' has-two' : ''}`} style={fanIn(i)}
+      onPointerEnter={() => setSecond(true)} onPointerLeave={() => setSecond(false)}>
+      <div className="bk-product-img">
+        {p.image ? <img src={p.image.src} alt={p.name} className={showing === 'image' ? 'is-on' : ''} /> : <Icon name="image" />}
+        {p.image2 ? <img src={p.image2.src} alt={`${p.name}, second photo`} className={showing === 'image2' ? 'is-on' : ''} /> : null}
+        {p.image2 ? <span className="bk-dots" aria-hidden="true"><i className={showing === 'image' ? 'on' : ''} /><i className={showing === 'image2' ? 'on' : ''} /></span> : null}
+        <span className="bk-product-acts">
+          {p.image2
+            ? <button type="button" className="bk-chip-btn" onClick={() => edit({ image2: null })}><Icon name="minus" />2nd photo</button>
+            : <PickButton accept="image/*" label="2nd photo" icon="plus" className="bk-chip-btn" onFile={(f) => edit({ image2: fileFrom(f) })} />}
+          <PickButton accept="image/*" label="" icon="refund" className="bk-chip-btn is-icon"
+            title={showing === 'image2' ? 'Replace the second photo' : 'Replace the photo'}
+            onFile={(f) => edit(showing === 'image2' ? { image2: fileFrom(f) } : { image: fileFrom(f) })} />
+          <button type="button" className="bk-icon-btn" aria-label={`Remove ${p.name}`} onClick={() => set((b) => ({ ...b, products: b.products.filter((x) => x.id !== p.id) }))}><Icon name="trash" /></button>
+        </span>
+      </div>
+      <div className="bk-product-copy">
+        <input className="bk-inline bk-strong" value={p.name} placeholder="Product name" aria-label="Product name" onChange={(e) => edit({ name: e.target.value })} />
+        <input className="bk-inline" value={p.price} placeholder="Price" aria-label="Price" onChange={(e) => edit({ price: e.target.value })} />
+      </div>
+    </div>
+  );
+}
 function ProductFolder({ brand, set }: FolderProps) {
-  const edit = (id: string, patch: Partial<Brand['products'][number]>) => set((b) => ({ ...b, products: b.products.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
   const add = (files: File[]) => {
     const imgs = images(files);
     if (!imgs.length) { toast('Pick image files', { kind: 'warn' }); return; }
-    set((b) => ({ ...b, products: [...b.products, ...imgs.map((f) => ({ id: newId(), name: f.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' '), price: '', image: fileFrom(f) }))] }));
+    set((b) => ({ ...b, products: [...b.products, ...imgs.map((f) => ({ id: newId(), name: f.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' '), price: '', image: fileFrom(f), image2: null }))] }));
   };
   return (
     <Items className="bk-products">
-      {brand.products.map((p, i) => (
-        <div key={p.id} className="bk-card bk-product" style={{ ['--i' as string]: i } as CSSProperties}>
-          <div className="bk-product-img">
-            {p.image ? <img src={p.image.src} alt={p.name} /> : <Icon name="image" />}
-            <span className="bk-product-acts">
-              <PickButton accept="image/*" label="Replace" icon="refund" onFile={(f) => edit(p.id, { image: fileFrom(f) })} />
-              <button type="button" className="bk-icon-btn" aria-label={`Remove ${p.name}`} onClick={() => set((b) => ({ ...b, products: b.products.filter((x) => x.id !== p.id) }))}><Icon name="trash" /></button>
-            </span>
-          </div>
-          <div className="bk-product-copy">
-            <input className="bk-inline bk-strong" value={p.name} placeholder="Product name" aria-label="Product name" onChange={(e) => edit(p.id, { name: e.target.value })} />
-            <input className="bk-inline" value={p.price} placeholder="Price" aria-label="Price" onChange={(e) => edit(p.id, { price: e.target.value })} />
-          </div>
-        </div>
-      ))}
-      <DropZone accept="image/*" multiple label="Add products" hint="Drop product photos — one product each" onFiles={add} className="bk-product-drop" />
+      {brand.products.map((p, i) => <ProductCard key={p.id} p={p} i={i} set={set} />)}
+      <Uploader accept="image/*" multiple title="Add products" hint="Drop photos · one product each" onFiles={add} className="bk-fill" />
     </Items>
   );
 }
@@ -323,12 +378,12 @@ function BrandFolder({ brand, set }: FolderProps) {
     <div className="bk-brand">
       <Items className="bk-photos">
         {brand.photos.map((p, i) => (
-          <div key={p.id + i} className="bk-photo" style={{ ['--i' as string]: i } as CSSProperties}>
+          <div key={p.id + i} className="bk-photo" style={fanIn(i)}>
             <img src={p.src} alt={p.name} />
             <button type="button" className="bk-icon-btn" aria-label={`Remove ${p.name}`} onClick={() => set((b) => ({ ...b, photos: b.photos.filter((x, j) => !(x.id === p.id && j === i)) }))}><Icon name="trash" /></button>
           </div>
         ))}
-        <DropZone accept="image/*" multiple label="Add photos" hint="Lifestyle and hero shots" onFiles={add} />
+        <Uploader accept="image/*" multiple title="Add photos" hint="Lifestyle and hero shots" onFiles={add} className="bk-fill" />
       </Items>
       <div className="bk-voice">
         <label><span>Tagline</span><input value={brand.voice.tagline} placeholder="One line about the store" onChange={(e) => voice('tagline', e.target.value)} /></label>
@@ -336,5 +391,84 @@ function BrandFolder({ brand, set }: FolderProps) {
         <label><span>About</span><textarea rows={3} value={brand.voice.about} placeholder="Who you are and what you sell, in your own words" onChange={(e) => voice('about', e.target.value)} /></label>
       </div>
     </div>
+  );
+}
+
+// ---------- Monitoring: up to 10 of the store's own pages
+const ago = (iso: string) => {
+  const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
+  return m < 1 ? 'just now' : m < 60 ? `${m}m ago` : m < 48 * 60 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`;
+};
+function cleanPath(input: string, host: string): { path: string } | { error: string } | null {
+  let v = input.trim();
+  if (!v) return null;
+  try {
+    if (/^https?:\/\//i.test(v) || /^[^/]+\.[a-z]{2,}(\/|$)/i.test(v)) {
+      const url = new URL(/^https?:\/\//i.test(v) ? v : `https://${v}`);
+      if (url.host.replace(/^www\./, '') !== host.replace(/^www\./, '')) return { error: `Only pages on ${host}` };
+      v = url.pathname + url.search;
+    }
+  } catch { return { error: 'That doesn’t look like a page address' }; }
+  if (!v.startsWith('/')) v = `/${v}`;
+  return { path: v.replace(/\/+$/, '') || '/' };
+}
+function Monitoring({ brand, set, host, topPages, onChanges }: FolderProps & { host: string; topPages: { path: string; count: number }[]; onChanges: () => void }) {
+  const [value, setValue] = useState('');
+  const [error, setError] = useState('');
+  const pages = brand.monitor;
+  const full = pages.length >= MONITOR_LIMIT;
+  const watched = new Set(pages.map((p) => p.path));
+  const suggestions = topPages.map((p) => p.path).filter((p) => p && !watched.has(p)).slice(0, 6);
+  const add = (raw: string) => {
+    if (full) { setError(`Up to ${MONITOR_LIMIT} pages`); return; }
+    const r = cleanPath(raw, host);
+    if (!r) return;
+    if ('error' in r) { setError(r.error); return; }
+    if (watched.has(r.path)) { setError('Already monitored'); return; }
+    set((b) => ({ ...b, monitor: [...b.monitor, { id: newId(), path: r.path, addedAt: new Date().toISOString(), checkedAt: null, change: null }] }));
+    setValue(''); setError('');
+  };
+  return (
+    <section className="v2-card bk-monitor" aria-labelledby="bkMonT">
+      <header><Icon name="eye" /><h3 id="bkMonT">Monitoring</h3><span className="bk-panel-count">{pages.length} of {MONITOR_LIMIT} pages</span></header>
+      <div className="v2-in bk-monitor-in">
+        <p className="bk-monitor-lede">We check these pages on {host} for price, stock and code changes, so emails never quote stale facts.</p>
+        <form className={`bk-mon-add${error ? ' has-error' : ''}`} onSubmit={(e) => { e.preventDefault(); add(value); }}>
+          <label className="bk-mon-field">
+            <span className="bk-mon-host">{host}</span>
+            <input value={value} placeholder="/products/your-best-seller" aria-label={`Page on ${host} to monitor`} disabled={full}
+              onChange={(e) => { setValue(e.target.value); if (error) setError(''); }} />
+          </label>
+          <button type="submit" className="btn btn-primary btn-sm" disabled={full || !value.trim()}><Icon name="plus" />Add page</button>
+        </form>
+        {error ? <p className="bk-mon-error" role="alert">{error}</p> : null}
+        {suggestions.length && !full ? (
+          <div className="bk-mon-suggest">
+            <span>Your top pages</span>
+            {suggestions.map((p) => (
+              <button key={p} type="button" className="bk-mon-chip" onClick={() => add(p)}><Icon name="plus" />{p}</button>
+            ))}
+          </div>
+        ) : null}
+        {pages.length ? (
+          <ul className="bk-mon-list">
+            {pages.map((p, i) => (
+              <li key={p.id} className="bk-mon-row" style={fanIn(i)}>
+                <span className="bk-mon-ic" aria-hidden="true"><Icon name="file" /></span>
+                <span className="bk-mon-page"><b>{p.path}</b><small>{host}{p.path === '/' ? '' : p.path}</small></span>
+                {p.change ? (
+                  <button type="button" className="bk-mon-state is-change" onClick={onChanges}><i />{p.change}<Icon name="chevronRight" /></button>
+                ) : (
+                  <span className={`bk-mon-state${p.checkedAt ? ' is-ok' : ''}`}><i />{p.checkedAt ? `No changes · ${ago(p.checkedAt)}` : 'First check soon'}</span>
+                )}
+                <button type="button" className="bk-icon-btn" aria-label={`Stop monitoring ${p.path}`} onClick={() => set((b) => ({ ...b, monitor: b.monitor.filter((x) => x.id !== p.id) }))}><Icon name="trash" /></button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="bk-mon-empty">No pages yet. Start with your best sellers and your shipping page.</p>
+        )}
+      </div>
+    </section>
   );
 }

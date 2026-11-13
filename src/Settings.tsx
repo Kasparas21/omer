@@ -31,12 +31,14 @@ function Row({ title, hint, children, wide }: { title: string; hint?: string; ch
 
 const Soon = () => <span className="status-pill">Coming next</span>;
 
-export function Settings({ project, snippet, dockMode, onDockMode, onCopy, onGuide, onSetup, startTab, demo = false, onGo, onReplay, storageReady = false, replayBusy = false }: {
+export function Settings({ project, topPages, snippet, dockMode, onDockMode, onCopy, onGuide, onSetup, startTab, demo = false, onGo, onReplay, storageReady = false, replayBusy = false }: {
   startTab?: Tab;
   /** The demo store shows the kit's full example Settings. */
   demo?: boolean;
   onGo?: (go: Go) => void;
   project: Project;
+  /** The store's most-visited pages, offered as pages to monitor. */
+  topPages?: { path: string; count: number }[];
   snippet: string;
   dockMode: DockMode;
   onDockMode: (mode: DockMode) => void;
@@ -65,7 +67,7 @@ export function Settings({ project, snippet, dockMode, onDockMode, onCopy, onGui
   return (
     <div className="omer-settings st-page">
       <header className="st-top">
-        <h1 className="st-title">Settings</h1>
+        <h1 className="sr-only">Settings</h1>
         <nav className="pill-tabs st-tabs" aria-label="Settings sections" ref={tabPill}>
           {tabs.map((item) => (
             <button key={item.id} type="button" className="ib-tab" aria-pressed={tab === item.id} onClick={() => setTab(item.id)}>
@@ -75,7 +77,7 @@ export function Settings({ project, snippet, dockMode, onDockMode, onCopy, onGui
         </nav>
       </header>
       {tab === 'brand' ? (
-        <BrandKnowledge key={project.id} space={demo ? DEMO_BRAND_SPACE : project.id} storeName={project.name} host={host} />
+        <BrandKnowledge key={project.id} space={demo ? DEMO_BRAND_SPACE : project.id} host={host} topPages={topPages ?? []} onChanges={() => setTab('changes')} />
       ) : (
       <div className="st-body omer-rows-in" key={tab}>
         <div className="set-sheet">
