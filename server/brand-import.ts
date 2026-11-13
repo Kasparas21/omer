@@ -16,6 +16,8 @@ export type StoredBrand = {
   voice: { tagline: string; tone: string; about: string };
   docs: { product: string; voice: string };
   monitor: { id: string; path: string; addedAt: string; checkedAt?: string | null; change?: string | null }[];
+  /** What emails can say (shipping, returns, offers, answers); kept as-is on import. */
+  facts?: { id: string; group: string; name: string; value: string; review?: boolean }[];
   importedAt?: string | null;
 };
 
@@ -34,6 +36,7 @@ export function emptyStoredBrand(): StoredBrand {
     voice: { tagline: '', tone: '', about: '' },
     docs: { product: '', voice: '' },
     monitor: [],
+    facts: [],
     importedAt: null,
   };
 }

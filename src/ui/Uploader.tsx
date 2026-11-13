@@ -15,7 +15,8 @@ export function Uploader({ accept, multiple = false, maxMb = 10, title, hint, on
   multiple?: boolean;
   maxMb?: number;
   title: string;
-  hint?: string;
+  /** false hides the hint line. */
+  hint?: string | false;
   onFiles: (files: File[]) => void;
   /** A slim one-line strip instead of the full card. */
   compact?: boolean;
@@ -82,7 +83,7 @@ export function Uploader({ accept, multiple = false, maxMb = 10, title, hint, on
       ) : (
         <button type="button" className="upz-idle" onClick={() => input.current?.click()}>
           <span className="upz-ic"><Icon name="upload" /></span>
-          <span className="upz-copy"><b>{title}</b><small>{hint ?? `or click to choose · up to ${maxMb} MB`}</small></span>
+          <span className="upz-copy"><b>{title}</b>{hint === false ? null : <small>{hint ?? `or click to choose · up to ${maxMb} MB`}</small>}</span>
         </button>
       )}
       <input ref={input} type="file" accept={accept} multiple={multiple} hidden

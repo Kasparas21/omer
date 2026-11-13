@@ -16,7 +16,7 @@ import { Results } from './Results';
 import { Toasts } from './ui/toast';
 import { useNewVersion } from './ui/useNewVersion';
 import { DEMO_SPACE, useDemo } from './demoState';
-import { Settings, type DockMode, type SettingsTab } from './Settings';
+import { DOCK_MODES, Settings, type DockMode, type SettingsTab } from './Settings';
 import { useLive } from './live';
 import { Icon, type IconName } from './ui/Icon';
 import { Dock } from './ui/Dock';
@@ -568,6 +568,14 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
                 <button className="menu-item" role="menuitem" type="button" onClick={(e) => { e.currentTarget.closest('details')!.open = false; openCreate(); }}><Icon name="plus" />New project</button>
                 <button className="menu-item" role="menuitem" type="button" onClick={(e) => { e.currentTarget.closest('details')!.open = false; openGuide(); }}><Icon name="book" />Installation guide</button>
                 <button className="menu-item" role="menuitem" type="button" onClick={(e) => { e.currentTarget.closest('details')!.open = false; openScreen('settings'); }}><Icon name="settings" />Settings</button>
+                <div className="menu-sep" role="separator" />
+                <div className="menu-label" id="dockMenuLabel">Dock</div>
+                <div role="group" aria-labelledby="dockMenuLabel">
+                  {DOCK_MODES.map((mode) => (
+                    <button key={mode.id} className="menu-item omer-dock-opt" role="menuitemradio" aria-checked={dockMode === mode.id} type="button" onClick={() => setDockMode(mode.id)}>{mode.label}</button>
+                  ))}
+                </div>
+                <div className="menu-sep" role="separator" />
                 <button className="menu-item" role="menuitem" type="button" onClick={() => void onSignOut().catch(() => setNotice('Unable to sign out. Try again.'))}><Icon name="exit" />Sign out</button>
               </div>
             </details>
@@ -638,7 +646,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
             <People key={`${project.id}-${start.n}`} {...live} demo={isDemo(project)} start={start.people} onLive={() => openScreen('globe')}
               onOpen={(seed) => { setProfileName(''); setProfile({ projectId: project.id, seed }); window.scrollTo({ top: 0 }); }} />
           ) : screen === 'settings' && project ? (
-            <Settings key={`settings-${start.n}`} startTab={start.settings} demo={isDemo(project)} onGo={go} project={project} snippet={snippet} dockMode={dockMode} onDockMode={setDockMode}
+            <Settings key={`settings-${start.n}`} startTab={start.settings} demo={isDemo(project)} onGo={go} project={project} snippet={snippet}
               topPages={(analytics?.id === project.id ? analytics : project).pages}
               storageReady={replayStorage} replayBusy={replayBusy}
               onReplay={async (enabled) => {

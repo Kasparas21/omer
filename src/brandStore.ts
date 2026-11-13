@@ -12,6 +12,8 @@ export type BrandProduct = { id: string; name: string; price: string; image: Bra
 /** A page on the store we keep an eye on, so emails never quote a stale price, stock level or code. */
 export type MonitoredPage = { id: string; path: string; addedAt: string; checkedAt?: string | null; change?: string | null };
 export const MONITOR_LIMIT = 10;
+/** Something emails are allowed to say about the store: a price, an offer, a policy, an answer. */
+export type StoreFact = { id: string; group: string; name: string; value: string; review?: boolean };
 export type LogoSlot = 'primary' | 'mark' | 'dark';
 export type BrandDocs = { product: string; voice: string };
 export type Brand = {
@@ -23,9 +25,10 @@ export type Brand = {
   voice: { tagline: string; tone: string; about: string };
   docs: BrandDocs;
   monitor: MonitoredPage[];
+  facts: StoreFact[];
   importedAt?: string | null;
 };
-export type FolderId = 'logo' | 'colors' | 'fonts' | 'products' | 'photos' | 'docs';
+export type FolderId = 'logo' | 'colors' | 'fonts' | 'products' | 'brand' | 'facts';
 
 export const DEMO_BRAND_SPACE = 'demo';
 export const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
@@ -81,6 +84,7 @@ const DEMO: Brand = {
     { id: 'm3', path: '/products/salmon-kibble-4kg', addedAt: '2026-11-02', checkedAt: ago(26), change: 'Back in stock' },
     { id: 'm4', path: '/pages/shipping', addedAt: '2026-11-04', checkedAt: ago(41), change: null },
   ],
+  facts: [], // the demo store's facts live with its demo settings (they drive "needs review" counts)
 };
 
 export const emptyBrand = (): Brand => ({
@@ -92,6 +96,7 @@ export const emptyBrand = (): Brand => ({
   voice: { tagline: '', tone: '', about: '' },
   docs: { product: '', voice: '' },
   monitor: [],
+  facts: [],
   importedAt: null,
 });
 
@@ -254,7 +259,8 @@ export function folderCount(b: Brand, folder: FolderId) {
   if (folder === 'colors') return b.colors.length;
   if (folder === 'fonts') return b.fonts.filter((f) => f.family || f.file).length;
   if (folder === 'products') return b.products.length;
-  if (folder === 'photos') return b.photos.length;
   const docs = b.docs || { product: '', voice: '' };
-  return (docs.product.trim() ? 1 : 0) + (docs.voice.trim() ? 1 : 0);
+  // Product Information sits with the store facts; the Brand Voice Guide with photos & voice.
+  if (folder === 'facts') return (b.facts?.length ?? 0) + (docs.product.trim() ? 1 : 0);
+  return b.photos.length + (b.voice.tagline || b.voice.tone || b.voice.about ? 1 : 0) + (docs.voice.trim() ? 1 : 0);
 }

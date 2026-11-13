@@ -1,11 +1,10 @@
-/* Settings for the demo store, as in the UI kit: the brand kit, company documents and the facts emails may
-   use; website changes with real choices; sending; privacy. Everything is clickable and stays changed while the
+/* Settings for the demo store, as in the UI kit: the facts emails may use (shown in Brand knowledge's Store
+   facts folder); website changes with real choices; sending; privacy. Everything is clickable and stays changed while the
    app is open. Real projects see the plain Settings (what the product really does today). */
 import { useState, useSyncExternalStore } from 'react';
 import { Icon } from './ui/Icon';
 import { toast } from './ui/toast';
-import { MailBody, Paw, pageVars } from './Mail';
-import { PAGE_STYLE, STORE, type MailDoc } from './storeData';
+import { STORE } from './storeData';
 import { demo as people } from './demoState';
 import type { Go } from './DashboardV2';
 
@@ -65,13 +64,23 @@ const set = (fn: (x: S) => S) => { s = fn(s); subs.forEach((l) => l()); };
 const useS = () => useSyncExternalStore((l) => { subs.add(l); return () => subs.delete(l); }, () => s);
 const fact = (id: string, patch: Partial<Fact>) => set((x) => ({ ...x, facts: x.facts.map((f) => (f.id === id ? { ...f, ...patch } : f)) }));
 const change = (id: string, patch: Partial<Change>) => set((x) => ({ ...x, changes: x.changes.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
-const docSet = (id: string, patch: Partial<Doc>) => set((x) => ({ ...x, docs: x.docs.map((d) => (d.id === id ? { ...d, ...patch } : d)) }));
 /** A copy of everything, for Undo. */
 const snap = () => { const was = s; return () => set(() => was); };
 
 export const companyNeeds = (x: S = s) => x.facts.filter((f) => f.review && !f.off).length + (x.shipAsked ? 1 : 0) + x.docs.filter((d) => !d.approved).length;
 export const changesOpen = (x: S = s) => x.changes.filter((c) => !c.done).length + (x.pages.some((p) => p.failed) ? 1 : 0);
 export function useDemoSettingsCounts() { const x = useS(); return { company: companyNeeds(x), changes: changesOpen(x) }; }
+
+/** The demo store's facts, shown in Brand knowledge's Store facts folder. */
+export function useDemoFacts() { const x = useS(); return { facts: x.facts, ask: x.shipAsked }; }
+export const demoFacts = {
+  approve: (id: string) => fact(id, { review: false }),
+  edit: (id: string, value: string) => fact(id, { value, review: true }),
+  rename: (id: string, name: string) => fact(id, { name }),
+  remove: (id: string) => set((x) => ({ ...x, facts: x.facts.filter((f) => f.id !== id) })),
+  add: (name: string, value: string, group = 'FAQs') => set((x) => ({ ...x, facts: [...x.facts, { id: `f-${Date.now()}`, group, name, value, src: 'Added by you', age: 'Now', usedBy: [], own: true }] })),
+  answer: (value: string) => set((x) => ({ ...x, shipAsked: false, facts: [...x.facts, { id: `f-${Date.now()}`, group: 'FAQs', name: 'Shipping to Australia', value, src: 'Added by you', age: 'Now', usedBy: [], own: true }] })),
+};
 
 function Row({ title, hint, children, wide }: { title: string; hint?: string; children: React.ReactNode; wide?: boolean }) {
   return <div className={`set-row${wide ? ' wide' : ''}`}><div className="set-k"><b>{title}</b>{hint ? <small>{hint}</small> : null}</div><div className="set-v">{children}</div></div>;
@@ -81,193 +90,6 @@ function Select({ value, options, label, onChange }: { value: string; options: s
 }
 const saved = () => toast('Saved');
 
-const IMPORT_STEPS = ['Reading pawsome.shop', 'Logo and colours', 'Fonts', 'Voice from your About page', 'Products and prices', 'Policies'];
-const PREVIEW: MailDoc = { kind: 'brand', subject: '', headline: 'Your 10% is here', body: ['Hi Alex,', 'Sorry about those old codes, they’ve expired. This one works, and your cart is saved, so it’s one click.'], cta: 'Finish my order', order: ['headline', 'body.0', 'body.1', 'cta', 'sig'], blocks: {} };
-const SWATCHES = ['#C8471F', '#191B22', '#2F5FD0', '#1F7A5C', '#B23A6B', '#7A3FC8'];
-const FONTS = ['Pawsome Display', 'Pawsome Text', 'Inter', 'Georgia', 'Helvetica'];
-
-export function DemoCompany({ onGo }: { onGo?: (go: Go) => void }) {
-  const x = useS();
-  const b = x.brand;
-  const groups = [...new Set(x.facts.map((f) => f.group))];
-  const sel = x.facts.find((f) => f.id === x.sel) ?? x.facts[0];
-  const needs = companyNeeds(x);
-  const doc = x.docs.find((d) => d.id === x.doc);
-  const [draft, setDraft] = useState('');
-  const [answer, setAnswer] = useState('');
-
-  function runImport(fail: boolean) {
-    set((y) => ({ ...y, importing: 'running', ticks: 0 }));
-    let n = 0;
-    const timer = window.setInterval(() => {
-      n += 1;
-      if (n < IMPORT_STEPS.length) { set((y) => ({ ...y, ticks: n })); return; }
-      window.clearInterval(timer);
-      if (fail) { set((y) => ({ ...y, importing: 'failed' })); toast('Couldn’t reach pawsome.shop', { kind: 'warn' }); return; }
-      set((y) => ({ ...y, importing: 'done', ticks: n, brand: { ...y.brand, logo: true, mark: true, color: STORE.color } }));
-      toast('Imported from pawsome.shop');
-    }, 450);
-  }
-
-  if (doc) {
-    return <>
-      <div className="set-main co-main">
-        <div className="co-drawer">
-          <header className="co-drawer-head">
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => set((y) => ({ ...y, doc: null, docEdit: false }))}><Icon name="arrowLeft" />Back</button>
-            <div className="co-drawer-title"><h2>{doc.title}</h2><span className={`kn-chip ${doc.approved ? 'is-ok' : 'is-draft'}`}>{doc.approved ? 'Approved for email' : 'Draft'}</span></div>
-            <div className="co-drawer-act">
-              {!x.docEdit ? <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setDraft(doc.body); set((y) => ({ ...y, docEdit: true })); }}>Edit</button> : null}
-              {!doc.approved ? <button type="button" className="btn btn-primary btn-sm" onClick={() => { docSet(doc.id, { approved: true }); toast('Approved for email'); }}>Approve</button> : null}
-              {doc.body !== doc.baseline ? <button type="button" className="btn btn-ghost btn-sm" onClick={() => { docSet(doc.id, { body: doc.baseline, approved: false }); toast('Reset to the import'); }}>Reset to import</button> : null}
-            </div>
-          </header>
-          {x.docEdit ? (
-            <div className="co-doc-edit">
-              <textarea className="textarea" rows={14} value={draft} onChange={(e) => setDraft(e.target.value)} aria-label={doc.title} />
-              <div className="co-doc-act">
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => set((y) => ({ ...y, docEdit: false }))}>Cancel</button>
-                <button type="button" className="btn btn-primary btn-sm" onClick={() => { if (draft !== doc.body) docSet(doc.id, { body: draft, approved: false }); set((y) => ({ ...y, docEdit: false })); saved(); }}>Save as draft</button>
-              </div>
-            </div>
-          ) : <div className="co-doc">{doc.body.split('\n\n').map((p) => <p key={p}>{p}</p>)}</div>}
-        </div>
-      </div>
-      <aside className="set-side"><div className="set-side-in">
-        <div className="set-side-k">How emails use this</div>
-        <p className="su-side-p">{doc.id === 'voice' ? 'Every email is written in this voice once it’s approved.' : 'Products, prices and policies in emails come from here once it’s approved.'}</p>
-        <p className="kn-hint">When the site changes, this goes back to Draft so you can check it.</p>
-      </div></aside>
-    </>;
-  }
-
-  const tile = (id: string, t: string, sub: string) => (
-    <button key={id} type="button" className={`co-tile${x.tile === id ? ' on' : ''}`} aria-pressed={x.tile === id} onClick={() => set((y) => ({ ...y, tile: y.tile === id ? null : id }))}><b>{t}</b><small>{sub}</small></button>
-  );
-  const brandSet = (k: keyof S['brand'], v: string | boolean) => set((y) => ({ ...y, brand: { ...y.brand, [k]: v } }));
-  const swatches = (k: 'color' | 'secondary' | 'accent', label: string) => (
-    <div className="set-swatches" role="group" aria-label={label}>
-      {SWATCHES.map((c) => <button key={c} type="button" className="set-swatch" style={{ ['--c' as string]: c }} aria-label={c} aria-pressed={b[k] === c} onClick={() => { brandSet(k, c); saved(); }} />)}
-      <label className="set-swatch custom" aria-label={`Custom ${label}`} style={SWATCHES.includes(b[k]) ? undefined : { ['--c' as string]: b[k] }}><input type="color" value={b[k]} onChange={(e) => brandSet(k, e.target.value)} /></label>
-    </div>
-  );
-
-  return <>
-    <div className="set-main co-main">
-      <header className="set-head"><h2>Company</h2></header>
-      <div className="co-hero">
-        <span className="co-hero-mark" style={{ background: b.color }}>{b.logo ? <Paw color="#fff" /> : '?'}</span>
-        <div className="co-hero-copy"><b>{b.name}</b><small>{b.website}{b.tagline ? ` · ${b.tagline}` : ''}</small>
-          {needs ? <div className="co-chips"><span className="kn-chip is-draft">{needs} {needs === 1 ? 'fact needs' : 'facts need'} you</span></div> : null}
-        </div>
-      </div>
-      <div className="co-import">
-        {x.importing === 'running' ? (
-          <ul className="co-ticks">{IMPORT_STEPS.map((t, i) => <li key={t} className={i < x.ticks ? 'done' : i === x.ticks ? 'run' : ''}><Icon name={i < x.ticks ? 'check' : 'clock'} />{t}</li>)}</ul>
-        ) : <>
-          <div className="co-import-act">
-            <button type="button" className="btn btn-primary btn-sm" onClick={() => runImport(false)}>{x.importing === 'done' ? 'Import again' : 'Import from website'}</button>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => runImport(true)}>Try a failed import</button>
-          </div>
-          <p className="kn-hint">{x.importing === 'failed' ? 'pawsome.shop didn’t answer. Nothing changed; try again in a minute.' : x.importing === 'done' ? 'Imported from pawsome.shop just now · demo.' : 'Reads logo, colors, voice, products and policies. Labeled as demo — no real scrape.'}</p>
-        </>}
-      </div>
-      <div className="co-tiles" role="group" aria-label="Brand kit">
-        {tile('assets', 'Brand assets', b.logo ? 'Logo on' : 'Add logo')}
-        {tile('colors', 'Colors', b.color)}
-        {tile('fonts', 'Fonts', b.fontHeading)}
-        {tile('profile', 'Profile', b.name)}
-      </div>
-      {x.tile ? (
-        <div className="co-tile-panel">
-          {x.tile === 'assets' && <>
-            <Row title="Logo" hint="Primary mark at the top of emails"><div className="set-logo"><span className="co-hero-mark sm" style={{ background: b.color }}>{b.logo ? <Paw color="#fff" /> : '?'}</span>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => { brandSet('logo', true); toast('Pick an image from your computer', { kind: 'info' }); }}>{b.logo ? 'Replace' : 'Add logo'}</button>
-              {b.logo ? <button type="button" className="btn btn-ghost btn-sm" onClick={() => { brandSet('logo', false); saved(); }}>Remove</button> : null}</div></Row>
-            <Row title="Square mark" hint="Optional icon for tight layouts"><div className="set-logo"><span className="co-hero-mark sm" style={{ background: b.secondary }}>{b.mark ? <Paw color="#2B1B13" /> : '—'}</span>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => { brandSet('mark', true); toast('Pick an image from your computer', { kind: 'info' }); }}>{b.mark ? 'Replace' : 'Add mark'}</button>
-              {b.mark ? <button type="button" className="btn btn-ghost btn-sm" onClick={() => { brandSet('mark', false); saved(); }}>Remove</button> : null}</div></Row>
-          </>}
-          {x.tile === 'colors' && <>
-            <Row title="Primary" hint="Main buttons and brand mark">{swatches('color', 'Primary color')}</Row>
-            <Row title="Secondary" hint="Soft surfaces and product cards">{swatches('secondary', 'Secondary color')}</Row>
-            <Row title="Accent" hint="Small highlights">{swatches('accent', 'Accent color')}</Row>
-          </>}
-          {x.tile === 'fonts' && <>
-            <Row title="Heading"><Select label="Heading font" value={b.fontHeading} options={FONTS} onChange={(v) => { brandSet('fontHeading', v); saved(); }} /></Row>
-            <Row title="Body"><Select label="Body font" value={b.fontBody} options={FONTS} onChange={(v) => { brandSet('fontBody', v); saved(); }} /></Row>
-          </>}
-          {x.tile === 'profile' && <>
-            {([['name', 'Store name', ''], ['website', 'Website', 'Used for import and footer links'], ['tagline', 'Tagline', 'Shown under the preview'], ['fromName', 'From name', 'Inbox display name'], ['from', 'From email', 'Replies come back here']] as const).map(([k, t, h]) => (
-              <Row key={k} title={t} hint={h}><input className="input" value={b[k]} onChange={(e) => brandSet(k, e.target.value)} onBlur={saved} /></Row>
-            ))}
-            <Row title="Voice summary" hint="Full guide opens as a document" wide><div className="bk-voice"><p>{b.voice}</p><button type="button" className="btn btn-secondary btn-sm" onClick={() => set((y) => ({ ...y, doc: 'voice', tile: null }))}>Open Brand Voice Guide</button></div></Row>
-          </>}
-        </div>
-      ) : null}
-
-      <div className="co-docs">
-        <header className="co-sec-h"><h3>Documents</h3><small>Voice and product truth for drafts</small></header>
-        {x.docs.map((d) => (
-          <button key={d.id} type="button" className="co-doc-row" onClick={() => set((y) => ({ ...y, doc: d.id, docEdit: false }))}>
-            <span><b>{d.title}</b><small>{d.id === 'voice' ? 'Tone & messaging' : 'What you sell'}</small></span>
-            <span className={`kn-chip ${d.approved ? 'is-ok' : 'is-draft'}`}>{d.approved ? 'Approved' : 'Draft'}</span><Icon name="chevronRight" />
-          </button>
-        ))}
-      </div>
-
-      <div className="co-facts">
-        <header className="co-sec-h"><h3>Facts</h3><small>What emails are allowed to say</small>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => { const id = `f-${Date.now()}`; set((y) => ({ ...y, facts: [...y.facts, { id, group: 'FAQs', name: '', value: '', src: 'Added by you', age: 'Now', usedBy: [], own: true, review: true }], sel: id })); }}><Icon name="plus" />Add a fact</button>
-        </header>
-        {x.shipAsked ? (
-          <div className="kn-missing">
-            <Icon name="alert" />
-            <div><b>Do you ship to Australia?</b><small>Dana Okafor asked and your site doesn’t say.</small>
-              <div className="su-test"><input className="input" placeholder="e.g. Yes, 7–10 days, duty included" value={answer} onChange={(e) => setAnswer(e.target.value)} aria-label="Your answer" />
-                <button type="button" className="btn btn-secondary btn-sm" disabled={!answer.trim()} onClick={() => { const id = `f-${Date.now()}`; const undo = snap(); set((y) => ({ ...y, shipAsked: false, facts: [...y.facts, { id, group: 'FAQs', name: 'Shipping to Australia', value: answer.trim(), src: 'Added by you', age: 'Now', usedBy: [], own: true }], sel: id })); setAnswer(''); toast('Added to your facts', { undo }); }}>Save</button></div>
-            </div>
-          </div>
-        ) : null}
-        {groups.map((g) => (
-          <div key={g} className="kn-group">
-            <h4>{g}</h4>
-            {x.facts.filter((f) => f.group === g).map((f) => (
-              <button key={f.id} type="button" className={`kn-row${f.off ? ' off' : ''}`} aria-current={x.sel === f.id} onClick={() => set((y) => ({ ...y, sel: f.id, tile: null }))}>
-                <span className="kn-name"><b>{f.name || 'New fact'}</b><small>{f.own ? 'Added by you' : f.site ? 'Changed by you' : f.src}</small></span>
-                <span className="kn-val">{f.value || 'Not filled in'}</span>
-                <span className={`kn-chip ${f.review ? 'is-draft' : 'is-ok'}`}>{f.review ? 'Needs review' : 'Approved'}</span>
-                <span className={`kn-age${f.stale ? ' warn' : ''}`}>{f.age}</span>
-              </button>
-            ))}
-          </div>
-        ))}
-      </div>
-    </div>
-
-    <aside className={`set-side${x.tile ? ' preview' : ''}`}><div className="set-side-in kn-side">
-      {x.tile ? <>
-        <div className="set-side-k">How your emails look</div>
-        <div className="set-mail ml-skin" style={pageVars({ ...PAGE_STYLE, accent: b.color })}><MailBody doc={PREVIEW} /></div>
-        <p className="kn-hint">{b.fontHeading} · {b.fontBody}{b.tagline ? ` · ${b.tagline}` : ''}</p>
-      </> : sel ? <>
-        <div className="set-side-k">{sel.group} · <span className={`kn-chip ${sel.review ? 'is-draft' : 'is-ok'}`}>{sel.review ? 'Needs review' : 'Approved'}</span> · <span className="kn-chip">{sel.own || sel.site ? 'Override' : 'Site'}</span></div>
-        {sel.own ? <label className="field"><span className="label">What it’s about</span><input className="input" value={sel.name} onChange={(e) => fact(sel.id, { name: e.target.value })} /></label> : <h3 className="kn-title">{sel.name}</h3>}
-        <label className="field"><span className="label">What emails can say</span>
-          <input className="input" value={sel.value} disabled={sel.off} onChange={(e) => fact(sel.id, { value: e.target.value, review: true, site: sel.own || sel.site ? sel.site : sel.value })} /></label>
-        {sel.site && !sel.own ? <p className="kn-mine">Your website says {sel.site}.<button type="button" className="kn-link" onClick={() => fact(sel.id, { value: sel.site!, site: undefined, review: true })}>Use that instead</button></p> : null}
-        {sel.own ? null : <><div className="set-side-k gap">Where it’s from</div><p className="kn-src">{sel.src}<small className={sel.stale ? 'warn' : undefined}>{sel.stale ? `Couldn’t check for ${sel.age}` : `Checked ${sel.age === 'Now' ? 'just now' : `${sel.age} ago`}`}</small></p></>}
-        <div className="set-side-k gap">Used in</div>
-        {sel.usedBy.length
-          ? <div className="kn-used">{sel.usedBy.map((id) => <button key={id} type="button" className="kn-link" onClick={() => onGo?.({ to: 'inbox', id })}>{WHO[id] ?? id}</button>)}</div>
-          : <p className="kn-src"><small>No emails right now</small></p>}
-        {sel.off ? <small className="set-side-note">Expired, so no email will use it.</small>
-          : <label className="switch kn-switch"><input type="checkbox" checked={!sel.blocked} onChange={(e) => { fact(sel.id, { blocked: !e.target.checked }); toast(e.target.checked ? 'Emails can use this' : 'Emails won’t use this'); }} />Emails can use this</label>}
-        {sel.review && !sel.off ? <button type="button" className="btn btn-primary btn-sm kn-approve" onClick={() => { const undo = snap(); fact(sel.id, { review: false, age: 'Now' }); toast('Approved for email', { undo }); }}>Approve for email</button> : null}
-      </> : null}
-    </div></aside>
-  </>;
-}
 
 export function DemoChanges({ onGo }: { onGo?: (go: Go) => void }) {
   const x = useS();

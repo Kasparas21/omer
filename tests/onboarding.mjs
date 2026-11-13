@@ -35,6 +35,9 @@ try {
   await page.getByLabel('Project name').fill('Demo Store');
   await page.getByLabel('Website address').fill(demoOrigin);
   await page.getByRole('button', { name: 'Create project', exact: true }).click();
+  // Setup asks to import the brand first (Firecrawl); skip it to reach the install step.
+  await page.getByRole('heading', { name: 'Your brand' }).waitFor();
+  await page.getByRole('button', { name: 'Skip for now', exact: true }).click();
   await page.getByRole('heading', { name: 'Add this to your site' }).waitFor();
   const projects = await page.evaluate(async () => (await (await fetch('/api/projects')).json()).projects);
   assert.equal(projects.length, 1);
@@ -48,6 +51,9 @@ try {
   await page.getByRole('heading', { name: 'Installation guide' }).waitFor();
   await page.keyboard.press('Escape');
   await page.reload();
+  // Setup asks to import the brand first (Firecrawl); skip it to reach the install step.
+  await page.getByRole('heading', { name: 'Your brand' }).waitFor();
+  await page.getByRole('button', { name: 'Skip for now', exact: true }).click();
   await page.getByRole('heading', { name: 'Add this to your site' }).waitFor();
   const outsider = await browser.newContext();
   const other = await outsider.request.get(`${base}/api/projects`);

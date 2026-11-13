@@ -1,27 +1,18 @@
-/* Brand knowledge: glass folders that open in place, then the pages we monitor. Same card shells, lines and
-   ink as the rest of the app; only the folders themselves are blue glass. */
+/* Brand knowledge: folders that open in place, plus the Monitoring tab's page list. Same card shells, lines
+   and ink as the rest of the app: folders are our soft grey with a frosted white front, purple only when open. */
 
 .bk { display: grid; gap: 26px; min-width: 0; }
 .bk-import {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px 18px;
   padding: 16px 18px; border: 1px solid var(--v2-line, var(--line)); border-radius: 18px;
-  background: var(--v2-card, var(--surface));
+  background: var(--v2-card, var(--surface)); box-shadow: var(--v2-lift);
 }
 .bk-import b { display: block; font-size: 15px; font-weight: 560; letter-spacing: -0.015em; }
 .bk-import p { margin: 4px 0 0; max-width: 52ch; font-size: 13.5px; line-height: 1.45; color: var(--ink-3); }
-.bk-docs { display: grid; gap: 16px; }
-.bk-doc { display: grid; gap: 6px; }
-.bk-doc > span { font-size: 13px; font-weight: 550; color: var(--ink-2); }
-.bk-doc textarea {
-  width: 100%; min-height: 220px; padding: 12px 14px; resize: vertical;
-  border: 1px solid var(--v2-line, var(--line)); border-radius: 14px;
-  background: color-mix(in srgb, var(--ink) 2%, var(--v2-card, #fff));
-  font: inherit; font-size: 13px; line-height: 1.5; color: var(--ink);
-}
-.bk-doc textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* ---------- the folders */
-.bk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px 10px; align-items: start; }
+.bk-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px 10px; align-items: start; }
+@media (max-width: 1080px) { .bk-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .bk-item {
   display: grid; justify-items: center; gap: 2px; min-width: 0; padding: 18px 10px 14px;
   border: 0; border-radius: 20px; background: transparent; font: inherit; color: inherit; cursor: pointer; text-align: center;
@@ -35,23 +26,25 @@
 .bk-name { margin-top: 10px; font-size: 14.5px; font-weight: 560; letter-spacing: -0.015em; color: var(--ink); overflow-wrap: anywhere; }
 .bk-count { font-size: 12.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 
-/* The glass folder: a blue back with a tab, the files, and a frosted front that tips forward. */
+/* The folder: a soft grey back with a tab (one outline around both), the files, and a frosted white front with
+   the folder's icon that tips forward. Opening turns the back purple. */
 .gf { position: relative; display: block; width: 116px; aspect-ratio: 1.18; perspective: 520px; }
 .gf-back {
-  position: absolute; inset: 8% 0 0; border-radius: 9px 12px 12px 12px;
-  background: linear-gradient(180deg, #5DB2F2 0%, #3B92E4 100%);
-  box-shadow: 0 1px 1px rgb(20 60 120 / 0.12), 0 14px 26px -16px rgb(25 90 170 / 0.55);
+  --gf-back: color-mix(in srgb, var(--ink) 8%, var(--v2-shell));
+  position: absolute; inset: 8% 0 0; border-radius: 9px 12px 12px 12px; background: var(--gf-back);
+  filter: drop-shadow(0 0 0.6px rgb(25 27 34 / 0.32)) drop-shadow(0 12px 14px rgb(25 27 34 / 0.08));
+  transition: background 0.35s var(--ease);
 }
 .gf-back::before {
   content: ""; position: absolute; left: 0; top: -9%; width: 42%; height: 18%;
-  border-radius: 8px 10px 0 0; background: #5DB2F2;
+  border-radius: 8px 10px 0 0; background: inherit;
 }
 .gf-papers { position: absolute; inset: 0 9% 12%; }
 .gf-paper {
   --spread: calc((var(--i) - (var(--n) - 1) / 2));
   position: absolute; left: 50%; bottom: 14%; width: 64%; height: 70%;
   display: grid; place-items: center; overflow: hidden;
-  border-radius: 6px; background: #fff; box-shadow: 0 1px 2px rgb(10 30 70 / 0.18);
+  border-radius: 6px; background: var(--v2-card, #fff); box-shadow: 0 0 0 0.5px rgb(25 27 34 / 0.12), 0 1px 2px rgb(25 27 34 / 0.12);
   transform: translateX(calc(-50% + var(--spread) * 22%)) translateY(6%) rotate(calc(var(--spread) * 6deg));
   transform-origin: 50% 100%;
   transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
@@ -62,26 +55,30 @@
 .gf-paper:has(> b) { place-items: start center; padding-top: 6%; }
 .gf-paper b { font-size: 20px; font-weight: 600; line-height: 1; color: var(--ink); letter-spacing: -0.02em; }
 .gf-paper.is-blank::before, .gf-paper.is-blank::after {
-  content: ""; position: absolute; left: 14%; right: 14%; height: 4px; border-radius: 3px; background: rgb(25 60 110 / 0.1);
+  content: ""; position: absolute; left: 14%; right: 14%; height: 4px; border-radius: 3px; background: color-mix(in srgb, var(--ink) 9%, transparent);
 }
 .gf-paper.is-blank::before { top: 20%; }
 .gf-paper.is-blank::after { top: 34%; right: 34%; }
 .gf-front {
   position: absolute; left: -2%; right: -2%; bottom: 0; height: 64%;
   border-radius: 10px 10px 12px 12px; overflow: hidden;
-  background: linear-gradient(180deg, rgb(206 232 255 / 0.62) 0%, rgb(122 186 243 / 0.78) 100%);
-  border: 1px solid rgb(255 255 255 / 0.65);
-  -webkit-backdrop-filter: blur(9px) saturate(1.3); backdrop-filter: blur(9px) saturate(1.3);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.85), 0 10px 22px -14px rgb(25 90 170 / 0.6);
+  background: color-mix(in srgb, var(--v2-card, #fff) 74%, transparent);
+  border: 1px solid color-mix(in srgb, var(--v2-card, #fff) 85%, transparent);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2); backdrop-filter: blur(10px) saturate(1.2);
+  box-shadow: 0 0 0 0.5px rgb(25 27 34 / 0.14), inset 0 1px 0 rgb(255 255 255 / 0.9), 0 10px 20px -14px rgb(25 27 34 / 0.4);
   transform-origin: 50% 100%;
   transform: rotateX(0deg);
   transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
 }
+.gf-front > .ico { position: absolute; left: 11px; bottom: 9px; width: 17px; height: 17px; color: var(--ink-3); transition: color 0.3s var(--ease); }
 .gf-shine {
   position: absolute; inset: 0;
-  background: linear-gradient(115deg, transparent 30%, rgb(255 255 255 / 0.45) 45%, transparent 58%);
+  background: linear-gradient(115deg, transparent 30%, rgb(255 255 255 / 0.5) 45%, transparent 58%);
   transform: translateX(-60%); transition: transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
 }
+.bk-item:hover .gf-back { --gf-back: color-mix(in srgb, var(--ink) 11%, var(--v2-shell)); }
+.bk-item.is-open .gf-back { --gf-back: color-mix(in srgb, var(--accent) 78%, var(--v2-card)); }
+.bk-item.is-open .gf-front > .ico { color: var(--accent-text, var(--accent)); }
 /* hover: the front tips open and the files rise and fan */
 .bk-item:hover .gf-front, .bk-item:focus-visible .gf-front { transform: rotateX(-22deg); }
 .bk-item:hover .gf-shine { transform: translateX(60%); }
@@ -124,6 +121,7 @@
 @keyframes bk-in { from { opacity: 0; transform: translateY(-10px) scale(0.97); } to { opacity: 1; transform: none; } }
 .bk-items { display: grid; gap: 12px; }
 .bk-items > * { animation: bk-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: calc(var(--i, 0) * 45ms + 80ms); }
+.bk-product-info { margin-top: 14px; }
 .bk-sub { margin: 20px 0 10px; font-size: 13px; font-weight: 560; color: var(--ink-3); }
 
 .bk-card { display: flex; flex-direction: column; min-width: 0; overflow: hidden; border: 1px solid var(--v2-line); border-radius: 17px; background: var(--v2-card); box-shadow: var(--v2-lift); }
@@ -276,11 +274,54 @@
 .bk-photo .bk-icon-btn { position: absolute; right: 6px; top: 6px; background: rgb(255 255 255 / 0.94); color: var(--ink-2); opacity: 0; transition: opacity 0.15s ease; }
 .bk-photo:hover .bk-icon-btn, .bk-photo:focus-within .bk-icon-btn { opacity: 1; }
 .bk-photos .upz { min-height: 0; aspect-ratio: 4 / 3; }
-.bk-voice { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--v2-line); border-radius: 17px; background: var(--v2-card); box-shadow: var(--v2-lift); }
-.bk-voice label { display: grid; gap: 5px; }
-.bk-voice span { font-size: 12.5px; font-weight: 560; color: var(--ink-2); }
-.bk-voice :is(input, textarea) { width: 100%; padding: 9px 12px; border: 1px solid var(--v2-line); border-radius: 12px; background: var(--v2-card); font: inherit; font-size: 14px; line-height: 1.45; color: var(--ink); resize: vertical; }
-.bk-voice :is(input, textarea):focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+/* voice: settings rows, the text itself is what you click to edit */
+.bk-rows { border: 1px solid var(--v2-line); border-radius: 17px; background: var(--v2-card); box-shadow: var(--v2-lift); animation: bk-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: calc(var(--i, 0) * 45ms + 80ms); }
+.bk-row { display: grid; grid-template-columns: minmax(150px, 220px) minmax(0, 1fr); gap: 6px 24px; align-items: start; padding: 14px 18px; border-top: 1px solid var(--v2-line); }
+.bk-row:first-child { border-top: 0; }
+.bk-row-k { display: grid; gap: 2px; padding-top: 5px; }
+.bk-row-k b { font-size: 13.5px; font-weight: 560; color: var(--ink); }
+.bk-row-k small { font-size: 12px; line-height: 1.4; color: var(--ink-3); }
+.bk-plain {
+  display: block; width: calc(100% + 20px); margin: 0 -10px; padding: 5px 10px; overflow: hidden; resize: none;
+  border: 0; border-radius: 10px; background: transparent; font: inherit; font-size: 14px; line-height: 1.5; color: var(--ink);
+  transition: background 0.15s ease;
+}
+.bk-plain::placeholder { color: var(--ink-3); }
+.bk-plain:hover { background: color-mix(in srgb, var(--ink) 4%, transparent); }
+.bk-plain:focus { outline: none; background: var(--v2-shell); }
+
+/* ---------- Store facts */
+.bk-facts { display: grid; gap: 4px; }
+.bk-facts > .bk-fact-group:first-child .bk-sub, .bk-ask + .bk-fact-group .bk-sub { margin-top: 2px; }
+.bk-fact-list { display: grid; margin: 0; padding: 0; list-style: none; border: 1px solid var(--v2-line); border-radius: 15px; background: var(--v2-card); }
+.bk-fact { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 132px 32px; align-items: center; gap: 12px; padding: 9px 8px 9px 14px; border-top: 1px solid var(--v2-line); animation: bk-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: calc(var(--i, 0) * 25ms + 60ms); }
+.bk-fact:first-child { border-top: 0; }
+.bk-fact-name { display: grid; gap: 1px; min-width: 0; }
+.bk-fact-name > b, .bk-fact-name > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bk-fact-name > b { font-size: 13.5px; font-weight: 560; color: var(--ink); }
+.bk-fact-name > small { font-size: 12px; color: var(--ink-3); }
+.bk-fact-val.bk-inline { font-size: 13.5px; color: var(--ink-2); }
+.bk-fact.is-off { color: var(--ink-3); }
+.bk-fact.is-off .bk-fact-name > b, .bk-fact.is-off .bk-fact-val { color: var(--ink-3); }
+.bk-fact-gap { width: 32px; }
+.bk-fact-state { display: flex; justify-content: flex-end; }
+.bk-ask { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px 12px; align-items: center; margin-bottom: 10px; padding: 14px; border: 1px solid color-mix(in srgb, #F59E0B 30%, var(--v2-line)); border-radius: 15px; background: color-mix(in srgb, #F59E0B 7%, var(--v2-card)); }
+.bk-ask-ic { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; background: color-mix(in srgb, #F59E0B 18%, var(--v2-card)); color: var(--warning-ink, #92400E); }
+.bk-ask-ic .ico { width: 16px; height: 16px; }
+.bk-ask-q { display: grid; gap: 1px; min-width: 0; }
+.bk-ask-q b { font-size: 13.5px; font-weight: 560; color: var(--ink); }
+.bk-ask-q small { font-size: 12px; color: var(--ink-3); }
+.bk-ask-a { grid-column: 2; display: flex; gap: 8px; }
+.bk-ask-a input, .bk-fact-add input {
+  flex: 1; min-width: 0; height: 38px; padding: 0 14px; border: 1px solid var(--v2-line); border-radius: 99px;
+  background: var(--v2-card); font: inherit; font-size: 13.5px; color: var(--ink); transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.bk-ask-a input:focus, .bk-fact-add input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.bk-ask-a .btn, .bk-fact-add .btn { flex: none; height: 38px; min-height: 38px; padding-inline: 16px; border-radius: 99px; }
+.bk-fact-add { display: grid; grid-template-columns: 140px minmax(0, 1fr) minmax(0, 1.2fr) auto; gap: 8px; margin-top: 14px; }
+.bk-fact-add .dd { width: 100%; }
+.bk-fact-add .dd-btn { min-height: 38px; height: 38px; padding-inline: 14px 10px; border: 1px solid var(--v2-line); border-radius: 99px; background: var(--v2-card); font-size: 13.5px; }
+.bk-fact-add .btn .ico { width: 15px; height: 15px; }
 
 /* ---------- Monitoring */
 .bk-monitor-in { display: grid; gap: 14px; padding: 18px; }
@@ -340,13 +381,27 @@
   .bk-icon-btn { width: 40px; height: 40px; }
   .bk-mon-add { flex-direction: column; }
   .bk-mon-add .btn { width: 100%; justify-content: center; }
-  .bk-mon-field input, .bk-voice :is(input, textarea) { font-size: 16px; }
+  .bk-mon-field input, .bk-plain, .bk-ask-a input, .bk-fact-add input { font-size: 16px; }
+  .bk-row { grid-template-columns: minmax(0, 1fr); padding: 12px 14px; }
+  .bk-row-k { padding-top: 0; }
+  .bk-fact { grid-template-columns: minmax(0, 1fr) auto auto; gap: 2px 4px; padding: 10px 6px 10px 12px; }
+  .bk-fact-name { grid-column: 1; grid-row: 1; }
+  .bk-fact-state { grid-column: 2; grid-row: 1; align-self: start; }
+  .bk-fact > .bk-icon-btn { grid-column: 3; grid-row: 1; width: 30px; height: 30px; }
+  .bk-fact-val { grid-column: 1 / -1; grid-row: 2; }
+  .bk-fact-gap { display: none; }
+  .bk-fact-add { grid-template-columns: minmax(0, 1fr); }
+  .bk-ask { grid-template-columns: minmax(0, 1fr); }
+  .bk-ask-ic { display: none; }
+  .bk-ask-a { grid-column: 1; flex-direction: column; }
+  .bk-ask-a input { flex: none; }
   .bk-font .dd { min-width: 0; flex: 1; }
   .bk-font .bk-card-foot { flex-wrap: wrap; }
 }
 @media (prefers-reduced-motion: reduce) {
   .gf-front, .gf-paper, .gf-shine, .bk-drawer, .bk-panel, .bk-item, .upz, .upz-ic, .upz-state { transition: none; }
-  .bk-items > *, .bk-mon-row, .upz-row, .upz.is-shake { animation: none; }
+  .bk-items > *, .bk-mon-row, .bk-fact, .bk-rows, .upz-row, .upz.is-shake { animation: none; }
+  .gf-back, .gf-front > .ico { transition: none; }
 }
 /* Phones: colours two to a row with shorter swatches; delete sits on the swatch so names keep their width. */
 @media (max-width: 620px) {
