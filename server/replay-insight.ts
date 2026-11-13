@@ -220,6 +220,13 @@ async function runDecisions(evidence: ReplayEvidence) {
   return { answers, outcome, friction, worthWatching, primaryInterest };
 }
 
+function frictionBand(score: number) {
+  if (score < 0.75) return 'none';
+  if (score < 1.5) return 'low';
+  if (score < 2.25) return 'medium';
+  return 'high';
+}
+
 async function runNarrative(evidence: ReplayEvidence, decisions: {
   outcome: string;
   friction: number;
@@ -230,7 +237,7 @@ async function runNarrative(evidence: ReplayEvidence, decisions: {
     'Write 1-2 short sentences summarizing this website visit for a merchant.',
     'Ground only in the evidence and labels. Do not invent personal details, emails, or quotes.',
     'No markdown. Plain prose.',
-    `Labels: outcome=${decisions.outcome}; friction=${decisions.friction.toFixed(2)}; worth_watching=${decisions.worthWatching}; interest=${decisions.primaryInterest}`,
+    `Labels: outcome=${decisions.outcome}; friction=${frictionBand(decisions.friction)}; worth_watching=${decisions.worthWatching}; interest=${decisions.primaryInterest}`,
     `Evidence JSON: ${JSON.stringify(evidence)}`,
   ].join('\n');
 
@@ -243,7 +250,9 @@ async function runNarrative(evidence: ReplayEvidence, decisions: {
     body: JSON.stringify({
       model: MODEL,
       input: prompt,
-      max_output_tokens: 120,
+      // Luna spends tokens on hidden reasoning first; keep effort low and leave room for prose.
+      max_output_tokens: 220,
+      reasoning: { effort: 'low' },
     }),
   });
   const body = await res.json().catch(() => ({}));
@@ -260,6 +269,7 @@ async function runNarrative(evidence: ReplayEvidence, decisions: {
     const parts: string[] = [];
     for (const item of output) {
       if (!item || typeof item !== 'object') continue;
+      if ((item as { type?: string }).type && (item as { type?: string }).type !== 'message') continue;
       const content = (item as { content?: unknown[] }).content;
       if (!Array.isArray(content)) continue;
       for (const part of content) {
