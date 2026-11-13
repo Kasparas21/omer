@@ -239,9 +239,12 @@
     const MAX_MS = 5 * 60_000;
     const MAX_BYTES = 5 * 1024 * 1024;
     const FLUSH_BYTES = 180_000;
-
     const BATCH_EVENTS = 300;
+    const FLUSH_EVERY_MS = 2000;
+    const FIRST_FLUSH_DELAY_MS = 1800;
     let flushing = false;
+    let firstFlushTimer = 0;
+
     async function sendBatch(batch) {
       if (!batch.length) return true;
       const body = JSON.stringify(batch);
@@ -275,6 +278,7 @@
         return false;
       }
     }
+
     async function flush(force) {
       if (flushing || !events.length) return;
       const size = JSON.stringify(events).length;
@@ -282,13 +286,13 @@
       flushing = true;
       try {
         while (events.length) {
-          const batch = events.slice(0, BATCH_EVENTS);
+          // Take a fixed count up front. Never slice by BATCH_EVENTS after await —
+          // events pushed during upload would be wiped (that produced 00:00 stills).
+          const take = Math.min(events.length, BATCH_EVENTS);
+          const batch = events.slice(0, take);
           const ok = await sendBatch(batch);
-          if (!ok) {
-            // keep unsent events for a later retry
-            break;
-          }
-          events = events.slice(BATCH_EVENTS);
+          if (!ok) break;
+          events.splice(0, take);
         }
       } finally {
         flushing = false;
@@ -304,7 +308,13 @@
           events.push(event);
           if (event?.type === 2) {
             hasFull = true;
-            void flush(true);
+            // Wait briefly so mouse/scroll incrementals land in the first chunk.
+            if (!firstFlushTimer) {
+              firstFlushTimer = window.setTimeout(() => {
+                firstFlushTimer = 0;
+                void flush(true);
+              }, FIRST_FLUSH_DELAY_MS);
+            }
             return;
           }
           if (events.length >= BATCH_EVENTS || JSON.stringify(events).length >= FLUSH_BYTES) void flush(true);
@@ -316,12 +326,22 @@
         recordCanvas: false,
         inlineStylesheet: true,
         checkoutEveryNms: 30_000,
+        sampling: {
+          mousemove: 50,
+          mouseInteraction: true,
+          scroll: 150,
+          input: 'last',
+        },
       });
-      const timer = window.setInterval(() => void flush(true), 4000);
+      const timer = window.setInterval(() => void flush(true), FLUSH_EVERY_MS);
       const end = () => {
         if (stopped) return;
         stopped = true;
         window.clearInterval(timer);
+        if (firstFlushTimer) {
+          window.clearTimeout(firstFlushTimer);
+          firstFlushTimer = 0;
+        }
         try { stop?.(); } catch { /* ignore */ }
         void flush(true);
       };

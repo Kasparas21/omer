@@ -94,11 +94,18 @@ export function ReplayPlayer({ projectId, replayId, onBack }: {
           return;
         }
         events.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+        const spanMs = (events[events.length - 1]?.timestamp || 0) - (events[0]?.timestamp || 0);
         // rrweb-player throws unless there are at least two timestamps to span.
-        if (events.length === 1) {
+        // Still-only captures (one snapshot, ~0ms) get a tiny pad so the UI loads,
+        // but status tells you the visit had no recorded motion.
+        if (events.length === 1 || spanMs < 50) {
           const base = events[0].timestamp || Date.now();
-          events.unshift({ type: 4, data: { href: location.origin, width: 1280, height: 720 }, timestamp: base - 1 });
-          events.push({ type: 3, data: { source: 0 }, timestamp: base + 1 });
+          if (!events.some((e) => e?.type === 4)) {
+            events.unshift({ type: 4, data: { href: location.origin, width: 1280, height: 720 }, timestamp: base - 1 });
+          }
+          if (spanMs < 50) {
+            events.push({ type: 3, data: { source: 0 }, timestamp: base + Math.max(50, spanMs + 1) });
+          }
         }
 
         const Player = await loadPlayer();
@@ -117,7 +124,8 @@ export function ReplayPlayer({ projectId, replayId, onBack }: {
             skipInactive: true,
           },
         });
-        setStatus(manifest.gaps || !manifest.hasFullSnapshot ? 'Partial recording' : 'Playing');
+        if (spanMs < 50) setStatus('Still frame only — no motion was captured');
+        else setStatus(manifest.gaps || !manifest.hasFullSnapshot ? 'Partial recording' : 'Playing');
       } catch (error) {
         if (!cancelled) {
           setFailed(true);
