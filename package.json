@@ -11,7 +11,8 @@
     "db:migrate": "node --env-file=.env --import tsx server/migrate.ts",
     "test:onboarding": "node tests/onboarding.mjs",
     "start": "tsx server/index.ts",
-    "dev:api": "node --env-file=.env --import tsx server/index.ts"
+    "dev:api": "node --env-file=.env --import tsx server/index.ts",
+    "deploy:prod": "bash scripts/deploy-prod.sh"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.8",
