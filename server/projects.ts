@@ -560,7 +560,7 @@ async function liveFeed(request: Request, env: Env, projectId: string, stream: b
     })
       .from(visits)
       .where(and(eq(visits.projectId, projectId), gt(visits.seenAt, sql`now() - interval '24 hours'`),
-        sql`${visits.activeAt} is not null and ${visits.activeAt} > now() - interval '90 seconds'`));
+        sql`${visits.activeAt} is not null and ${visits.activeAt} > now() - interval '45 seconds'`));
 
     const hourVisits = await db.select({ seenAt: visits.seenAt })
       .from(visits)
@@ -682,7 +682,7 @@ function groupSessions<T extends {
     // Only real presence counts — never fall back to seenAt or leave looks "still online".
     if (row.activeAt) {
       const active = Date.parse(String(row.activeAt));
-      if (Number.isFinite(active) && Date.now() - active < 90_000) current.live = true;
+      if (Number.isFinite(active) && Date.now() - active < 45_000) current.live = true;
     }
     lastAt = at;
   }
@@ -1156,7 +1156,20 @@ export default {
         });
       };
       if (url.pathname === '/v1/collect/event') {
-        if (request.method === 'OPTIONS') return collectCors();
+        if (request.method === 'OPTIONS') {
+          const origin = request.headers.get('Origin');
+          if (!origin || origin === 'null') return new Response(null, { status: 403 });
+          return new Response(null, {
+            status: 204,
+            headers: {
+              ...cors(origin),
+              'Access-Control-Allow-Methods': 'POST, OPTIONS',
+              // text/plain covers sendBeacon leave pings; application/json covers fetch.
+              'Access-Control-Allow-Headers': 'content-type',
+              'Access-Control-Max-Age': '86400',
+            },
+          });
+        }
         if (request.method === 'POST') return await receiveEvent(request, env);
         return new Response(null, { status: 405 });
       }

@@ -87,13 +87,14 @@
     };
   }
 
-  function post(body, { beacon = false } = {}) {
+  function post(body, { unload = false } = {}) {
     const raw = JSON.stringify(body);
-    if (beacon && typeof navigator.sendBeacon === 'function') {
+    if (unload) {
+      // text/plain avoids CORS preflight; fetch keepalive is the reliable backup.
+      // Never trust sendBeacon alone cross-origin — it can return true and still drop.
       try {
-        const ok = navigator.sendBeacon(eventURL, new Blob([raw], { type: 'application/json' }));
-        if (ok) return Promise.resolve();
-      } catch { /* fall through */ }
+        navigator.sendBeacon?.(eventURL, new Blob([raw], { type: 'text/plain;charset=UTF-8' }));
+      } catch { /* ignore */ }
     }
     return fetch(eventURL, {
       method: 'POST',
@@ -110,7 +111,7 @@
     pageAt = 0;
     const payload = { ...basePayload('dwell'), path, ms };
     if (visitId) payload.visitId = visitId;
-    void post(payload, { beacon: fromUnload });
+    void post(payload, { unload: fromUnload });
   }
 
   function sendPresence() {
