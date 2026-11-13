@@ -220,6 +220,13 @@ async function runDecisions(evidence: ReplayEvidence) {
   return { answers, outcome, friction, worthWatching, primaryInterest };
 }
 
+function frictionBand(score: number) {
+  if (score < 0.75) return 'none';
+  if (score < 1.5) return 'low';
+  if (score < 2.25) return 'medium';
+  return 'high';
+}
+
 async function runNarrative(evidence: ReplayEvidence, decisions: {
   outcome: string;
   friction: number;
@@ -230,7 +237,7 @@ async function runNarrative(evidence: ReplayEvidence, decisions: {
     'Write 1-2 short sentences summarizing this website visit for a merchant.',
     'Ground only in the evidence and labels. Do not invent personal details, emails, or quotes.',
     'No markdown. Plain prose.',
-    `Labels: outcome=${decisions.outcome}; friction=${decisions.friction.toFixed(2)}; worth_watching=${decisions.worthWatching}; interest=${decisions.primaryInterest}`,
+    `Labels: outcome=${decisions.outcome}; friction=${frictionBand(decisions.friction)}; worth_watching=${decisions.worthWatching}; interest=${decisions.primaryInterest}`,
     `Evidence JSON: ${JSON.stringify(evidence)}`,
   ].join('\n');
 
