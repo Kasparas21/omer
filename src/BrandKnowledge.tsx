@@ -1,4 +1,4 @@
-/* Brand knowledge: five glass folders (logo, colours, fonts, products, brand photos & voice), then the store
+/* Brand knowledge: glass folders (logo, colours, fonts, products, brand photos, documents), then the store
    pages we monitor. Hovering tips a folder's frosted front open; clicking opens it in place: the other folders
    step back and the folder's card slides out under its row. Click the folder again or anywhere outside to
    close it. */
@@ -9,7 +9,7 @@ import { Uploader } from './ui/Uploader';
 import { toast } from './ui/toast';
 import { FONTS } from './Mail';
 import {
-  MONITOR_LIMIT, fileFrom, folderCount, newId, updateBrand, useBrand,
+  DEMO_BRAND_SPACE, MONITOR_LIMIT, fileFrom, folderCount, importBrandFromSite, newId, updateBrand, useBrand,
   type Brand, type BrandColor, type BrandFile, type ColorRole, type FolderId, type LogoSlot,
 } from './brandStore';
 
@@ -18,7 +18,8 @@ const FOLDERS: { id: FolderId; name: string; icon: IconName; one: string; many: 
   { id: 'colors', name: 'Colors', icon: 'layers', one: 'color', many: 'colors', empty: 'Add brand colors' },
   { id: 'fonts', name: 'Fonts', icon: 'fontsize', one: 'font', many: 'fonts', empty: 'Pick your fonts' },
   { id: 'products', name: 'Products', icon: 'tag', one: 'product', many: 'products', empty: 'Add products' },
-  { id: 'brand', name: 'Brand photos & voice', icon: 'image', one: 'item', many: 'items', empty: 'Add photos and tone' },
+  { id: 'photos', name: 'Brand photos', icon: 'image', one: 'photo', many: 'photos', empty: 'Add brand photos' },
+  { id: 'docs', name: 'Documents', icon: 'file', one: 'doc', many: 'docs', empty: 'Import from your site' },
 ];
 
 const loadedFonts = new Set<string>();
@@ -46,6 +47,7 @@ export function BrandKnowledge({ space, host, topPages, onChanges }: {
   onChanges: () => void;
 }) {
   const brand = useBrand(space);
+  const [importing, setImporting] = useState(false);
   const [open, setOpen] = useState<FolderId | null>(null);
   // Keep showing the last folder's contents while its card slides shut.
   const [shown, setShown] = useState<FolderId | null>(null);
@@ -97,8 +99,34 @@ export function BrandKnowledge({ space, host, topPages, onChanges }: {
     return n ? `${n} ${n === 1 ? f.one : f.many}` : f.empty;
   };
 
+  const canImport = space !== DEMO_BRAND_SPACE;
+  const runImport = async () => {
+    if (!canImport || importing) return;
+    setImporting(true);
+    try {
+      await importBrandFromSite(space);
+      toast('Brand knowledge updated from your site');
+      setOpen('docs');
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'Import failed', { kind: 'warn' });
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <section className="bk" aria-label="Brand knowledge">
+      {canImport ? (
+        <div className="bk-import">
+          <div>
+            <b>Import from {host}</b>
+            <p>Pulls colours, fonts, photos, Product Information and a Brand Voice Guide for follow-up emails.</p>
+          </div>
+          <button type="button" className={`btn btn-secondary${importing ? ' loading' : ''}`} disabled={importing} onClick={() => void runImport()}>
+            {importing ? 'Reading your site…' : brand.importedAt ? 'Import again' : 'Import from website'}
+          </button>
+        </div>
+      ) : null}
       <div className={`bk-grid${open ? ' has-open' : ''}`} ref={grid}>
         {FOLDERS.map((f, i) => (
           <button key={f.id} type="button" className={`bk-item${open === f.id ? ' is-open' : ''}`} style={{ order: i * 2 }}
@@ -119,7 +147,8 @@ export function BrandKnowledge({ space, host, topPages, onChanges }: {
                   {shownFolder.id === 'colors' && <ColorFolder brand={brand} set={set} />}
                   {shownFolder.id === 'fonts' && <FontFolder brand={brand} set={set} />}
                   {shownFolder.id === 'products' && <ProductFolder brand={brand} set={set} />}
-                  {shownFolder.id === 'brand' && <BrandFolder brand={brand} set={set} />}
+                  {shownFolder.id === 'photos' && <PhotosFolder brand={brand} set={set} />}
+                  {shownFolder.id === 'docs' && <DocsFolder brand={brand} set={set} />}
                 </div>
               </section>
             )}
@@ -139,7 +168,12 @@ function papersFor(b: Brand, id: FolderId): Paper[] {
   if (id === 'colors') return orderedColors(b.colors).slice(0, 3).map((c) => ({ color: c.hex }));
   if (id === 'fonts') return b.fonts.filter((f) => f.family || f.file).slice(0, 2).map((f) => ({ text: 'Aa', font: fontStack(f) }));
   if (id === 'products') return b.products.filter((p) => p.image).slice(0, 3).map((p) => ({ img: p.image!.src }));
-  return b.photos.slice(0, 3).map((p) => ({ img: p.src }));
+  if (id === 'photos') return b.photos.slice(0, 3).map((p) => ({ img: p.src }));
+  const docs = b.docs || { product: '', voice: '' };
+  return [
+    docs.product ? { text: 'Pi' } : null,
+    docs.voice ? { text: 'Vv' } : null,
+  ].filter(Boolean) as Paper[];
 }
 
 function GlassFolder({ papers }: { papers: Paper[] }) {
@@ -366,30 +400,46 @@ function ProductFolder({ brand, set }: FolderProps) {
   );
 }
 
-// ---------- Brand photos & voice
-function BrandFolder({ brand, set }: FolderProps) {
+// ---------- Brand photos
+function PhotosFolder({ brand, set }: FolderProps) {
   const add = (files: File[]) => {
     const imgs = images(files);
     if (!imgs.length) { toast('Pick image files', { kind: 'warn' }); return; }
     set((b) => ({ ...b, photos: [...b.photos, ...imgs.map(fileFrom)] }));
   };
-  const voice = (k: keyof Brand['voice'], v: string) => set((b) => ({ ...b, voice: { ...b.voice, [k]: v } }));
   return (
-    <div className="bk-brand">
-      <Items className="bk-photos">
-        {brand.photos.map((p, i) => (
-          <div key={p.id + i} className="bk-photo" style={fanIn(i)}>
-            <img src={p.src} alt={p.name} />
-            <button type="button" className="bk-icon-btn" aria-label={`Remove ${p.name}`} onClick={() => set((b) => ({ ...b, photos: b.photos.filter((x, j) => !(x.id === p.id && j === i)) }))}><Icon name="trash" /></button>
-          </div>
-        ))}
-        <Uploader accept="image/*" multiple title="Add photos" hint="Lifestyle and hero shots" onFiles={add} className="bk-fill" />
-      </Items>
+    <Items className="bk-photos">
+      {brand.photos.map((p, i) => (
+        <div key={p.id + i} className="bk-photo" style={fanIn(i)}>
+          <img src={p.src} alt={p.name} />
+          <button type="button" className="bk-icon-btn" aria-label={`Remove ${p.name}`} onClick={() => set((b) => ({ ...b, photos: b.photos.filter((x, j) => !(x.id === p.id && j === i)) }))}><Icon name="trash" /></button>
+        </div>
+      ))}
+      <Uploader accept="image/*" multiple title="Add photos" hint="Lifestyle and hero shots" onFiles={add} className="bk-fill" />
+    </Items>
+  );
+}
+
+// ---------- Documents: Product Information + Brand Voice Guide (email-scoped)
+function DocsFolder({ brand, set }: FolderProps) {
+  const docs = brand.docs || { product: '', voice: '' };
+  const voice = (k: keyof Brand['voice'], v: string) => set((b) => ({ ...b, voice: { ...b.voice, [k]: v } }));
+  const doc = (k: keyof Brand['docs'], v: string) => set((b) => ({ ...b, docs: { ...(b.docs || { product: '', voice: '' }), [k]: v } }));
+  return (
+    <div className="bk-docs">
       <div className="bk-voice">
         <label><span>Tagline</span><input value={brand.voice.tagline} placeholder="One line about the store" onChange={(e) => voice('tagline', e.target.value)} /></label>
         <label><span>Tone of voice</span><textarea rows={2} value={brand.voice.tone} placeholder="How emails should sound, e.g. warm, short sentences, never pushy" onChange={(e) => voice('tone', e.target.value)} /></label>
         <label><span>About</span><textarea rows={3} value={brand.voice.about} placeholder="Who you are and what you sell, in your own words" onChange={(e) => voice('about', e.target.value)} /></label>
       </div>
+      <label className="bk-doc">
+        <span>Product Information</span>
+        <textarea rows={12} value={docs.product} placeholder="Import from your website to draft this, or write what follow-up emails are allowed to promise." onChange={(e) => doc('product', e.target.value)} />
+      </label>
+      <label className="bk-doc">
+        <span>Brand Voice Guide</span>
+        <textarea rows={12} value={docs.voice} placeholder="Import from your website to draft how follow-up emails should sound." onChange={(e) => doc('voice', e.target.value)} />
+      </label>
     </div>
   );
 }

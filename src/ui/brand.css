@@ -2,6 +2,23 @@
    ink as the rest of the app; only the folders themselves are blue glass. */
 
 .bk { display: grid; gap: 26px; min-width: 0; }
+.bk-import {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px 18px;
+  padding: 16px 18px; border: 1px solid var(--v2-line, var(--line)); border-radius: 18px;
+  background: var(--v2-card, var(--surface));
+}
+.bk-import b { display: block; font-size: 15px; font-weight: 560; letter-spacing: -0.015em; }
+.bk-import p { margin: 4px 0 0; max-width: 52ch; font-size: 13.5px; line-height: 1.45; color: var(--ink-3); }
+.bk-docs { display: grid; gap: 16px; }
+.bk-doc { display: grid; gap: 6px; }
+.bk-doc > span { font-size: 13px; font-weight: 550; color: var(--ink-2); }
+.bk-doc textarea {
+  width: 100%; min-height: 220px; padding: 12px 14px; resize: vertical;
+  border: 1px solid var(--v2-line, var(--line)); border-radius: 14px;
+  background: color-mix(in srgb, var(--ink) 2%, var(--v2-card, #fff));
+  font: inherit; font-size: 13px; line-height: 1.5; color: var(--ink);
+}
+.bk-doc textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* ---------- the folders */
 .bk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px 10px; align-items: start; }
