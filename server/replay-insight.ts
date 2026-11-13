@@ -146,7 +146,10 @@ function answerByName(answers: unknown, name: string): Record<string, unknown> |
 
 async function runDecisions(evidence: ReplayEvidence) {
   const pathChoices = [...evidence.paths.slice(0, 8), 'other'];
-  const uniqueChoices = [...new Set(pathChoices.map((p) => p.slice(0, 80)))];
+  const uniqueChoices = [...new Set(pathChoices.map((p) => p.slice(0, 80)))].map((value) => ({
+    value,
+    description: value === 'other' ? 'None of the listed paths fit well.' : `Visitor activity around ${value}.`,
+  }));
   const res = await fetch('https://api.openai.com/v1/decisions', {
     method: 'POST',
     headers: {
@@ -170,17 +173,23 @@ async function runDecisions(evidence: ReplayEvidence) {
           name: 'outcome',
           type: 'choice',
           instructions: 'Overall visitor outcome for this session.',
-          choices: ['bounce', 'browse', 'engaged', 'intent', 'frustrated'],
+          choices: [
+            { value: 'bounce', description: 'Left almost immediately with little engagement.' },
+            { value: 'browse', description: 'Looked around lightly without strong intent.' },
+            { value: 'engaged', description: 'Actively explored content or options.' },
+            { value: 'intent', description: 'Showed purchase or signup intent.' },
+            { value: 'frustrated', description: 'Showed struggle, rage clicks, or repeated friction.' },
+          ],
         },
         {
           name: 'friction',
           type: 'score',
           instructions: 'How much friction or struggle appears in the session.',
           levels: [
-            { label: 'none' },
-            { label: 'low' },
-            { label: 'medium' },
-            { label: 'high' },
+            { label: 'none', description: 'Smooth session with no struggle signals.' },
+            { label: 'low', description: 'Minor hesitation or one awkward moment.' },
+            { label: 'medium', description: 'Clear struggle or confusion at points.' },
+            { label: 'high', description: 'Repeated struggle or abandonment from friction.' },
           ],
         },
         {
