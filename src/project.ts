@@ -33,7 +33,7 @@ export type Project = {
 };
 
 export function installSnippet(project: Project, appOrigin: string) {
-  return `<script src="${appOrigin}/tracker.js?v=8" data-site="${project.writeKey}" defer></script>`;
+  return `<script src="${appOrigin}/tracker.js?v=9" data-site="${project.writeKey}" defer></script>`;
 }
 
 export function installPrompt(project: Project, appOrigin: string) {

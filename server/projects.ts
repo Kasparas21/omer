@@ -904,7 +904,7 @@ async function receiveReplayChunk(request: Request, env: Env) {
   const clientBatchId = typeof body?.clientBatchId === 'string' ? body.clientBatchId.slice(0, 80) : '';
   const seq = typeof body?.seq === 'number' && Number.isFinite(body.seq) ? Math.max(0, Math.round(body.seq)) : -1;
   const events = Array.isArray(body?.events) ? body.events : null;
-  if (!uuid.test(writeKey) || !vid || !sid || !clientBatchId || seq < 0 || !events || !events.length || events.length > 400) {
+  if (!uuid.test(writeKey) || !vid || !sid || !clientBatchId || seq < 0 || !events || !events.length || events.length > 2_000) {
     return new Response(null, { status: 400 });
   }
 

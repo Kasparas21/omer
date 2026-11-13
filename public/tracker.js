@@ -235,18 +235,12 @@
     const MAX_BYTES = 5 * 1024 * 1024;
     const FLUSH_BYTES = 180_000;
 
+    const BATCH_EVENTS = 300;
     let flushing = false;
-    async function flush(force) {
-      if (flushing || !events.length) return;
-      if (!force && JSON.stringify(events).length < FLUSH_BYTES && Date.now() - started < MAX_MS) return;
-      flushing = true;
-      const batch = events;
-      events = [];
+    async function sendBatch(batch) {
+      if (!batch.length) return true;
       const body = JSON.stringify(batch);
-      if (!batch.length || bytes + body.length > MAX_BYTES) {
-        flushing = false;
-        return;
-      }
+      if (bytes + body.length > MAX_BYTES) return false;
       const batchId = newId();
       const checksum = String(batchId.length + body.length + seq);
       try {
@@ -267,31 +261,53 @@
             events: batch,
           }),
         });
-        if (res.ok) {
-          seq += 1;
-          bytes += body.length;
-          hasFull = hasFull || batch.some((e) => e?.type === 2);
-        } else {
-          events = batch.concat(events);
-        }
+        if (!res.ok) return false;
+        seq += 1;
+        bytes += body.length;
+        hasFull = hasFull || batch.some((e) => e?.type === 2);
+        return true;
       } catch {
-        events = batch.concat(events);
+        return false;
+      }
+    }
+    async function flush(force) {
+      if (flushing || !events.length) return;
+      const size = JSON.stringify(events).length;
+      if (!force && events.length < BATCH_EVENTS && size < FLUSH_BYTES && Date.now() - started < MAX_MS) return;
+      flushing = true;
+      try {
+        while (events.length) {
+          const batch = events.slice(0, BATCH_EVENTS);
+          const ok = await sendBatch(batch);
+          if (!ok) {
+            // keep unsent events for a later retry
+            break;
+          }
+          events = events.slice(BATCH_EVENTS);
+        }
       } finally {
         flushing = false;
       }
     }
 
+    // Same host as the tracker so store CSPs that allow tryomer also allow rrweb.
     const scriptEl = document.createElement('script');
-    scriptEl.src = 'https://cdn.jsdelivr.net/npm/rrweb@2.0.0-alpha.4/dist/rrweb.min.js';
+    scriptEl.src = new URL('/vendor/rrweb.min.js', base).href;
     scriptEl.async = true;
+    scriptEl.onerror = () => { /* recorder unavailable */ };
     scriptEl.onload = () => {
-      if (stopped || !window.rrweb?.record) return;
-      const stop = window.rrweb.record({
+      const record = window.rrweb?.record;
+      if (stopped || typeof record !== 'function') return;
+      const stop = record({
         emit(event) {
           if (stopped) return;
           events.push(event);
-          if (event?.type === 2) hasFull = true;
-          if (JSON.stringify(events).length >= FLUSH_BYTES || Date.now() - started >= MAX_MS) void flush(true);
+          if (event?.type === 2) {
+            hasFull = true;
+            void flush(true);
+            return;
+          }
+          if (events.length >= BATCH_EVENTS || JSON.stringify(events).length >= FLUSH_BYTES) void flush(true);
         },
         maskAllInputs: true,
         maskTextSelector: 'input, textarea, [data-uw-mask]',
@@ -301,8 +317,7 @@
         inlineStylesheet: true,
         checkoutEveryNms: 30_000,
       });
-      // Force flush once we have a full snapshot so Watch replay works mid-session.
-      const timer = window.setInterval(() => void flush(hasFull), 4000);
+      const timer = window.setInterval(() => void flush(true), 4000);
       const end = () => {
         if (stopped) return;
         stopped = true;
@@ -311,6 +326,9 @@
         void flush(true);
       };
       window.addEventListener('pagehide', end);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') void flush(true);
+      });
       window.setTimeout(end, MAX_MS);
       stopReplay = () => {
         window.removeEventListener('pagehide', end);
