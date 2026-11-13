@@ -98,7 +98,8 @@ export function Profile({ projectId, seed, onBack, onLive }: {
       }
     }
     void load();
-    const timer = window.setInterval(() => void load(), 8_000);
+    // Poll faster while someone looks live so Online/Recording flips off without a manual refresh.
+    const timer = window.setInterval(() => void load(), 4_000);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [projectId, seed]);
 

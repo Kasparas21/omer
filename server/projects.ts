@@ -390,18 +390,25 @@ async function receiveEvent(request: Request, env: Env) {
     if (type === 'dwell') {
       const ms = typeof body?.ms === 'number' && Number.isFinite(body.ms) ? Math.round(body.ms) : 0;
       const visitKey = typeof body?.visitId === 'string' && uuid.test(body.visitId) ? body.visitId : null;
-      const visitWhere = visitKey
-        ? and(eq(visits.id, visitKey), eq(visits.projectId, project.id), eq(visits.visitorId, vid))
-        : eq(visits.id, sql`(
+      // Clear presence on every recent visit for this person so no stale row keeps them "Online".
+      await tx.update(visits).set({ activeAt: null }).where(and(
+        eq(visits.projectId, project.id),
+        eq(visits.visitorId, vid),
+        sql`${visits.seenAt} > now() - interval '24 hours'`,
+      ));
+      if (ms >= 1000 && ms <= 1_800_000) {
+        if (visitKey) {
+          await tx.update(visits).set({ dwellMs: sql`${visits.dwellMs} + ${ms}` }).where(and(
+            eq(visits.id, visitKey),
+            eq(visits.projectId, project.id),
+            eq(visits.visitorId, vid),
+          ));
+        } else {
+          await tx.update(visits).set({ dwellMs: sql`${visits.dwellMs} + ${ms}` }).where(eq(visits.id, sql`(
             select id from project_visits where project_id = ${project.id} and visitor_id = ${vid}
               and seen_at > now() - interval '24 hours' order by seen_at desc limit 1
-          )`);
-      // Tab close / hide: clear presence so profiles drop "Online now" on the next refresh.
-      if (ms >= 1000 && ms <= 1_800_000) {
-        await tx.update(visits).set({
-          activeAt: null,
-          dwellMs: sql`${visits.dwellMs} + ${ms}`,
-        }).where(visitWhere);
+          )`));
+        }
         await tx.insert(dwell)
           .values({ projectId: project.id, day, totalMs: ms, samples: 1 })
           .onConflictDoUpdate({
@@ -411,8 +418,6 @@ async function receiveEvent(request: Request, env: Env) {
               samples: sql`${dwell.samples} + 1`,
             },
           });
-      } else {
-        await tx.update(visits).set({ activeAt: null }).where(visitWhere);
       }
       return project.id;
     }
@@ -507,11 +512,13 @@ async function receiveEvent(request: Request, env: Env) {
       place: geo?.place ?? null,
       lat: geo?.lat ?? null,
       lng: geo?.lng ?? null,
+      activeAt: sql`now()`,
     });
     return project.id;
   }));
 
-  if (accepted && type !== 'presence') for (const notify of liveListeners.get(accepted) ?? []) notify();
+  // Notify Live on leave (dwell) too so Online drops without waiting for the next poll.
+  if (accepted) for (const notify of liveListeners.get(accepted) ?? []) notify();
   return accepted
     ? new Response(null, { status: 204, headers: cors(origin) })
     : new Response(null, { status: 403 });
@@ -541,7 +548,7 @@ async function liveFeed(request: Request, env: Env, projectId: string, stream: b
       lat: visits.lat,
       lng: visits.lng,
       seenAt: visits.seenAt,
-      activeAt: sql<string>`coalesce(${visits.activeAt}, ${visits.seenAt})`,
+      activeAt: visits.activeAt,
     })
       .from(visits)
       .where(and(eq(visits.projectId, projectId), gt(visits.seenAt, sql`now() - interval '24 hours'`)))
@@ -553,7 +560,7 @@ async function liveFeed(request: Request, env: Env, projectId: string, stream: b
     })
       .from(visits)
       .where(and(eq(visits.projectId, projectId), gt(visits.seenAt, sql`now() - interval '24 hours'`),
-        sql`coalesce(${visits.activeAt}, ${visits.seenAt}) > now() - interval '90 seconds'`));
+        sql`${visits.activeAt} is not null and ${visits.activeAt} > now() - interval '90 seconds'`));
 
     const hourVisits = await db.select({ seenAt: visits.seenAt })
       .from(visits)
@@ -636,7 +643,7 @@ async function liveFeed(request: Request, env: Env, projectId: string, stream: b
 
 function groupSessions<T extends {
   id: string; sessionId: string | null; device: string | null; dwellMs: number;
-  path: string; referrer: string; seenAt: string | Date; activeAt: string | Date;
+  path: string; referrer: string; seenAt: string | Date; activeAt: string | Date | null;
 }>(rows: T[]) {
   const chronological = [...rows].sort((a, b) => Date.parse(String(a.seenAt)) - Date.parse(String(b.seenAt)));
   const sessions: {
@@ -672,8 +679,11 @@ function groupSessions<T extends {
     current.durationMs += Number(row.dwellMs) || 0;
     if (row.device === 'phone') current.device = 'phone';
     current.events.push({ id: row.id, path: cleanPath(row.path) ?? '/', seenAt: new Date(at).toISOString() });
-    const active = Date.parse(String(row.activeAt));
-    if (Date.now() - active < 90_000) current.live = true;
+    // Only real presence counts — never fall back to seenAt or leave looks "still online".
+    if (row.activeAt) {
+      const active = Date.parse(String(row.activeAt));
+      if (Number.isFinite(active) && Date.now() - active < 90_000) current.live = true;
+    }
     lastAt = at;
   }
   return sessions.reverse();
@@ -704,7 +714,7 @@ async function visitorProfile(request: Request, env: Env, projectId: string, vis
       lat: visits.lat,
       lng: visits.lng,
       seenAt: visits.seenAt,
-      activeAt: sql<string>`coalesce(${visits.activeAt}, ${visits.seenAt})`,
+      activeAt: visits.activeAt,
     })
       .from(visits)
       .where(and(eq(visits.projectId, projectId), eq(visits.visitorId, visitorKey)))
@@ -824,7 +834,7 @@ async function visitorProfile(request: Request, env: Env, projectId: string, vis
       firstReferrer,
       firstPath,
       live: sessions.some((s) => s.live),
-      lastSeenAt: rows[0] ? String(rows[0].activeAt) : null,
+      lastSeenAt: rows[0] ? String(rows[0].activeAt ?? rows[0].seenAt) : null,
       device: sessions[0]?.device ?? 'monitor',
       stats: {
         firstSeen,

@@ -87,23 +87,30 @@
     };
   }
 
-  function post(body) {
+  function post(body, { beacon = false } = {}) {
+    const raw = JSON.stringify(body);
+    if (beacon && typeof navigator.sendBeacon === 'function') {
+      try {
+        const ok = navigator.sendBeacon(eventURL, new Blob([raw], { type: 'application/json' }));
+        if (ok) return Promise.resolve();
+      } catch { /* fall through */ }
+    }
     return fetch(eventURL, {
       method: 'POST',
-      body: JSON.stringify(body),
+      body: raw,
       credentials: 'omit',
       keepalive: true,
       headers: { 'Content-Type': 'application/json' },
     }).catch(() => undefined);
   }
 
-  function sendDwell() {
+  function sendDwell(fromUnload = false) {
     if (!consented || !pageAt) return;
     const ms = Math.min(1_800_000, Math.max(0, Date.now() - pageAt));
     pageAt = 0;
     const payload = { ...basePayload('dwell'), path, ms };
     if (visitId) payload.visitId = visitId;
-    void post(payload);
+    void post(payload, { beacon: fromUnload });
   }
 
   function sendPresence() {
@@ -314,13 +321,13 @@
   }
 
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') sendDwell();
+    if (document.visibilityState === 'hidden') sendDwell(true);
     else if (consented && !pageAt) {
       pageAt = Date.now();
       sendPresence();
     }
   });
-  window.addEventListener('pagehide', sendDwell);
+  window.addEventListener('pagehide', () => sendDwell(true));
   window.addEventListener('pageshow', (event) => { if (event.persisted) sendPresence(); });
   window.setInterval(sendPresence, 45000);
 
