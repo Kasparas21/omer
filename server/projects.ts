@@ -3,7 +3,7 @@ import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { createHash } from 'node:crypto';
 import { amountCents, cleanCampaign, cleanCurrency, cleanEmail, cleanName, cleanOrderId, cleanProducts } from './commerce';
 import { localDemoPlace, placeFromRequest } from './geo';
-import { deleteObject, objectKeyFor, objectStoreConfigured, putObject, signedGetUrl } from './object-store';
+import { deleteObject, getObject, objectKeyFor, objectStoreConfigured, putObject } from './object-store';
 import { dailyVisitors, dwell, emailEvents, identities, pageViews, pathViews, projects, purchases, referrerViews, replayChunks, replaySessions, visits } from './schema';
 import { auth, pool, appURL } from './auth';
 
@@ -389,28 +389,30 @@ async function receiveEvent(request: Request, env: Env) {
 
     if (type === 'dwell') {
       const ms = typeof body?.ms === 'number' && Number.isFinite(body.ms) ? Math.round(body.ms) : 0;
-      if (ms < 1000 || ms > 1_800_000) return project.id;
-      await tx.insert(dwell)
-        .values({ projectId: project.id, day, totalMs: ms, samples: 1 })
-        .onConflictDoUpdate({
-          target: [dwell.projectId, dwell.day],
-          set: {
-            totalMs: sql`${dwell.totalMs} + ${ms}`,
-            samples: sql`${dwell.samples} + 1`,
-          },
-        });
       const visitKey = typeof body?.visitId === 'string' && uuid.test(body.visitId) ? body.visitId : null;
-      if (visitKey) {
-        await tx.update(visits).set({ dwellMs: sql`${visits.dwellMs} + ${ms}` }).where(and(
-          eq(visits.id, visitKey),
-          eq(visits.projectId, project.id),
-          eq(visits.visitorId, vid),
-        ));
+      const visitWhere = visitKey
+        ? and(eq(visits.id, visitKey), eq(visits.projectId, project.id), eq(visits.visitorId, vid))
+        : eq(visits.id, sql`(
+            select id from project_visits where project_id = ${project.id} and visitor_id = ${vid}
+              and seen_at > now() - interval '24 hours' order by seen_at desc limit 1
+          )`);
+      // Tab close / hide: clear presence so profiles drop "Online now" on the next refresh.
+      if (ms >= 1000 && ms <= 1_800_000) {
+        await tx.update(visits).set({
+          activeAt: null,
+          dwellMs: sql`${visits.dwellMs} + ${ms}`,
+        }).where(visitWhere);
+        await tx.insert(dwell)
+          .values({ projectId: project.id, day, totalMs: ms, samples: 1 })
+          .onConflictDoUpdate({
+            target: [dwell.projectId, dwell.day],
+            set: {
+              totalMs: sql`${dwell.totalMs} + ${ms}`,
+              samples: sql`${dwell.samples} + 1`,
+            },
+          });
       } else {
-        await tx.update(visits).set({ dwellMs: sql`${visits.dwellMs} + ${ms}` }).where(eq(visits.id, sql`(
-          select id from project_visits where project_id = ${project.id} and visitor_id = ${vid}
-            and seen_at > now() - interval '24 hours' order by seen_at desc limit 1
-        )`));
+        await tx.update(visits).set({ activeAt: null }).where(visitWhere);
       }
       return project.id;
     }
@@ -551,7 +553,7 @@ async function liveFeed(request: Request, env: Env, projectId: string, stream: b
     })
       .from(visits)
       .where(and(eq(visits.projectId, projectId), gt(visits.seenAt, sql`now() - interval '24 hours'`),
-        sql`coalesce(${visits.activeAt}, ${visits.seenAt}) > now() - interval '5 minutes'`));
+        sql`coalesce(${visits.activeAt}, ${visits.seenAt}) > now() - interval '90 seconds'`));
 
     const hourVisits = await db.select({ seenAt: visits.seenAt })
       .from(visits)
@@ -671,7 +673,7 @@ function groupSessions<T extends {
     if (row.device === 'phone') current.device = 'phone';
     current.events.push({ id: row.id, path: cleanPath(row.path) ?? '/', seenAt: new Date(at).toISOString() });
     const active = Date.parse(String(row.activeAt));
-    if (Date.now() - active < 300_000) current.live = true;
+    if (Date.now() - active < 90_000) current.live = true;
     lastAt = at;
   }
   return sessions.reverse();
@@ -979,20 +981,56 @@ async function getReplay(request: Request, env: Env, projectId: string, replayId
     }
     const chunks = await db.select().from(replayChunks)
       .where(eq(replayChunks.sessionPk, session.id)).orderBy(asc(replayChunks.seq));
-    const urls = chunks.map((chunk) => ({
-      seq: chunk.seq,
-      url: signedGetUrl(chunk.objectKey, 300),
-      hasFullSnapshot: chunk.hasFullSnapshot,
-    }));
-    const seqs = chunks.map((c) => c.seq);
-    const gaps = seqs.length > 0 && (Math.max(...seqs) - Math.min(...seqs) + 1 !== seqs.length || !session.hasFullSnapshot);
+    // Same-origin proxy URLs — browsers cannot fetch R2 signed URLs without bucket CORS.
+    const urls = chunks
+      .filter((chunk) => Number(chunk.byteSize) >= 8)
+      .map((chunk) => ({
+        seq: chunk.seq,
+        url: `/api/projects/${projectId}/replays/${replayId}/chunks/${chunk.seq}`,
+        hasFullSnapshot: chunk.hasFullSnapshot,
+      }));
+    const seqs = urls.map((c) => c.seq);
+    const playable = Boolean(session.hasFullSnapshot) && Number(session.bytes) >= 1_000 && urls.length > 0;
+    const gaps = seqs.length > 0 && (Math.max(...seqs) - Math.min(...seqs) + 1 !== seqs.length || !playable);
     return json({
       id: session.id,
-      status: session.hasFullSnapshot ? 'ready' : 'incomplete',
-      hasFullSnapshot: session.hasFullSnapshot,
+      status: playable ? 'ready' : 'incomplete',
+      hasFullSnapshot: playable,
       chunks: urls,
       gaps,
     });
+  });
+}
+
+async function getReplayChunk(request: Request, env: Env, projectId: string, replayId: string, seqRaw: string) {
+  if (!uuid.test(projectId) || !uuid.test(replayId)) return json({ error: 'Not found.' }, 404);
+  const seq = Number(seqRaw);
+  if (!Number.isInteger(seq) || seq < 0) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to view replays.' }, 401);
+  return withDatabase(env, async (db) => {
+    const [project] = await db.select({ id: projects.id })
+      .from(projects).where(and(eq(projects.id, projectId), eq(projects.owner, owner))).limit(1);
+    if (!project) return json({ error: 'Not found.' }, 404);
+    const [session] = await db.select().from(replaySessions)
+      .where(and(eq(replaySessions.id, replayId), eq(replaySessions.projectId, projectId))).limit(1);
+    if (!session) return json({ error: 'Not found.' }, 404);
+    if (Date.parse(String(session.expiresAt)) < Date.now()) return json({ error: 'Replay expired.' }, 410);
+    const [chunk] = await db.select().from(replayChunks)
+      .where(and(eq(replayChunks.sessionPk, session.id), eq(replayChunks.seq, seq))).limit(1);
+    if (!chunk) return json({ error: 'Not found.' }, 404);
+    try {
+      const body = await getObject(chunk.objectKey);
+      return new Response(body, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'private, no-store',
+        },
+      });
+    } catch {
+      return json({ error: 'Chunk unavailable.' }, 502);
+    }
   });
 }
 
@@ -1054,6 +1092,13 @@ export default {
   async fetch(request: Request, env: Env) {
     const url = new URL(request.url);
     try {
+      const replayChunkMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/replays\/([0-9a-f-]{36})\/chunks\/(\d+)$/i);
+      if (replayChunkMatch) {
+        if (request.method === 'GET') {
+          return await getReplayChunk(request, env, replayChunkMatch[1], replayChunkMatch[2], replayChunkMatch[3]);
+        }
+        return json({ error: 'Method not allowed.' }, 405);
+      }
       const replayMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/replays\/([0-9a-f-]{36})$/i);
       if (replayMatch) {
         if (request.method === 'GET') return await getReplay(request, env, replayMatch[1], replayMatch[2]);

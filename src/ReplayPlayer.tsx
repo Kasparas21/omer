@@ -32,15 +32,15 @@ export function ReplayPlayer({ projectId, replayId, onBack }: {
           setFailed(true);
           return;
         }
-        if (!manifest.chunks.length) {
-          setStatus('No recording chunks yet');
+        if (manifest.status === 'incomplete' || !manifest.chunks.length) {
+          setStatus(manifest.chunks.length ? 'Recording still incomplete' : 'No recording chunks yet — keep the tab open a few more seconds, then reopen.');
           setFailed(true);
           return;
         }
         const events: unknown[] = [];
         for (const chunk of manifest.chunks) {
-          const chunkRes = await fetch(chunk.url);
-          if (!chunkRes.ok) continue;
+          const chunkRes = await fetch(chunk.url, { credentials: 'same-origin', cache: 'no-store' });
+          if (!chunkRes.ok) throw new Error(`chunk ${chunk.seq}`);
           const part = await chunkRes.json();
           if (Array.isArray(part)) events.push(...part);
         }

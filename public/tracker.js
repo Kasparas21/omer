@@ -101,7 +101,6 @@
     if (!consented || !pageAt) return;
     const ms = Math.min(1_800_000, Math.max(0, Date.now() - pageAt));
     pageAt = 0;
-    if (ms < 1000) return;
     const payload = { ...basePayload('dwell'), path, ms };
     if (visitId) payload.visitId = visitId;
     void post(payload);
@@ -294,7 +293,8 @@
         inlineStylesheet: true,
         checkoutEveryNms: 30_000,
       });
-      const timer = window.setInterval(() => void flush(false), 4000);
+      // Force flush once we have a full snapshot so Watch replay works mid-session.
+      const timer = window.setInterval(() => void flush(hasFull), 4000);
       const end = () => {
         if (stopped) return;
         stopped = true;

@@ -34,6 +34,7 @@ app.get('/api/projects/:id/live/stream', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/live', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/visitors/:vid', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/replays/:rid', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/replays/:rid/chunks/:seq', (c) => projects.fetch(c.req.raw, env));
 app.all('/v1/collect/install', (c) => projects.fetch(c.req.raw, env));
 app.all('/v1/collect/event', (c) => projects.fetch(c.req.raw, env));
 app.all('/v1/collect/config', (c) => projects.fetch(c.req.raw, env));

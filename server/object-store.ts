@@ -88,6 +88,13 @@ export async function deleteObject(key: string) {
   await signedFetch('DELETE', key);
 }
 
+export async function getObject(key: string) {
+  if (!objectStoreConfigured()) throw new Error('R2 is not configured');
+  const response = await signedFetch('GET', key);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  return buffer;
+}
+
 /** Short-lived query-string signed GET URL for the dashboard player. */
 export function signedGetUrl(key: string, expiresIn = 300) {
   if (!objectStoreConfigured()) throw new Error('R2 is not configured');
