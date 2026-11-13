@@ -260,6 +260,15 @@
 }
 .omer-set-empty { min-height: 260px; align-content: center; }
 .omer-set-empty p { max-width: 360px; line-height: 1.45; }
+.set-change-list { display: grid; gap: 0; margin: 8px 0 18px; padding: 0; list-style: none; }
+.set-change-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 14px 0; border-top: 1px solid var(--v2-line);
+}
+.set-change-row:first-child { border-top: 0; }
+.set-change-copy { display: grid; gap: 2px; min-width: 0; }
+.set-change-copy b { font-size: 14px; font-weight: 560; color: var(--ink); }
+.set-change-copy small { font-size: 13px; color: var(--ink-3); }
 .omer-settings .status-pill .ico { width: 13px; height: 13px; }
 /* Kit: a card's link sits right after its title ("Brand read  Brand DNA ›"). */
 .v2-card > header .ho-link { margin-inline-start: 0; }

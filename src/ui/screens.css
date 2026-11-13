@@ -12,6 +12,21 @@
 .op-tabs .ib-tab { font-size: 14.5px; }
 .op-campaign { width: 220px; max-width: 100%; }
 .op-none { padding: 26px 0; }
+.op-real-lede { margin: 8px 0 22px; font-size: 14.5px; color: var(--ink-3); }
+.op-real-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.op-real-card {
+  display: grid; gap: 10px; padding: 16px 18px; border: 1px solid var(--v2-line); border-radius: 18px;
+  background: var(--v2-card); box-shadow: var(--v2-lift);
+}
+.op-real-who { display: grid; gap: 2px; }
+.op-real-who b { font-size: 15px; font-weight: 560; color: var(--ink); }
+.op-real-who small { font-size: 12.5px; color: var(--ink-3); }
+.op-real-card > p { margin: 0; font-size: 14px; line-height: 1.45; color: var(--ink-2); }
+.op-real-hooks { display: flex; flex-wrap: wrap; gap: 6px; }
+.op-real-hooks span {
+  padding: 3px 9px; border-radius: 999px; background: var(--v2-shell); font-size: 12px; color: var(--ink-2);
+}
+.op-real-acts { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .op-rail { display: flex; gap: 8px; margin: 0 -4px 30px; padding: 4px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; }
 .op-rail::-webkit-scrollbar { display: none; }
