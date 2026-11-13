@@ -605,7 +605,12 @@
 .profile-session-footer .people-source { font-weight: 450; }
 .profile-device { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-variant-numeric: tabular-nums; }
 .profile-device .ico { width: 15px; height: 15px; }
-.profile-journey-empty { margin: 0; padding: 22px 16px; border: 1px dashed var(--line-strong); border-radius: 14px; color: var(--ink-2); text-align: center; }
+.profile-journey-empty {
+  margin: 0; padding: 28px 16px;
+  border: 0; border-radius: 14px;
+  background: color-mix(in srgb, var(--ink) 2.5%, transparent);
+  color: var(--ink-3); font-size: 13.5px; line-height: 1.45; text-align: center;
+}
 .profile-timeline:has(.profile-journey-empty)::before { display: none; }
 
 @media (max-width: 900px) {

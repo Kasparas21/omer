@@ -64,7 +64,6 @@ a { color: inherit; }
   margin: 0 0 20px; font-size: 28px; font-weight: 500; letter-spacing: -0.025em;
 }
 .v2-empty-screen .v2-in { gap: 16px; }
-.v2-tile-us svg { width: 34px; height: 34px; color: var(--ink); }
 body { background: var(--v2-page, var(--bg)); }
 .page-head { margin-bottom: 28px; }
 .page-head h1 { margin: 0; font-size: 32px; font-weight: 630; letter-spacing: -0.03em; }
