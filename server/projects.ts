@@ -751,6 +751,7 @@ async function visitorProfile(request: Request, env: Env, projectId: string, vis
       sessionId: replaySessions.sessionId,
       status: replaySessions.status,
       hasFullSnapshot: replaySessions.hasFullSnapshot,
+      bytes: replaySessions.bytes,
       startedAt: replaySessions.startedAt,
       expiresAt: replaySessions.expiresAt,
     })
@@ -781,12 +782,17 @@ async function visitorProfile(request: Request, env: Env, projectId: string, vis
       const ago = Math.round((end.getTime() - day.getTime()) / 86_400_000);
       if (ago >= 0 && ago < 22 * 7) activity[String(ago)] = (activity[String(ago)] ?? 0) + 1;
     }
-    const replayBySession = new Map(replayRows.map((row) => [row.sessionId, {
-      id: row.id,
-      status: row.expiresAt && Date.parse(String(row.expiresAt)) < Date.now() ? 'expired' : row.status,
-      hasFullSnapshot: row.hasFullSnapshot,
-      startedAt: row.startedAt,
-    }]));
+    const replayBySession = new Map(replayRows.map((row) => {
+      const playable = Boolean(row.hasFullSnapshot) && Number(row.bytes) >= 1_000;
+      return [row.sessionId, {
+        id: row.id,
+        status: row.expiresAt && Date.parse(String(row.expiresAt)) < Date.now()
+          ? 'expired'
+          : playable ? row.status : 'incomplete',
+        hasFullSnapshot: playable,
+        startedAt: row.startedAt,
+      }];
+    }));
     const journey = sessions.map((session) => ({
       ...session,
       purchases: orderRows
@@ -886,7 +892,7 @@ async function receiveReplayChunk(request: Request, env: Env) {
   const clientBatchId = typeof body?.clientBatchId === 'string' ? body.clientBatchId.slice(0, 80) : '';
   const seq = typeof body?.seq === 'number' && Number.isFinite(body.seq) ? Math.max(0, Math.round(body.seq)) : -1;
   const events = Array.isArray(body?.events) ? body.events : null;
-  if (!uuid.test(writeKey) || !vid || !sid || !clientBatchId || seq < 0 || !events || events.length > 400) {
+  if (!uuid.test(writeKey) || !vid || !sid || !clientBatchId || seq < 0 || !events || !events.length || events.length > 400) {
     return new Response(null, { status: 400 });
   }
 

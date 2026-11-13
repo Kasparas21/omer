@@ -98,7 +98,8 @@ export function Profile({ projectId, seed, onBack, onLive }: {
       }
     }
     void load();
-    return () => { cancelled = true; };
+    const timer = window.setInterval(() => void load(), 8_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
   }, [projectId, seed]);
 
   useEffect(() => {
@@ -289,12 +290,18 @@ export function Profile({ projectId, seed, onBack, onLive }: {
                               <span>{session.live ? <span className="people-live">Active session</span> : <>Session lasted for <strong>{fmtDur(session.durationMs)}</strong></>}</span>
                               {session.replay?.status === 'expired' ? (
                                 <span className="profile-replay-gone">Replay expired</span>
-                              ) : session.replay && data.replayEnabled ? (
+                              ) : session.replay?.hasFullSnapshot && data.replayEnabled ? (
                                 <button type="button" className="btn btn-ghost btn-sm profile-play" onClick={() => setReplayId(session.replay!.id)}>
                                   <Icon name="play" />Watch replay
                                 </button>
-                              ) : (
+                              ) : !data.replayEnabled ? (
                                 <span className="profile-replay-gone">Replay off</span>
+                              ) : session.live ? (
+                                <span className="profile-replay-gone">Recording…</span>
+                              ) : session.replay ? (
+                                <span className="profile-replay-gone">Replay incomplete</span>
+                              ) : (
+                                <span className="profile-replay-gone">No replay</span>
                               )}
                             </header>
                             <ol className="session-rows">

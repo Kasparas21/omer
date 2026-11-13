@@ -228,15 +228,18 @@
     const MAX_BYTES = 5 * 1024 * 1024;
     const FLUSH_BYTES = 180_000;
 
+    let flushing = false;
     async function flush(force) {
-      if (!events.length || (!force && JSON.stringify(events).length < FLUSH_BYTES && Date.now() - started < MAX_MS)) {
-        if (force && !events.length) return;
-        if (!force && events.length && JSON.stringify(events).length < FLUSH_BYTES && Date.now() - started < MAX_MS) return;
-      }
+      if (flushing || !events.length) return;
+      if (!force && JSON.stringify(events).length < FLUSH_BYTES && Date.now() - started < MAX_MS) return;
+      flushing = true;
       const batch = events;
       events = [];
       const body = JSON.stringify(batch);
-      if (bytes + body.length > MAX_BYTES) return;
+      if (!batch.length || bytes + body.length > MAX_BYTES) {
+        flushing = false;
+        return;
+      }
       const batchId = newId();
       const checksum = String(batchId.length + body.length + seq);
       try {
@@ -261,8 +264,14 @@
           seq += 1;
           bytes += body.length;
           hasFull = hasFull || batch.some((e) => e?.type === 2);
+        } else {
+          events = batch.concat(events);
         }
-      } catch { /* drop */ }
+      } catch {
+        events = batch.concat(events);
+      } finally {
+        flushing = false;
+      }
     }
 
     const scriptEl = document.createElement('script');
