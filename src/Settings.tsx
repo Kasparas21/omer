@@ -1,0 +1,146 @@
+/* Settings, laid out like the kit's: a section list beside a sheet with side notes.
+   Sections match the kit; each one shows only what this product really does today. */
+import { useState } from 'react';
+import type { Project } from './project';
+import { Icon } from './ui/Icon';
+import { useThumb } from './ui/useThumb';
+
+export type DockMode = 'always' | 'scroll' | 'auto';
+type Tab = 'company' | 'changes' | 'sending' | 'privacy' | 'dock';
+
+const DOCK_MODES: { id: DockMode; label: string }[] = [
+  { id: 'always', label: 'Always show' },
+  { id: 'scroll', label: 'Hide on scroll' },
+  { id: 'auto', label: 'Always hidden' },
+];
+
+function Row({ title, hint, children, wide }: { title: string; hint?: string; children: React.ReactNode; wide?: boolean }) {
+  return (
+    <div className={`set-row${wide ? ' wide' : ''}`}>
+      <div className="set-k"><b>{title}</b>{hint && <small>{hint}</small>}</div>
+      <div className="set-v">{children}</div>
+    </div>
+  );
+}
+
+const Soon = () => <span className="status-pill">Coming next</span>;
+
+export function Settings({ project, snippet, dockMode, onDockMode, onCopy, onGuide, onSetup }: {
+  project: Project;
+  snippet: string;
+  dockMode: DockMode;
+  onDockMode: (mode: DockMode) => void;
+  onCopy: (kind: 'script' | 'prompt') => void;
+  onGuide: () => void;
+  onSetup: () => void;
+}) {
+  const [tab, setTab] = useState<Tab>('company');
+  const seg = useThumb<HTMLDivElement>('button[aria-pressed="true"]', `${tab}:${dockMode}`, true);
+  const host = (() => { try { return new URL(project.origin).host; } catch { return project.origin; } })();
+  const tabs: { id: Tab; title: string; desc: string }[] = [
+    { id: 'company', title: 'Company', desc: project.firstEventAt ? host : 'Install needed' },
+    { id: 'changes', title: 'Website changes', desc: 'Nothing to review' },
+    { id: 'sending', title: 'Sending', desc: 'Sender, limits and domain' },
+    { id: 'privacy', title: 'Privacy', desc: 'What we keep and for how long' },
+    { id: 'dock', title: 'Dock', desc: 'How the navigation behaves' },
+  ];
+
+  return (
+    <div className="ib set omer-settings">
+      <nav className="ib-list" aria-label="Settings sections">
+        <h1 className="omer-set-title">Settings</h1>
+        <div className="set-navs">
+          {tabs.map((item) => (
+            <button key={item.id} type="button" className="set-nav omer-set-nav" aria-current={tab === item.id ? 'true' : 'false'} onClick={() => setTab(item.id)}>
+              <b>{item.title}</b><small>{item.desc}</small>
+            </button>
+          ))}
+        </div>
+      </nav>
+      <div className="ib-detail">
+        <div className="set-sheet">
+          {tab === 'company' && <>
+            <div className="set-main">
+              <header className="set-head"><h2>Company</h2></header>
+              <Row title="Name" hint="Shown in the switcher at the top"><span className="omer-set-val">{project.name}</span></Row>
+              <Row title="Website" hint="Events are accepted only from this exact address">
+                <a className="omer-set-link" href={project.origin} target="_blank" rel="noreferrer">{project.origin}<Icon name="arrowUpRight" /></a>
+              </Row>
+              <Row title="Tracking" hint="The first consented page view turns this on">
+                <span className={`status-pill ${project.firstEventAt ? 'received' : ''}`}><span className="lvp-dot" aria-hidden="true" />{project.firstEventAt ? 'Receiving events' : 'Waiting for install'}</span>
+              </Row>
+              <Row title="Install script" hint={`Once, in the shared head of ${host}`} wide>
+                <div className="su-code omer-set-snippet"><pre>{snippet}</pre>
+                  <button className="btn btn-secondary btn-sm" type="button" onClick={() => onCopy('script')}><Icon name="copy" />Copy</button>
+                </div>
+              </Row>
+              <Row title="Coding assistant" hint="A ready prompt that installs it and wires consent">
+                <button className="btn btn-secondary btn-sm" type="button" onClick={() => onCopy('prompt')}><Icon name="copy" />Copy install prompt</button>
+              </Row>
+            </div>
+            <aside className="set-side"><div className="set-side-in">
+              <div className="set-side-k">Brand DNA</div>
+              <p className="su-side-p">Logo, colours, voice and products read from {host}, so drafts sound like you.</p>
+              <Soon />
+              <div className="set-side-k gap">Setup</div>
+              <button className="btn btn-ghost btn-sm" type="button" onClick={onSetup}><Icon name="list" />First-time setup</button>
+              <button className="btn btn-ghost btn-sm" type="button" onClick={onGuide}><Icon name="book" />Installation guide</button>
+            </div></aside>
+          </>}
+          {tab === 'changes' && (
+            <div className="set-main solo">
+              <header className="set-head"><h2>Website changes</h2></header>
+              <div className="empty omer-set-empty">
+                <span className="empty-ico"><Icon name="checkCircle" /></span>
+                <h4>Nothing to review</h4>
+                <p>When prices, codes or products on {host} change, the facts emails rely on show up here to check.</p>
+              </div>
+            </div>
+          )}
+          {tab === 'sending' && <>
+            <div className="set-main">
+              <header className="set-head"><h2>Sending</h2></header>
+              <Row title="Sent by" hint="The name people see in their inbox"><Soon /></Row>
+              <Row title="Sent from" hint="Replies come back here"><Soon /></Row>
+              <Row title="Daily limit" hint="Across all your emails"><Soon /></Row>
+              <Row title="Quiet hours" hint="In each person’s own time zone"><Soon /></Row>
+            </div>
+            <aside className="set-side"><div className="set-side-in">
+              <div className="set-side-k">Today</div>
+              <p className="omer-set-note">No emails are sent until a sending domain is connected.</p>
+            </div></aside>
+          </>}
+          {tab === 'privacy' && <>
+            <div className="set-main">
+              <header className="set-head"><h2>Privacy</h2></header>
+              <Row title="Analytics consent" hint="Nothing is recorded until the visitor allows analytics">
+                <span className="status-pill received"><Icon name="check" />Required</span>
+              </Row>
+              <Row title="Session replay" hint="Recordings of what people do on the page"><span className="status-pill">Off</span></Row>
+              <Row title="Location" hint="City and country from the request, never the IP address"><span className="omer-set-val">City level</span></Row>
+            </div>
+            <aside className="set-side"><div className="set-side-in">
+              <div className="set-side-k">What we keep</div>
+              <ul className="set-list"><li>Pages they looked at</li><li>Where they came from</li><li>How long they stayed</li></ul>
+              <div className="set-side-k gap">What we never keep</div>
+              <ul className="set-list no"><li>IP addresses</li><li>Passwords or card numbers</li><li>Anything typed in a form</li></ul>
+            </div></aside>
+          </>}
+          {tab === 'dock' && (
+            <div className="set-main solo">
+              <header className="set-head"><h2>Dock</h2></header>
+              <Row title="Bottom dock" hint="Hidden: move near it or tap it to bring it back" wide>
+                <div className="seg has-thumb" role="group" aria-label="Dock behavior" ref={seg.host}>
+                  <span className="seg-thumb" ref={seg.thumb} aria-hidden="true" />
+                  {DOCK_MODES.map((mode) => (
+                    <button key={mode.id} type="button" aria-pressed={dockMode === mode.id} onClick={() => onDockMode(mode.id)}>{mode.label}</button>
+                  ))}
+                </div>
+              </Row>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

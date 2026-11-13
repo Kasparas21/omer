@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  BookOpen, Check, ChevronsUpDown, Copy, Globe2, Home, Inbox, Lock, Megaphone, UserRound,
-  Plus, RefreshCw, Settings, Users, BarChart3, X,
+  BookOpen, Check, Copy, Globe2, Lock, Plus, RefreshCw, X,
 } from 'lucide-react';
 import { installPrompt, installSnippet, type Project } from './project';
 import './styles.css';
@@ -10,20 +9,24 @@ import { AuthGate } from './auth';
 import { DashboardV2 } from './DashboardV2';
 import { LiveGlobe } from './LiveGlobe';
 import { People } from './People';
+import { Settings, type DockMode } from './Settings';
 import { useLive } from './live';
+import { Icon, type IconName } from './ui/Icon';
+import { Dock } from './ui/Dock';
+import { ProjectMenu } from './ui/ProjectMenu';
 
 type ProjectError = { field?: 'name' | 'website'; error: string };
 type SetupStep = 'site' | 'brand' | 'install' | 'check' | 'sender';
 type AppScreen = 'home' | 'inbox' | 'visitors' | 'campaigns' | 'results' | 'globe' | 'settings';
 
-const DOCK: { id: AppScreen; label: string; icon: typeof Home; live?: boolean }[] = [
-  { id: 'home', label: 'Dashboard', icon: Home },
-  { id: 'inbox', label: 'Opportunities', icon: Inbox },
-  { id: 'visitors', label: 'People', icon: Users },
-  { id: 'campaigns', label: 'Campaigns', icon: Megaphone },
-  { id: 'results', label: 'Results', icon: BarChart3 },
-  { id: 'globe', label: 'Live', icon: Globe2, live: true },
-  { id: 'settings', label: 'Settings', icon: Settings },
+const DOCK: { id: AppScreen; label: string; icon: IconName; live?: boolean }[] = [
+  { id: 'home', label: 'Dashboard', icon: 'home' },
+  { id: 'inbox', label: 'Opportunities', icon: 'inbox' },
+  { id: 'visitors', label: 'People', icon: 'users' },
+  { id: 'campaigns', label: 'Campaigns', icon: 'megaphone' },
+  { id: 'results', label: 'Results', icon: 'chart' },
+  { id: 'globe', label: 'Live', icon: 'globe', live: true },
+  { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
 const WHERE: Record<AppScreen, string> = {
@@ -43,16 +46,6 @@ const SETUP_STEPS: { id: SetupStep; label: string; locked?: boolean }[] = [
   { id: 'check', label: 'Check it works' },
   { id: 'sender', label: 'Your sender', locked: true },
 ];
-
-function Ghost({ size = 24 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M5 19.5v-9a7 7 0 0 1 14 0v9q-1.75-2-3.5 0q-1.75-2-3.5 0q-1.75-2-3.5 0q-1.75-2-3.5 0z" />
-      <ellipse cx="9.6" cy="11" rx="1.1" ry="1.5" fill="currentColor" stroke="none" />
-      <ellipse cx="14.4" cy="11" rx="1.1" ry="1.5" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
 
 async function getProjects(signal?: AbortSignal, projectId?: string) {
   const response = await fetch(projectId ? `/api/projects?project=${projectId}` : '/api/projects?view=summary', { signal, cache: 'no-store' });
@@ -82,6 +75,14 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [screen, setScreen] = useState<AppScreen>('home');
   const [collapsed, setCollapsed] = useState(false);
   const [analytics, setAnalytics] = useState<Project>();
+  const [initial, setInitial] = useState('');
+  const [liveFocus, setLiveFocus] = useState<string>();
+  const [dockMode, setDockMode] = useState<DockMode>(() => {
+    try {
+      const saved = localStorage.getItem('omer.dock');
+      return saved === 'always' || saved === 'auto' ? saved : 'scroll';
+    } catch { return 'scroll'; }
+  });
   const createDialog = useRef<HTMLDialogElement>(null);
   const guideDialog = useRef<HTMLDialogElement>(null);
   const dashboardHeading = useRef<HTMLHeadingElement>(null);
@@ -96,8 +97,20 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const inSetup = !loading && !loadError && (!setupComplete || forceSetup);
 
   useEffect(() => {
+    const controller = new AbortController();
+    fetch('/api/auth/get-session', { cache: 'no-store', signal: controller.signal })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data: { user?: { name?: string; email?: string } } | null) => {
+        const who = data?.user?.name?.trim() || data?.user?.email || '';
+        setInitial(who.charAt(0).toUpperCase());
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
     document.documentElement.dataset.dash = '2';
-    document.documentElement.dataset.dock = 'light';
+    document.documentElement.dataset.dock = 'glass'; // kit setting: glass dock
     return () => { delete document.documentElement.dataset.dash; delete document.documentElement.dataset.dock; };
   }, []);
 
@@ -122,18 +135,27 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
   }, [project?.id, setupComplete, screen]);
 
   useEffect(() => {
-    setCollapsed(false);
-    if (inSetup || screen === 'globe') return;
+    try { localStorage.setItem('omer.dock', dockMode); } catch { /* per-browser convenience only */ }
+  }, [dockMode]);
+
+  useEffect(() => {
+    setCollapsed(dockMode === 'auto');
+    if (inSetup || screen === 'globe' || dockMode !== 'scroll') return;
+    // Kit behaviour: down hides into the page pill, a clear scroll up (or the top) brings it back.
     let last = window.scrollY;
+    let travel = 0;
     function onScroll() {
       const y = window.scrollY;
-      if (y <= 80 || document.activeElement?.closest('.app-dock')) setCollapsed(false);
-      else if (Math.abs(y - last) >= 10) setCollapsed(y > last);
-      if (Math.abs(y - last) >= 10 || y <= 80) last = y;
+      const dy = y - last;
+      last = y;
+      if (y < 24) { travel = 0; setCollapsed(false); return; }
+      travel = Math.sign(dy) === Math.sign(travel) ? travel + dy : dy;
+      if (travel > 12 && !document.querySelector('.app-dock:hover')) setCollapsed(true);
+      else if (travel < -40) setCollapsed(false);
     }
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
-  }, [screen, inSetup]);
+  }, [screen, inSetup, dockMode]);
 
   async function refresh(interactive = false) {
     pending.current?.abort();
@@ -429,31 +451,30 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
       <header className="app-shelf">
         <div className="app-shelf-in">
           <div className="app-shelf-l">
-            <button type="button" className="app-shelf-logo" aria-label="Dashboard" onClick={() => { setScreen('home'); setForceSetup(false); }}><Ghost size={28} /></button>
+            <button type="button" className="app-shelf-logo" aria-label="Dashboard" onClick={() => { setScreen('home'); setForceSetup(false); }}><Icon name="ghost" /></button>
             {projects.length > 0 && (
-              <label className="app-shelf-brand">
-                <span className="app-shelf-dot" aria-hidden="true" />
-                <span className="app-shelf-name" aria-hidden="true">{project?.name}</span>
-                <ChevronsUpDown className="app-shelf-chev" size={14} aria-hidden="true" />
-                <select aria-label="Current project" value={project?.id} onChange={(event) => {
-                  setSelection(event.target.value);
-                  setForceSetup(false);
-                  setScreen('home');
-                  setNotice('');
-                }}>
-                  {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                </select>
-              </label>
+              <ProjectMenu projects={projects} current={project?.id} onAdd={openCreate} onPick={(id) => {
+                setSelection(id);
+                setForceSetup(false);
+                setScreen('home');
+                setNotice('');
+              }} />
             )}
             {!inSetup && WHERE[screen] ? <span className="app-shelf-where">{WHERE[screen]}</span> : null}
           </div>
           <div className="app-shelf-r">
-            <button className="btn btn-ghost btn-icon round" type="button" aria-label="New project" title="New project" onClick={openCreate}><Plus size={18} aria-hidden="true" /></button>
-            <details className="omer-account">
-              <summary className="app-shelf-account" aria-label="Your account"><span className="app-shelf-avatar"><UserRound size={15} aria-hidden="true" /></span></summary>
-              <div className="omer-account-panel">
-                <button className="btn btn-ghost btn-sm" type="button" onClick={openGuide}>Installation guide</button>
-                <button className="btn btn-ghost btn-sm" type="button" onClick={() => void onSignOut().catch(() => setNotice('Unable to sign out. Try again.'))}>Sign out</button>
+            <details className="omer-account" onToggle={(event) => {
+              const box = event.currentTarget;
+              if (!box.open) return;
+              const close = (e: PointerEvent) => { if (!box.contains(e.target as Node)) { box.open = false; document.removeEventListener('pointerdown', close); } };
+              document.addEventListener('pointerdown', close);
+            }}>
+              <summary className="app-shelf-account" aria-label="Your account"><span className="app-shelf-avatar" aria-hidden="true">{initial || <Icon name="user" />}</span></summary>
+              <div className="omer-account-panel menu" role="menu">
+                <button className="menu-item" role="menuitem" type="button" onClick={(e) => { e.currentTarget.closest('details')!.open = false; openCreate(); }}><Icon name="plus" />New project</button>
+                <button className="menu-item" role="menuitem" type="button" onClick={(e) => { e.currentTarget.closest('details')!.open = false; openGuide(); }}><Icon name="book" />Installation guide</button>
+                <button className="menu-item" role="menuitem" type="button" onClick={(e) => { e.currentTarget.closest('details')!.open = false; setScreen('settings'); setForceSetup(false); }}><Icon name="settings" />Settings</button>
+                <button className="menu-item" role="menuitem" type="button" onClick={() => void onSignOut().catch(() => setNotice('Unable to sign out. Try again.'))}><Icon name="exit" />Sign out</button>
               </div>
             </details>
           </div>
@@ -504,48 +525,45 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
           </div>
         </main>
       ) : (
-        <main id="dashboard" className={`app-body ${screen === 'home' ? 'ho v2 is-in' : screen === 'globe' ? 'globe-body' : 'v2-screen'}`}>
+        <main id="dashboard" className={`app-body ${screen === 'home' ? 'ho v2' : screen === 'globe' ? 'globe-body' : 'v2-screen'}`}>
           {screen === 'home' && project ? (
             <DashboardV2 key={project.id} project={analytics?.id === project.id ? analytics : project} headingRef={dashboardHeading}
-              onGlobe={() => setScreen('globe')} onSetup={() => {
+              onGlobe={() => { setLiveFocus(undefined); setScreen('globe'); }} onPeople={() => setScreen('visitors')} onInbox={() => setScreen('inbox')} onSetup={() => {
                 setForceSetup(true);
                 setStep('check');
                 setReached(stepIndex('check'));
               }} />
           ) : screen === 'globe' && project ? (
-            <LiveGlobe key={project.id} {...live} />
+            <LiveGlobe key={project.id} {...live} focusSeed={liveFocus} />
           ) : screen === 'visitors' && project ? (
-            <People key={project.id} {...live} />
+            <People key={project.id} {...live} onLive={() => { setLiveFocus(undefined); setScreen('globe'); }}
+              onOpen={(seed) => { setLiveFocus(seed); setScreen('globe'); }} />
           ) : screen === 'settings' && project ? (
-            <div className="v2-empty-screen">
-              <h1>Settings</h1>
-              <section className="v2-card">
-                <header><Settings size={16} aria-hidden="true" /><h3>Project</h3></header>
-                <div className="v2-in omer-site-card">
-                  <p><b>{project.name}</b></p>
-                  <a href={project.origin} target="_blank" rel="noreferrer">{project.origin}</a>
-                  <p>Write key is used only in your install snippet.</p>
-                  <button className="btn btn-secondary btn-sm" type="button" onClick={openGuide}>Installation guide</button>
-                  <button className="btn btn-ghost btn-sm" type="button" onClick={() => {
-                    setForceSetup(true);
-                    setStep('install');
-                    setReached(stepIndex('install'));
-                  }}>Open setup</button>
-                </div>
-              </section>
-            </div>
+            <Settings project={project} snippet={snippet} dockMode={dockMode} onDockMode={setDockMode}
+              onCopy={(kind) => void copy(kind)} onGuide={openGuide} onSetup={() => {
+                setForceSetup(true);
+                setStep('install');
+                setReached((value) => Math.max(value, stepIndex('install')));
+              }} />
           ) : (
             <div className="v2-empty-screen">
-              <h1>{WHERE[screen] || 'Soon'}</h1>
+              <h1 className="v2-title">{WHERE[screen] || 'Soon'}</h1>
               <section className="v2-card">
-                <header><Inbox size={16} aria-hidden="true" /><h3>After email ships</h3></header>
-                <div className="v2-in">
-                  <p className="su-side-p">
-                    {screen === 'inbox' && 'Opportunities and follow-up drafts will land here once email generation is connected.'}
-                    {screen === 'campaigns' && 'Campaign recipes and sends will live here once the email engine ships.'}
-                    {screen === 'results' && 'Attributed revenue and send results will show here once campaigns go out.'}
-                  </p>
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => setScreen('home')}>Back to Home</button>
+                <div className="v2-in omer-soon">
+                  <div className="empty">
+                    <span className="empty-ico"><Icon name={DOCK.find(({ id }) => id === screen)?.icon ?? 'inbox'} /></span>
+                    <h4>
+                      {screen === 'inbox' && 'No opportunities yet'}
+                      {screen === 'campaigns' && 'No campaigns yet'}
+                      {screen === 'results' && 'No results yet'}
+                    </h4>
+                    <p>
+                      {screen === 'inbox' && 'Moments where a follow-up would help show up here once email drafting is connected.'}
+                      {screen === 'campaigns' && 'Follow-up recipes and their sends live here once the email engine ships.'}
+                      {screen === 'results' && 'Revenue from follow-up emails shows up here once campaigns start sending.'}
+                    </p>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setScreen('home')}>Back to Dashboard</button>
+                  </div>
                 </div>
               </section>
             </div>
@@ -555,32 +573,14 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
       )}
 
       {!inSetup && (
-        <div className="app-dock">
-          {collapsed && <button type="button" className="omer-dock-pill" aria-label={`Expand navigation, ${WHERE[screen] || 'Dashboard'}`} onPointerEnter={(event) => { if (event.pointerType === 'mouse') setCollapsed(false); }} onClick={() => { setCollapsed(false); requestAnimationFrame(() => document.querySelector<HTMLElement>('.app-dock [aria-current="page"]')?.focus()); }}>
-            {(() => { const Icon = DOCK.find(({ id }) => id === screen)!.icon; return <Icon size={16} aria-hidden="true" />; })()}
-            {WHERE[screen] || 'Dashboard'}
-          </button>}
-          <div className="dock-frame" hidden={collapsed}>
-            <nav className="dock" aria-label="Main navigation">
-              <div className="dock-bar">
-                {DOCK.map(({ id, label, icon: Icon, live }) => (
-                  <button
-                    key={id}
-                    type="button"
-                    className={`dock-item${live ? ' live' : ''}`}
-                    aria-label={live ? `Live, ${liveCount} online` : label}
-                    aria-current={screen === id ? 'page' : undefined}
-                    title={label}
-                    onClick={() => setScreen(id)}
-                  >
-                    <Icon size={20} aria-hidden="true" />
-                    {live ? <span className="count">{liveCount}</span> : null}
-                  </button>
-                ))}
-              </div>
-            </nav>
-          </div>
-        </div>
+        <Dock
+          items={DOCK.map((item) => (item.live ? { ...item, count: liveCount } : item))}
+          current={screen}
+          collapsed={collapsed && dockMode !== 'always'}
+          onReveal={() => setCollapsed(false)}
+          onLeave={() => { if (dockMode === 'auto') setCollapsed(true); }}
+          onPick={(id) => { if (id === 'globe') setLiveFocus(undefined); setScreen(id); if (dockMode !== 'auto') setCollapsed(false); window.scrollTo({ top: 0 }); }}
+        />
       )}
 
       <dialog ref={createDialog} className="dialog" aria-labelledby="create-heading" onCancel={(event) => { if (saving) event.preventDefault(); }}>

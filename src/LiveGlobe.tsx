@@ -1,45 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Maximize2, Radio, Volume2, VolumeX } from 'lucide-react';
+import { Icon } from './ui/Icon';
+import { SourceMark, sourceKey, sourceLabel } from './ui/sources';
 
 import { isOnline, type LiveVisit, type LivePayload } from './live';
+
+type GlobePerson = { seed?: string; cc: string; place: { name: string; lat: number; lng: number } };
+
+// Kit "Dots" globe: each pin wears the visitor's country flag (kit flag(cc, 21)).
+function flagFace(cc: string) {
+  return `<span class="flag" style="width:21px;height:21px"><img src="/assets/flags/${cc.toLowerCase()}.svg" alt="" draggable="false"></span>`;
+}
 
 type GlobeApi = {
   destroy(): void;
   setPeople(people: ReturnType<typeof peopleFromVisits>): void;
-  ping(match: (person: { seed?: string }) => boolean): void;
-  focus(match: (person: { seed?: string }) => boolean): void;
+  ping(match: (person: GlobePerson) => boolean): void;
+  focus(match: (person: GlobePerson) => boolean): void;
 };
-
-function flagFace(cc: string) {
-  const code = cc.toLowerCase();
-  return `<img src="/assets/flags/${code}.svg" alt="" width="16" height="16" draggable="false">`;
-}
-
-function sourceLabel(name: string) {
-  if (name === '(direct)') return 'Direct';
-  if (name.includes('google')) return 'Google';
-  if (name.includes('instagram')) return 'Instagram';
-  if (name.includes('tiktok')) return 'TikTok';
-  if (name.includes('facebook') || name.includes('meta')) return 'Facebook';
-  return name;
-}
-
-function sourceClass(name: string) {
-  if (name === '(direct)') return 'direct';
-  if (name.includes('google')) return 'google';
-  if (name.includes('instagram')) return 'instagram';
-  if (name.includes('tiktok')) return 'tiktok';
-  if (name.includes('facebook') || name.includes('meta')) return 'meta';
-  return 'direct';
-}
 
 function ago(iso: string, now: number) {
   const seconds = Math.max(0, Math.floor((now - new Date(iso).getTime()) / 1000));
-  if (seconds < 5) return 'now';
-  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 5) return 'just now';
+  if (seconds < 60) return `${seconds}s ago`;
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  return `${Math.floor(minutes / 60)}h`;
+  if (minutes < 60) return `${minutes}m ago`;
+  return `${Math.floor(minutes / 60)}h ago`;
 }
 
 function peopleFromVisits(visits: LiveVisit[], now: number) {
@@ -55,7 +40,7 @@ function peopleFromVisits(visits: LiveVisit[], now: number) {
   }));
 }
 
-export function LiveGlobe({ data, loading, failed: connectionFailed }: { data: LivePayload; loading: boolean; failed: boolean }) {
+export function LiveGlobe({ data, loading, failed: connectionFailed, focusSeed }: { data: LivePayload; loading: boolean; failed: boolean; focusSeed?: string }) {
   const stage = useRef<HTMLDivElement>(null);
   const globe = useRef<GlobeApi | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -117,10 +102,20 @@ export function LiveGlobe({ data, loading, failed: connectionFailed }: { data: L
         tone.start(start);
         tone.stop(start + 0.14);
       }
-      if (!seenLive && Date.now() - Date.parse(newest.seenAt) < 20000) globe.current?.focus((person) => person.seed === newest.seed);
+      if (!seenLive && !focusSeed && Date.now() - Date.parse(newest.seenAt) < 20000) globe.current?.focus((person) => person.seed === newest.seed);
       globe.current?.ping((person) => person.seed === newest.seed);
     }
   }, [peopleKey, newest?.id, ready]);
+
+  // Opened from People: turn to that person once their pin exists.
+  const [opened, setOpened] = useState(false);
+  useEffect(() => {
+    if (!ready || !focusSeed || opened || !people.some((p) => p.seed === focusSeed)) return;
+    setOpened(true);
+    setFocus(focusSeed);
+    globe.current?.focus((person) => person.seed === focusSeed);
+    globe.current?.ping((person) => person.seed === focusSeed);
+  }, [ready, focusSeed, opened, peopleKey]);
 
   function focusVisit(visit: LiveVisit) {
     setFocus(visit.seed);
@@ -132,11 +127,11 @@ export function LiveGlobe({ data, loading, failed: connectionFailed }: { data: L
     <div className="globe-wrap has-panel" data-style="dots" id="globeWrap">
       <aside className={`live-panel${showVisits ? ' visits-open' : ''}`} id="livePanel">
         <section className="v2-card lvp-now">
-          <header><Radio size={16} aria-hidden="true" /><h3>Right now</h3></header>
+          <header><h3>Right now</h3></header>
           <div className="v2-in">
             <div className="lvp-big">
               <b>{data.online}</b>
-              <span><i className="lvp-dot" aria-hidden="true" />{data.online === 1 ? 'person on the site' : 'people on the site'}</span>
+              <span><i className="lvp-dot" aria-hidden="true" />{data.online === 1 ? 'Current visitor' : 'Current visitors'}</span>
             </div>
             <div className="lvp-bars" aria-hidden="true">
               {data.minutes.slice(-30).map((count, index) => (
@@ -181,12 +176,13 @@ export function LiveGlobe({ data, loading, failed: connectionFailed }: { data: L
                 <p className="omer-empty-note">Sources fill in from referrers.</p>
               ) : (
                 <table className="lvp-table">
-                  <thead><tr><th scope="col">Source</th><th scope="col">Views</th><th scope="col">Share</th></tr></thead>
+                  <thead><tr><th scope="col">Source</th><th scope="col">Views</th><th scope="col">Orders</th><th scope="col">Share</th></tr></thead>
                   <tbody>
                     {data.sources.map((row) => (
                       <tr key={row.name}>
-                        <th scope="row"><span className="lvp-name"><span className={`lvp-src ${sourceClass(row.name)}`} aria-hidden="true" /><span>{sourceLabel(row.name)}</span></span></th>
+                        <th scope="row"><span className="lvp-name"><span className={`lvp-src ${sourceKey(row.name)}`} aria-hidden="true"><SourceMark referrer={row.name} /></span><span>{sourceLabel(row.name)}</span></span></th>
                         <td>{row.count}</td>
+                        <td>0</td>
                         <td>{Math.round((row.count / sourceTotal) * 100)}%</td>
                       </tr>
                     ))}
@@ -209,7 +205,7 @@ export function LiveGlobe({ data, loading, failed: connectionFailed }: { data: L
           audio.current ??= new AudioContext();
           void audio.current.resume().then(() => setSound(true)).catch(() => {});
         }}>
-          {sound ? <Volume2 size={19} aria-hidden="true" /> : <VolumeX size={19} aria-hidden="true" />}
+          <Icon name={sound ? 'volume' : 'volumeOff'} />
         </button>
         <button type="button" className="live-ctl-btn" aria-label="Toggle full screen" onClick={() => {
           const root = document.getElementById('globeWrap');
@@ -217,7 +213,7 @@ export function LiveGlobe({ data, loading, failed: connectionFailed }: { data: L
           if (!document.fullscreenElement) void root.requestFullscreen?.();
           else void document.exitFullscreen?.();
         }}>
-          <Maximize2 size={19} aria-hidden="true" />
+          <Icon name="expand" />
         </button>
       </div>
     </div>

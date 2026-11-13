@@ -2,6 +2,7 @@ export type DayCount = { day: string; count: number };
 export type DayDwell = { day: string; avgMs: number };
 export type NamedCount = { name: string; count: number };
 export type PathCount = { path: string; count: number };
+export type HourCount = { hour: string; views: number; people: number };
 
 export type Project = {
   id: string;
@@ -14,6 +15,7 @@ export type Project = {
   dwell?: DayDwell[];
   sources?: NamedCount[];
   pages?: PathCount[];
+  hours?: HourCount[];
 };
 
 export function installSnippet(project: Project, appOrigin: string) {
