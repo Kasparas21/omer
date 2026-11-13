@@ -19,6 +19,8 @@
   let cachedId;
   let replayOn = false;
   let stopReplay = null;
+  let lastIdentifiedEmail = '';
+  let emailCaptureBound = false;
 
   function visitorId() {
     try {
@@ -171,6 +173,7 @@
         cachedId = undefined;
         stopReplay?.();
         stopReplay = null;
+        lastIdentifiedEmail = '';
         try {
           localStorage.removeItem(storeKey);
           localStorage.removeItem(sessionKey);
@@ -194,16 +197,48 @@
       }).catch(() => undefined);
     }
     trackPage();
+    bindEmailCapture();
     void refreshConfig().then(() => { if (replayOn) startReplay(); });
   }
 
   function identify(input) {
     if (!consented || !input || typeof input !== 'object') return;
     const email = typeof input.email === 'string' ? input.email.trim() : '';
-    if (!email) return;
-    const payload = { ...basePayload('identify'), email };
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
+    if (email.toLowerCase() === lastIdentifiedEmail) return;
+    lastIdentifiedEmail = email.toLowerCase();
+    const payload = { ...basePayload('identify'), email: lastIdentifiedEmail };
     if (typeof input.name === 'string' && input.name.trim()) payload.name = input.name.trim().slice(0, 80);
     void post(payload);
+  }
+
+  function looksLikeEmailField(el) {
+    if (!el || el.disabled || el.readOnly) return false;
+    const tag = (el.tagName || '').toUpperCase();
+    if (tag !== 'INPUT' && tag !== 'TEXTAREA') return false;
+    const type = String(el.type || 'text').toLowerCase();
+    if (type === 'password' || type === 'hidden' || type === 'tel' || type === 'number' || type === 'card') return false;
+    const hint = `${el.name || ''} ${el.id || ''} ${el.autocomplete || ''} ${el.placeholder || ''} ${el.getAttribute?.('aria-label') || ''}`.toLowerCase();
+    if (/pass(word)?|card|cvv|cvc|ssn|secret|otp|pin/.test(hint)) return false;
+    if (type === 'email' || el.autocomplete === 'email') return true;
+    return /e-?mail|user(name)?/.test(hint) && !/user(name)?.*(pass|id\b)/.test(hint);
+  }
+
+  function captureEmailFromEvent(event) {
+    if (!consented) return;
+    const el = event.target;
+    if (!looksLikeEmailField(el)) return;
+    const email = String(el.value || '').trim();
+    if (!email) return;
+    identify({ email });
+  }
+
+  function bindEmailCapture() {
+    if (emailCaptureBound) return;
+    emailCaptureBound = true;
+    // Blur/change only — never scrape keystrokes, passwords, or payment fields.
+    document.addEventListener('focusout', captureEmailFromEvent, true);
+    document.addEventListener('change', captureEmailFromEvent, true);
   }
 
   function purchase(input) {
@@ -378,7 +413,25 @@
             }
             if (events.length >= BATCH_EVENTS || JSON.stringify(events).length >= FLUSH_BYTES) void flush(true);
           },
+          // Mask values in replay (asterisks) but record every keystroke so typing feels live.
           maskAllInputs: true,
+          maskInputOptions: {
+            password: true,
+            email: true,
+            text: true,
+            textarea: true,
+            tel: true,
+            number: true,
+            search: true,
+            url: true,
+            color: false,
+            date: false,
+            'datetime-local': false,
+            month: false,
+            range: false,
+            time: false,
+            week: false,
+          },
           maskTextSelector: 'input, textarea, [data-uw-mask]',
           blockClass: 'uw-block',
           blockSelector: 'input[type=password], [data-uw-block], .checkout, #checkout',
@@ -390,7 +443,7 @@
             mousemove: phone ? 100 : 50,
             mouseInteraction: true,
             scroll: phone ? 200 : 150,
-            input: 'last',
+            input: 'all',
           },
         });
       } catch {

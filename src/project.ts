@@ -33,7 +33,7 @@ export type Project = {
 };
 
 export function installSnippet(project: Project, appOrigin: string) {
-  return `<script src="${appOrigin}/tracker.js?v=17" data-site="${project.writeKey}" defer></script>`;
+  return `<script src="${appOrigin}/tracker.js?v=18" data-site="${project.writeKey}" defer></script>`;
 }
 
 export function installPrompt(project: Project, appOrigin: string) {
@@ -50,7 +50,7 @@ export function installPrompt(project: Project, appOrigin: string) {
     'Call window.unfairweekend.consent({ analytics: false }) if consent is withdrawn. If the site has no consent flow, tell me so we can add an explicit opt-in before enabling analytics.',
     'Once consent is granted, the tracker records page views, unique visitors, referrers, paths, and visit duration.',
     'On thank-you / checkout success pages call window.unfairweekend.purchase({ amount, currency, orderId, products }).',
-    'When you know the shopper, call window.unfairweekend.identify({ email, name }).',
+    'When you know the shopper, call window.unfairweekend.identify({ email, name }). The tracker also auto-attaches a visitor email when they finish typing a valid address into an email-like field (never passwords or payment fields).',
     'For email performance without sending from Unfair Weekend, call window.unfairweekend.emailOpen({ campaign }) and window.unfairweekend.emailClick({ campaign }) from your ESP links or open pixel.',
     'Do not send passwords, payment details, or session replay data.',
     'Report which files changed and how to verify the first event.',
