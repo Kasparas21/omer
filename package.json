@@ -1,0 +1,46 @@
+{
+  "name": "unfair-weekend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host localhost",
+    "build": "vite build",
+    "check": "tsc --noEmit",
+    "preview": "vite preview",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node --env-file=.env --import tsx server/migrate.ts",
+    "test:onboarding": "node tests/onboarding.mjs",
+    "start": "tsx server/index.ts",
+    "dev:api": "node --env-file=.env --import tsx server/index.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.8",
+    "better-auth": "^1.7.22",
+    "drizzle-orm": "^0.45.4",
+    "hono": "^4.13.18",
+    "lucide-react": "^1.72.0",
+    "pg": "^8.23.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "drizzle-kit": "^0.31.11",
+    "playwright-core": "^1.65.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "overrides": {
+    "@esbuild-kit/core-utils": {
+      "esbuild": "0.25.12"
+    }
+  }
+}

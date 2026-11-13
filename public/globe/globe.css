@@ -1,0 +1,65 @@
+.dg {
+  isolation: isolate; /* pins stack among themselves, never above things laid over the globe */
+  --dg-pin: #6360F0;
+  --dg-card: #ffffff;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  outline: none;
+}
+.dg[data-dragging="true"] { cursor: grabbing; }
+.dg:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--dg-pin) 45%, transparent); }
+.dg-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.dg-pin, .dg-pulse { position: absolute; top: 0; left: 0; pointer-events: none; visibility: hidden; will-change: transform; }
+.dg-pin { transform-origin: 0 0; }
+.dg-pin.is-pulse-only .dg-dot { width: 6px; height: 6px; }
+/* where the visitor is: a small blue dot on the surface */
+.dg-dot { position: absolute; top: 0; left: 0; width: 5px; height: 5px; border-radius: 50%; background: var(--dg-pin); box-shadow: 0 0 0 1px rgb(255 255 255 / 0.8); transform: translate(-50%, -50%); }
+/* round flag sitting just above it */
+.dg-flag {
+  position: absolute; top: 0; left: 0; display: block; width: 25px; height: 25px; padding: 2px; box-sizing: border-box;
+  border-radius: 50%; background: var(--dg-card); overflow: hidden;
+  box-shadow: 0 1px 2px rgb(20 20 20 / 0.12), 0 4px 10px -2px rgb(20 20 20 / 0.16);
+  transform: translate(-50%, calc(-100% - 5px));
+  border: 0; margin: 0; font: inherit; cursor: pointer; pointer-events: auto;
+  transition: box-shadow 0.15s;
+}
+.dg-flag:hover, .dg-pin.is-open .dg-flag { box-shadow: 0 0 0 2px var(--dg-pin), 0 4px 10px -2px rgb(20 20 20 / 0.2); }
+.dg-flag:focus-visible { outline: 2px solid var(--dg-pin); outline-offset: 2px; }
+.dg-flag .flag { display: block; width: 100% !important; height: 100% !important; box-shadow: none; }
+/* chip on the latest visitors: flag · city · page */
+.dg-chip {
+  position: absolute; top: 0; left: 0; display: flex; align-items: center; gap: 6px; height: 25px; padding: 0 10px;
+  border-radius: 8px; background: var(--dg-card); white-space: nowrap;
+  font: 400 12.5px/1 Inter, system-ui, sans-serif; color: #8b8b8f;
+  box-shadow: 0 1px 2px rgb(20 20 20 / 0.08), 0 6px 16px -6px rgb(20 20 20 / 0.18);
+  transform: translate(-50%, calc(-100% - 35px));
+}
+.dg-chip .flag { width: 13px !important; height: 9px !important; border-radius: 1.5px; }
+.dg-chip b { font-weight: 500; color: rgb(32 32 32 / 0.85); }
+/* the city chip a click on a flag opens; it takes the place of the page chip while open */
+.dg-city { display: none; }
+.dg-pin.is-open .dg-city { display: flex; animation: dg-pop 0.16s ease-out; }
+.dg-pin.is-open .dg-chip:not(.dg-city) { display: none; }
+.dg.has-open .dg-pin:not(.is-open) .dg-chip { opacity: 0; transition: opacity 0.15s; }
+.dg-city-count { color: #8b8b8f; }
+@keyframes dg-pop { from { opacity: 0; transform: translate(-50%, calc(-100% - 30px)); } }
+/* live glow and two ripples round the latest visitors */
+.dg-pulse i { position: absolute; top: 0; left: 0; border-radius: 50%; }
+.dg-pulse-glow {
+  width: calc(var(--globe-r) * 0.62); height: calc(var(--globe-r) * 0.62); transform: translate(-50%, -50%);
+  background: radial-gradient(closest-side, color-mix(in oklab, var(--dg-pin) 16%, transparent), color-mix(in oklab, var(--dg-pin) 6%, transparent) 55%, transparent);
+}
+.dg-ring {
+  width: calc(var(--globe-r) * 0.56); height: calc(var(--globe-r) * 0.56);
+  border: 1px solid color-mix(in srgb, var(--dg-pin) 25%, transparent);
+  animation: dg-ripple 3.6s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+}
+.dg-ring + .dg-ring { animation-delay: -1.8s; }
+@keyframes dg-ripple {
+  from { transform: translate(-50%, -50%) scale(0.25); opacity: 0.9; }
+  to { transform: translate(-50%, -50%) scale(1); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .dg-ring { animation: none; opacity: 0.5; transform: translate(-50%, -50%) scale(0.7); } }
