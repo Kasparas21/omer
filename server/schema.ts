@@ -1,4 +1,5 @@
-import { bigint, date, doublePrecision, index, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { bigint, boolean, date, doublePrecision, index, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 export const projects = pgTable('onboarding_projects', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -58,3 +59,43 @@ export const visits = pgTable('project_visits', {
   seenAt: timestamp('seen_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [index('project_visits_project_seen_idx').on(table.projectId, table.seenAt),
   index('project_visits_browser_seen_idx').on(table.projectId, table.visitorId, table.seenAt)]);
+
+export const purchases = pgTable('project_purchases', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  visitorId: text('visitor_id').notNull(),
+  orderId: text('order_id'),
+  amountCents: bigint('amount_cents', { mode: 'number' }).notNull(),
+  currency: text('currency').default('usd').notNull(),
+  path: text('path'),
+  referrer: text('referrer'),
+  products: jsonb('products').$type<{ name: string; price?: number; qty?: number }[] | null>(),
+  campaign: text('campaign'),
+  isReturning: boolean('is_returning').default(false).notNull(),
+  seenAt: timestamp('seen_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index('project_purchases_project_seen_idx').on(table.projectId, table.seenAt),
+  index('project_purchases_visitor_idx').on(table.projectId, table.visitorId),
+  uniqueIndex('project_purchases_order_uidx').on(table.projectId, table.orderId).where(sql`${table.orderId} is not null`),
+]);
+
+export const identities = pgTable('project_identities', {
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  visitorId: text('visitor_id').notNull(),
+  email: text('email').notNull(),
+  name: text('name'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  primaryKey({ name: 'project_identities_pk', columns: [table.projectId, table.visitorId] }),
+  index('project_identities_email_idx').on(table.projectId, table.email),
+]);
+
+export const emailEvents = pgTable('project_email_events', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  visitorId: text('visitor_id').notNull(),
+  type: text('type').notNull(),
+  campaign: text('campaign'),
+  messageId: text('message_id'),
+  seenAt: timestamp('seen_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [index('project_email_events_project_seen_idx').on(table.projectId, table.seenAt)]);

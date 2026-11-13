@@ -118,12 +118,21 @@ export function Settings({ project, snippet, dockMode, onDockMode, onCopy, onGui
               </Row>
               <Row title="Session replay" hint="Recordings of what people do on the page"><span className="status-pill">Off</span></Row>
               <Row title="Location" hint="City and country from the request, never the IP address"><span className="omer-set-val">City level</span></Row>
+              <Row title="Purchase events" hint="Call window.unfairweekend.purchase on thank-you pages">
+                <span className="omer-set-val">amount, currency, orderId</span>
+              </Row>
+              <Row title="Identify" hint="Call window.unfairweekend.identify when you know the shopper">
+                <span className="omer-set-val">email, name</span>
+              </Row>
+              <Row title="Email performance" hint="Open/click ingest only — Unfair Weekend does not send yet">
+                <span className="omer-set-val">emailOpen / emailClick</span>
+              </Row>
             </div>
             <aside className="set-side"><div className="set-side-in">
               <div className="set-side-k">What we keep</div>
-              <ul className="set-list"><li>Pages they looked at</li><li>Where they came from</li><li>How long they stayed</li></ul>
+              <ul className="set-list"><li>Pages they looked at</li><li>Where they came from</li><li>How long they stayed</li><li>Purchases and identified email when you send them</li><li>Email open and click events you report</li></ul>
               <div className="set-side-k gap">What we never keep</div>
-              <ul className="set-list no"><li>IP addresses</li><li>Passwords or card numbers</li><li>Anything typed in a form</li></ul>
+              <ul className="set-list no"><li>IP addresses</li><li>Passwords or card numbers</li><li>Anything typed in a form</li><li>Session recordings (replay stays off)</li></ul>
             </div></aside>
           </>}
           {tab === 'dock' && (

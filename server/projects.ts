@@ -1,7 +1,8 @@
-import { and, desc, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { amountCents, cleanCampaign, cleanCurrency, cleanEmail, cleanName, cleanOrderId, cleanProducts } from './commerce';
 import { localDemoPlace, placeFromRequest } from './geo';
-import { dailyVisitors, dwell, pageViews, pathViews, projects, referrerViews, visits } from './schema';
+import { dailyVisitors, dwell, emailEvents, identities, pageViews, pathViews, projects, purchases, referrerViews, visits } from './schema';
 import { auth, pool, appURL } from './auth';
 
 type RateLimit = { limit(input: { key: string }): Promise<{ success: boolean }> };
@@ -179,6 +180,115 @@ async function listProjects(request: Request, env: Env) {
         limit 8
       ) q
     ), '[]'::json)`,
+    sales: sql<{ day: string; count: number }[]>`coalesce((
+      select json_agg(json_build_object('day', day, 'count', count) order by day)
+      from (
+        select (${purchases.seenAt} at time zone 'UTC')::date::text as day,
+          (sum(${purchases.amountCents})::float8 / 100) as count
+        from ${purchases}
+        where ${purchases.projectId} = ${projects.id}
+          and ${purchases.seenAt} >= (now() at time zone 'UTC')::date - 59
+        group by 1
+      ) q
+    ), '[]'::json)`,
+    orders: sql<{ day: string; count: number }[]>`coalesce((
+      select json_agg(json_build_object('day', day, 'count', count) order by day)
+      from (
+        select (${purchases.seenAt} at time zone 'UTC')::date::text as day,
+          count(*)::float8 as count
+        from ${purchases}
+        where ${purchases.projectId} = ${projects.id}
+          and ${purchases.seenAt} >= (now() at time zone 'UTC')::date - 59
+        group by 1
+      ) q
+    ), '[]'::json)`,
+    returningSales: sql<{ day: string; count: number }[]>`coalesce((
+      select json_agg(json_build_object('day', day, 'count', count) order by day)
+      from (
+        select (${purchases.seenAt} at time zone 'UTC')::date::text as day,
+          (sum(${purchases.amountCents})::float8 / 100) as count
+        from ${purchases}
+        where ${purchases.projectId} = ${projects.id}
+          and ${purchases.isReturning} = true
+          and ${purchases.seenAt} >= (now() at time zone 'UTC')::date - 59
+        group by 1
+      ) q
+    ), '[]'::json)`,
+    clicked: sql<{ day: string; count: number }[]>`coalesce((
+      select json_agg(json_build_object('day', day, 'count', count) order by day)
+      from (
+        select (${emailEvents.seenAt} at time zone 'UTC')::date::text as day,
+          count(*)::float8 as count
+        from ${emailEvents}
+        where ${emailEvents.projectId} = ${projects.id}
+          and ${emailEvents.type} = 'email_click'
+          and ${emailEvents.seenAt} >= (now() at time zone 'UTC')::date - 59
+        group by 1
+      ) q
+    ), '[]'::json)`,
+    emailOpens: sql<{ day: string; count: number }[]>`coalesce((
+      select json_agg(json_build_object('day', day, 'count', count) order by day)
+      from (
+        select (${emailEvents.seenAt} at time zone 'UTC')::date::text as day,
+          count(*)::float8 as count
+        from ${emailEvents}
+        where ${emailEvents.projectId} = ${projects.id}
+          and ${emailEvents.type} = 'email_open'
+          and ${emailEvents.seenAt} >= (now() at time zone 'UTC')::date - 59
+        group by 1
+      ) q
+    ), '[]'::json)`,
+    products: sql<{ name: string; count: number; revenue: number }[]>`coalesce((
+      select json_agg(json_build_object('name', name, 'count', count, 'revenue', revenue) order by revenue desc)
+      from (
+        select coalesce(item->>'name', 'Product') as name,
+          sum(coalesce((item->>'qty')::float8, 1))::float8 as count,
+          sum(coalesce((item->>'price')::float8, 0) * coalesce((item->>'qty')::float8, 1))::float8 as revenue
+        from ${purchases},
+          lateral jsonb_array_elements(coalesce(${purchases.products}, '[]'::jsonb)) as item
+        where ${purchases.projectId} = ${projects.id}
+          and ${purchases.seenAt} >= (now() at time zone 'UTC')::date - 29
+        group by 1
+        order by revenue desc
+        limit 8
+      ) q
+    ), '[]'::json)`,
+    campaigns: sql<{ name: string; revenue: number; count: number }[]>`coalesce((
+      select json_agg(json_build_object('name', name, 'revenue', revenue, 'count', count) order by revenue desc)
+      from (
+        select coalesce(nullif(${purchases.campaign}, ''), 'Unattributed') as name,
+          (sum(${purchases.amountCents})::float8 / 100) as revenue,
+          count(*)::float8 as count
+        from ${purchases}
+        where ${purchases.projectId} = ${projects.id}
+          and ${purchases.seenAt} >= (now() at time zone 'UTC')::date - 29
+        group by 1
+        order by revenue desc
+        limit 6
+      ) q
+    ), '[]'::json)`,
+    sourceRevenue: sql<{ name: string; revenue: number }[]>`coalesce((
+      select json_agg(json_build_object('name', name, 'revenue', revenue) order by revenue desc)
+      from (
+        select coalesce(nullif(${purchases.referrer}, ''), '(direct)') as name,
+          (sum(${purchases.amountCents})::float8 / 100) as revenue
+        from ${purchases}
+        where ${purchases.projectId} = ${projects.id}
+          and ${purchases.seenAt} >= (now() at time zone 'UTC')::date - 29
+        group by 1
+      ) q
+    ), '[]'::json)`,
+    pageRevenue: sql<{ path: string; revenue: number }[]>`coalesce((
+      select json_agg(json_build_object('path', path, 'revenue', revenue) order by revenue desc)
+      from (
+        select coalesce(nullif(split_part(split_part(${purchases.path}, '?', 1), '#', 1), ''), '/') as path,
+          (sum(${purchases.amountCents})::float8 / 100) as revenue
+        from ${purchases}
+        where ${purchases.projectId} = ${projects.id}
+          and ${purchases.seenAt} >= (now() at time zone 'UTC')::date - 29
+        group by 1
+      ) q
+    ), '[]'::json)`,
   })
     .from(projects).where(and(eq(projects.owner, owner), selected ? eq(projects.id, selected) : undefined)).orderBy(desc(projects.createdAt)));
   return json({ projects: records });
@@ -233,21 +343,25 @@ async function receiveEvent(request: Request, env: Env) {
   const ip = request.headers.get('CF-Connecting-IP') ?? 'local';
   if (!(await env.COLLECT_LIMIT.limit({ key: `${ip}:event` })).success) return new Response(null, { status: 429 });
 
-  const raw = await readText(request, 1024);
-  let body: { key?: unknown; type?: unknown; vid?: unknown; path?: unknown; ref?: unknown; ms?: unknown } | null;
+  const raw = await readText(request, 4096);
+  let body: Record<string, unknown> | null;
   try { body = raw === null ? null : JSON.parse(raw); } catch { body = null; }
   const writeKey = typeof body?.key === 'string' ? body.key : '';
-  const type = body?.type === 'pageview' || body?.type === 'dwell' || body?.type === 'presence' ? body.type : null;
+  const type = body?.type === 'pageview' || body?.type === 'dwell' || body?.type === 'presence'
+    || body?.type === 'purchase' || body?.type === 'identify'
+    || body?.type === 'email_open' || body?.type === 'email_click' ? body.type : null;
   const vid = typeof body?.vid === 'string' && visitorId.test(body.vid) ? body.vid : null;
-  const path = cleanPath(body?.path);
-  if (!uuid.test(writeKey) || !type || !vid || !path) return new Response(null, { status: 400 });
+  const path = cleanPath(body?.path) ?? '/';
+  if (!uuid.test(writeKey) || !type || !vid) return new Response(null, { status: 400 });
 
   const accepted = await withDatabase(env, (db) => db.transaction(async (tx) => {
     const [project] = await tx.select({ id: projects.id, firstEventAt: projects.firstEventAt }).from(projects)
       .where(and(eq(projects.writeKey, writeKey), eq(projects.origin, origin))).limit(1);
     if (!project) return null;
-    if (!project.firstEventAt && type === 'pageview') await tx.update(projects).set({ firstEventAt: sql`now()` })
-      .where(and(eq(projects.id, project.id), isNull(projects.firstEventAt)));
+    if (!project.firstEventAt && (type === 'pageview' || type === 'purchase')) {
+      await tx.update(projects).set({ firstEventAt: sql`now()` })
+        .where(and(eq(projects.id, project.id), isNull(projects.firstEventAt)));
+    }
     const day = sql`(now() at time zone 'UTC')::date`;
 
     if (type === 'presence') {
@@ -270,6 +384,61 @@ async function receiveEvent(request: Request, env: Env) {
             samples: sql`${dwell.samples} + 1`,
           },
         });
+      return project.id;
+    }
+
+    if (type === 'identify') {
+      const email = cleanEmail(body?.email);
+      if (!email) return null;
+      await tx.insert(identities)
+        .values({ projectId: project.id, visitorId: vid, email, name: cleanName(body?.name) })
+        .onConflictDoUpdate({
+          target: [identities.projectId, identities.visitorId],
+          set: { email, name: cleanName(body?.name), updatedAt: sql`now()` },
+        });
+      return project.id;
+    }
+
+    if (type === 'email_open' || type === 'email_click') {
+      await tx.insert(emailEvents).values({
+        projectId: project.id,
+        visitorId: vid,
+        type,
+        campaign: cleanCampaign(body?.campaign),
+        messageId: cleanOrderId(body?.messageId),
+      });
+      return project.id;
+    }
+
+    if (type === 'purchase') {
+      const cents = amountCents(body?.amount);
+      if (cents == null) return null;
+      const orderId = cleanOrderId(body?.orderId);
+      const [prior] = await tx.select({ id: purchases.id }).from(purchases)
+        .where(and(eq(purchases.projectId, project.id), eq(purchases.visitorId, vid))).limit(1);
+      let lastVisit: { path: string; referrer: string } | undefined;
+      const [visit] = await tx.select({ path: visits.path, referrer: visits.referrer }).from(visits)
+        .where(and(eq(visits.projectId, project.id), eq(visits.visitorId, vid)))
+        .orderBy(desc(visits.seenAt)).limit(1);
+      lastVisit = visit;
+      try {
+        await tx.insert(purchases).values({
+          projectId: project.id,
+          visitorId: vid,
+          orderId,
+          amountCents: cents,
+          currency: cleanCurrency(body?.currency),
+          path: cleanPath(body?.path) ?? lastVisit?.path ?? '/',
+          referrer: cleanReferrer(body?.ref ?? lastVisit?.referrer),
+          products: cleanProducts(body?.products),
+          campaign: cleanCampaign(body?.campaign),
+          isReturning: Boolean(prior),
+        });
+      } catch {
+        // Duplicate order_id for this project — treat as idempotent success.
+        if (orderId) return project.id;
+        throw new Error('purchase_insert_failed');
+      }
       return project.id;
     }
 
@@ -378,10 +547,41 @@ async function liveFeed(request: Request, env: Env, projectId: string, stream: b
       .orderBy(desc(sql`sum(${referrerViews.count})`))
       .limit(6);
 
+    const orderBySource = await db.select({
+      name: sql<string>`coalesce(nullif(${purchases.referrer}, ''), '(direct)')`,
+      orders: sql<number>`count(*)::int`,
+    })
+      .from(purchases)
+      .where(and(eq(purchases.projectId, projectId), gt(purchases.seenAt, sql`now() - interval '7 days'`)))
+      .groupBy(sql`coalesce(nullif(${purchases.referrer}, ''), '(direct)')`);
+    const ordersMap = new Map(orderBySource.map((row) => [row.name, Number(row.orders)]));
+
+    const visitorIds = [...new Set(recent.map((row) => row.visitorId))];
+    const identityRows = visitorIds.length
+      ? await db.select({ visitorId: identities.visitorId, email: identities.email, name: identities.name })
+        .from(identities)
+        .where(and(eq(identities.projectId, projectId), inArray(identities.visitorId, visitorIds)))
+      : [];
+    const revenueRows = visitorIds.length
+      ? await db.select({
+        visitorId: purchases.visitorId,
+        revenue: sql<number>`(sum(${purchases.amountCents})::float8 / 100)`,
+      })
+        .from(purchases)
+        .where(and(eq(purchases.projectId, projectId), inArray(purchases.visitorId, visitorIds)))
+        .groupBy(purchases.visitorId)
+      : [];
+    const identityMap = new Map(identityRows.map((row) => [row.visitorId, row]));
+    const revenueMap = new Map(revenueRows.map((row) => [row.visitorId, Number(row.revenue)]));
+
     return json({
       online: Number(online ?? 0),
       minutes,
-      sources: sourceRows.map((row) => ({ name: row.name, count: Number(row.count) })),
+      sources: sourceRows.map((row) => ({
+        name: row.name,
+        count: Number(row.count),
+        orders: ordersMap.get(row.name) ?? 0,
+      })),
       visits: recent.map((row) => ({
         id: row.id,
         seed: row.visitorId,
@@ -394,7 +594,118 @@ async function liveFeed(request: Request, env: Env, projectId: string, stream: b
         lng: row.lng,
         seenAt: row.seenAt,
         activeAt: row.activeAt,
+        email: identityMap.get(row.visitorId)?.email ?? null,
+        name: identityMap.get(row.visitorId)?.name ?? null,
+        revenue: revenueMap.get(row.visitorId) ?? 0,
       })),
+    });
+  });
+}
+
+async function visitorProfile(request: Request, env: Env, projectId: string, visitorKey: string) {
+  if (!uuid.test(projectId) || !visitorId.test(visitorKey)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to view profiles.' }, 401);
+
+  return withDatabase(env, async (db) => {
+    const [project] = await db.select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.id, projectId), eq(projects.owner, owner)))
+      .limit(1);
+    if (!project) return json({ error: 'Project not found.' }, 404);
+
+    const journey = await db.select({
+      id: visits.id,
+      path: visits.path,
+      referrer: visits.referrer,
+      cc: visits.cc,
+      city: visits.city,
+      place: visits.place,
+      lat: visits.lat,
+      lng: visits.lng,
+      seenAt: visits.seenAt,
+      activeAt: sql<string>`coalesce(${visits.activeAt}, ${visits.seenAt})`,
+    })
+      .from(visits)
+      .where(and(eq(visits.projectId, projectId), eq(visits.visitorId, visitorKey)))
+      .orderBy(desc(visits.seenAt))
+      .limit(60);
+
+    const [identity] = await db.select({
+      email: identities.email,
+      name: identities.name,
+      updatedAt: identities.updatedAt,
+    })
+      .from(identities)
+      .where(and(eq(identities.projectId, projectId), eq(identities.visitorId, visitorKey)))
+      .limit(1);
+
+    const orderRows = await db.select({
+      id: purchases.id,
+      amountCents: purchases.amountCents,
+      currency: purchases.currency,
+      path: purchases.path,
+      referrer: purchases.referrer,
+      products: purchases.products,
+      campaign: purchases.campaign,
+      isReturning: purchases.isReturning,
+      seenAt: purchases.seenAt,
+      orderId: purchases.orderId,
+    })
+      .from(purchases)
+      .where(and(eq(purchases.projectId, projectId), eq(purchases.visitorId, visitorKey)))
+      .orderBy(desc(purchases.seenAt))
+      .limit(40);
+
+    const mail = await db.select({
+      id: emailEvents.id,
+      type: emailEvents.type,
+      campaign: emailEvents.campaign,
+      seenAt: emailEvents.seenAt,
+    })
+      .from(emailEvents)
+      .where(and(eq(emailEvents.projectId, projectId), eq(emailEvents.visitorId, visitorKey)))
+      .orderBy(desc(emailEvents.seenAt))
+      .limit(40);
+
+    const revenue = orderRows.reduce((sum, row) => sum + row.amountCents, 0) / 100;
+    const opens = mail.filter((row) => row.type === 'email_open').length;
+    const clicks = mail.filter((row) => row.type === 'email_click').length;
+    const latest = journey[0];
+
+    return json({
+      seed: visitorKey,
+      identity: identity ?? null,
+      place: latest ? { cc: latest.cc, city: latest.city, place: latest.place, lat: latest.lat, lng: latest.lng } : null,
+      stats: {
+        visits: journey.length,
+        revenue,
+        orders: orderRows.length,
+        opens,
+        clicks,
+        attributed: orderRows.filter((row) => row.campaign).length,
+      },
+      journey: journey.map((row) => ({
+        id: row.id,
+        path: cleanPath(row.path) ?? '/',
+        referrer: row.referrer,
+        seenAt: row.seenAt,
+        activeAt: row.activeAt,
+      })),
+      purchases: orderRows.map((row) => ({
+        id: row.id,
+        orderId: row.orderId,
+        amount: row.amountCents / 100,
+        currency: row.currency,
+        path: row.path,
+        referrer: row.referrer,
+        products: row.products,
+        campaign: row.campaign,
+        isReturning: row.isReturning,
+        seenAt: row.seenAt,
+      })),
+      emailEvents: mail,
+      replay: null,
     });
   });
 }
@@ -436,6 +747,11 @@ export default {
   async fetch(request: Request, env: Env) {
     const url = new URL(request.url);
     try {
+      const profileMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/visitors\/([A-Za-z0-9_-]{8,80})$/i);
+      if (profileMatch) {
+        if (request.method === 'GET') return await visitorProfile(request, env, profileMatch[1], profileMatch[2]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
       const liveMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/live(\/stream)?$/i);
       if (liveMatch) {
         if (request.method === 'GET') return await liveFeed(request, env, liveMatch[1], Boolean(liveMatch[2]));

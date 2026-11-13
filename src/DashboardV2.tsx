@@ -129,22 +129,65 @@ function CountUp({ value, kind, run }: { value: number; kind: Metric | 'count'; 
 
 type Series = Record<Metric, number[]>;
 type Totals = Record<Metric, number>;
-/** Demo project only: email clicks and revenue that follow its visitor curve (see demo.ts). */
-function withDemo<T extends { series: Series; back: Series; totals: Totals; prev: Totals; liveAt?: number }>(demo: boolean, d: T) {
-  if (!demo) return { ...d, mail: null };
-  const now = demoSeries(d.series.people, 1);
-  const was = demoSeries(d.back.people, 7);
-  const cut = d.liveAt == null ? now.sales.length : d.liveAt + 1; // Today stops at the current hour
-  const upTo = (xs: number[]) => xs.map((x, i) => (i < cut ? x : 0));
-  const series = { ...d.series, clicked: upTo(now.clicked), sales: upTo(now.sales) };
-  const back = { ...d.back, clicked: was.clicked, sales: was.sales };
-  const before = (xs: number[]) => sum(xs.slice(0, cut));
-  return {
-    ...d, series, back,
-    totals: { ...d.totals, clicked: sum(series.clicked), sales: sum(series.sales) },
-    prev: { ...d.prev, clicked: before(was.clicked), sales: before(was.sales) },
-    mail: { sent: upTo(now.sent), sentPrev: before(was.sent), customers: Math.round(sum(upTo(now.orders)) * 0.9) },
+type MailPulse = {
+  sent: number[];
+  sentPrev: number;
+  customers: number;
+  returning?: number[];
+  campaigns?: { name: string; share: number; revenue: number }[];
+  products?: { name: string; count: number; revenue: number; price?: number; tint?: string }[];
+  sourceRevenue?: Map<string, number>;
+  pageRevenue?: Map<string, number>;
+};
+/** Demo fills email/sales from the visitor curve; real projects use collected purchase/email events. */
+function withDemo<T extends {
+  series: Series; back: Series; totals: Totals; prev: Totals; liveAt?: number;
+  returning?: number[]; opens?: number[];
+}>(demo: boolean, d: T, real?: {
+  ordersTotal: number;
+  campaigns: { name: string; revenue: number; count: number }[];
+  products: { name: string; count: number; revenue: number }[];
+  sourceRevenue: { name: string; revenue: number }[];
+  pageRevenue: { path: string; revenue: number }[];
+}) {
+  if (demo) {
+    const now = demoSeries(d.series.people, 1);
+    const was = demoSeries(d.back.people, 7);
+    const cut = d.liveAt == null ? now.sales.length : d.liveAt + 1;
+    const upTo = (xs: number[]) => xs.map((x, i) => (i < cut ? x : 0));
+    const series = { ...d.series, clicked: upTo(now.clicked), sales: upTo(now.sales) };
+    const back = { ...d.back, clicked: was.clicked, sales: was.sales };
+    const before = (xs: number[]) => sum(xs.slice(0, cut));
+    const mail: MailPulse = {
+      sent: upTo(now.sent),
+      sentPrev: before(was.sent),
+      customers: Math.round(sum(upTo(now.orders)) * 0.9),
+    };
+    return {
+      ...d, series, back,
+      totals: { ...d.totals, clicked: sum(series.clicked), sales: sum(series.sales) },
+      prev: { ...d.prev, clicked: before(was.clicked), sales: before(was.sales) },
+      mail,
+    };
+  }
+  const hasCommerce = d.totals.sales > 0 || d.totals.clicked > 0 || (real?.ordersTotal ?? 0) > 0;
+  if (!hasCommerce) return { ...d, mail: null as MailPulse | null };
+  const campaignRevenue = sum((real?.campaigns ?? []).map((c) => c.revenue)) || d.totals.sales || 1;
+  const mail: MailPulse = {
+    sent: d.opens ?? zeros(d.series.people.length),
+    sentPrev: 0,
+    customers: real?.ordersTotal ?? 0,
+    returning: d.returning,
+    campaigns: (real?.campaigns ?? []).map((c) => ({
+      name: c.name,
+      share: c.revenue / campaignRevenue,
+      revenue: c.revenue,
+    })),
+    products: real?.products ?? [],
+    sourceRevenue: new Map((real?.sourceRevenue ?? []).map((row) => [row.name, row.revenue])),
+    pageRevenue: new Map((real?.pageRevenue ?? []).map((row) => [row.path, row.revenue])),
   };
+  return { ...d, mail };
 }
 
 /** Half ring split by campaign share; each arc draws in after the one before. */
@@ -264,7 +307,12 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, head
     views: byDay(project.pageViews, 'count'),
     people: byDay(project.visitors, 'count'),
     dwell: byDay(project.dwell, 'avgMs'),
-  }), [project.pageViews, project.visitors, project.dwell]);
+    sales: byDay(project.sales, 'count'),
+    orders: byDay(project.orders, 'count'),
+    returning: byDay(project.returningSales, 'count'),
+    clicked: byDay(project.clicked, 'count'),
+    opens: byDay(project.emailOpens, 'count'),
+  }), [project.pageViews, project.visitors, project.dwell, project.sales, project.orders, project.returningSales, project.clicked, project.emailOpens]);
 
   const today = new Date(end).toISOString().slice(0, 10);
   const yesterday = new Date(end - dayMs).toISOString().slice(0, 10);
@@ -286,36 +334,118 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, head
       }
       const dwellToday = maps.dwell.get(today) ?? 0;
       const dwellBack = maps.dwell.get(yesterday) ?? 0;
-      const series = { ...hourly, dwell: Array(24).fill(dwellToday), clicked: zeros(24), sales: zeros(24) };
-      const backSeries = { ...back, dwell: Array(24).fill(dwellBack), clicked: zeros(24), sales: zeros(24) };
+      const salesToday = maps.sales.get(today) ?? 0;
+      const salesBack = maps.sales.get(yesterday) ?? 0;
+      const clickedToday = maps.clicked.get(today) ?? 0;
+      const clickedBack = maps.clicked.get(yesterday) ?? 0;
+      // Spread day totals across hours for the strip until we store hourly commerce.
+      const spread = (total: number, n: number, cut: number) => {
+        const out = Array(n).fill(0);
+        if (!total || cut < 0) return out;
+        const each = total / (cut + 1);
+        for (let i = 0; i <= cut; i++) out[i] = each;
+        return out;
+      };
+      const series = {
+        ...hourly,
+        dwell: Array(24).fill(dwellToday),
+        clicked: spread(clickedToday, 24, nowHour),
+        sales: spread(salesToday, 24, nowHour),
+      };
+      const backSeries = {
+        ...back,
+        dwell: Array(24).fill(dwellBack),
+        clicked: spread(clickedBack, 24, 23),
+        sales: spread(salesBack, 24, 23),
+      };
       // Compare against yesterday up to the same hour.
       const backViewsSoFar = sum(back.views.slice(0, nowHour + 1));
       const backViewsAll = sum(back.views) || 1;
       const peopleYesterday = maps.people.get(yesterday) ?? 0;
-      const totals = { people: maps.people.get(today) ?? 0, views: maps.views.get(today) ?? sum(hourly.views), dwell: dwellToday, clicked: 0, sales: 0 };
-      const prev = { people: Math.round(peopleYesterday * (backViewsSoFar / backViewsAll)), views: backViewsSoFar, dwell: dwellBack, clicked: 0, sales: 0 };
+      const totals = {
+        people: maps.people.get(today) ?? 0,
+        views: maps.views.get(today) ?? sum(hourly.views),
+        dwell: dwellToday,
+        clicked: clickedToday,
+        sales: salesToday,
+      };
+      const prev = {
+        people: Math.round(peopleYesterday * (backViewsSoFar / backViewsAll)),
+        views: backViewsSoFar,
+        dwell: dwellBack,
+        clicked: Math.round(clickedBack * ((nowHour + 1) / 24)),
+        sales: Math.round(salesBack * ((nowHour + 1) / 24)),
+      };
       return {
         n: 24, series, back: backSeries, totals, prev, liveAt: nowHour,
         tip: (i: number) => (i === nowHour ? `Today, ${hourLabel(i)} so far` : `Today, ${hourLabel(i)}`),
         at: hourLabel, earlier: 'Yesterday', last: hourLabel(nowHour),
+        returning: spread(maps.returning.get(today) ?? 0, 24, nowHour),
+        opens: spread(maps.opens.get(today) ?? 0, 24, nowHour),
       };
     }
-    const now = { views: days(range, end, maps.views), people: days(range, end, maps.people), dwell: days(range, end, maps.dwell) };
-    const before = { views: days(range, end - range * dayMs, maps.views), people: days(range, end - range * dayMs, maps.people), dwell: days(range, end - range * dayMs, maps.dwell) };
+    const now = {
+      views: days(range, end, maps.views),
+      people: days(range, end, maps.people),
+      dwell: days(range, end, maps.dwell),
+      sales: days(range, end, maps.sales),
+      clicked: days(range, end, maps.clicked),
+      returning: days(range, end, maps.returning),
+      opens: days(range, end, maps.opens),
+    };
+    const before = {
+      views: days(range, end - range * dayMs, maps.views),
+      people: days(range, end - range * dayMs, maps.people),
+      dwell: days(range, end - range * dayMs, maps.dwell),
+      sales: days(range, end - range * dayMs, maps.sales),
+      clicked: days(range, end - range * dayMs, maps.clicked),
+    };
     const values = (rows: { value: number }[]) => rows.map((row) => row.value);
     const dates = now.people.map((row) => row.date);
     return {
       n: range,
-      series: { views: values(now.views), people: values(now.people), dwell: values(now.dwell), clicked: zeros(range), sales: zeros(range) },
-      back: { views: values(before.views), people: values(before.people), dwell: values(before.dwell), clicked: zeros(range), sales: zeros(range) },
-      totals: { people: sum(values(now.people)), views: sum(values(now.views)), dwell: avg(values(now.dwell)), clicked: 0, sales: 0 },
-      prev: { people: sum(values(before.people)), views: sum(values(before.views)), dwell: avg(values(before.dwell)), clicked: 0, sales: 0 },
+      series: {
+        views: values(now.views),
+        people: values(now.people),
+        dwell: values(now.dwell),
+        clicked: values(now.clicked),
+        sales: values(now.sales),
+      },
+      back: {
+        views: values(before.views),
+        people: values(before.people),
+        dwell: values(before.dwell),
+        clicked: values(before.clicked),
+        sales: values(before.sales),
+      },
+      totals: {
+        people: sum(values(now.people)),
+        views: sum(values(now.views)),
+        dwell: avg(values(now.dwell)),
+        clicked: sum(values(now.clicked)),
+        sales: sum(values(now.sales)),
+      },
+      prev: {
+        people: sum(values(before.people)),
+        views: sum(values(before.views)),
+        dwell: avg(values(before.dwell)),
+        clicked: sum(values(before.clicked)),
+        sales: sum(values(before.sales)),
+      },
       liveAt: undefined as number | undefined,
       tip: (i: number) => (i === range - 1 ? 'Today, so far' : tipLabel.format(dates[i])),
       at: (i: number) => dayLabel.format(dates[i]),
       earlier: `${range} days earlier`, last: 'Today',
+      returning: values(now.returning),
+      opens: values(now.opens),
     };
-  })()), [range, end, maps, project.hours, today, yesterday, nowHour, demo]);
+  })(), {
+    ordersTotal: sum((project.orders ?? []).map((row) => row.count)),
+    campaigns: project.campaigns ?? [],
+    products: project.products ?? [],
+    sourceRevenue: project.sourceRevenue ?? [],
+    pageRevenue: project.pageRevenue ?? [],
+  }), [range, end, maps, project.hours, project.orders, project.campaigns, project.products, project.sourceRevenue, project.pageRevenue, today, yesterday, nowHour, demo]);
 
   const { n } = data;
   const day = range === 1;
@@ -463,7 +593,7 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, head
     <div className="v2-rest">
       <div className="v2-row v2-two">
         <Card icon="ghost" title="Brand read" extra={<Link label="Brand DNA" onClick={onSetup} />}>
-          {data.mail ? (
+          {demo && data.mail ? (
             <div className="v2-brand-read">
               <b className="v2-brand-word">Credible</b>
               <p>Emails match {project.name}’s Brand DNA.</p>
@@ -477,7 +607,7 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, head
             </div>
           )}
         </Card>
-        <Card icon="dollar" title="Email revenue">
+        <Card icon="dollar" title="Revenue">
           <div className="v2-head"><b className="v2-val v2-big">{money.format(data.totals.sales)}</b><Chip now={data.totals.sales} prev={data.prev.sales} /></div>
           <p className="v2-m-s v2-card-sub">From {countFmt.format(data.mail?.customers ?? 0)} customers</p>
           <Area values={day ? data.series.sales.slice(0, nowHour + 1) : data.series.sales} color="#12b886" />
@@ -487,67 +617,86 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, head
       <div className="v2-row v2-two">
         <Card icon="clock" title="Schedule" extra={<Link label="Opportunities" onClick={onInbox} />}>
           <div className="v2-sched">
-            <b className="v2-val">{data.mail ? DEMO_SCHEDULE.length : 0} <span>sends lined up</span></b>
-            {data.mail ? (
+            <b className="v2-val">{demo && data.mail ? DEMO_SCHEDULE.length : 0} <span>sends lined up</span></b>
+            {demo && data.mail ? (
               <ul>{DEMO_SCHEDULE.map((row) => (
                 <li key={row.seed}><button type="button" onClick={onInbox}><Orb seed={row.seed} size={22} /><span><b>{row.name}</b><small>{row.when}</small></span></button></li>
               ))}</ul>
-            ) : <p className="ho-empty">Follow-ups you approve are scheduled here, in each person’s own time zone.</p>}
+            ) : <p className="ho-empty">Follow-ups you approve are scheduled here once email sending ships.</p>}
           </div>
         </Card>
         <Card icon="send" title="Emails">
           <div className="v2-head"><b className="v2-val">{countFmt.format(data.mail ? sum(data.mail.sent) : 0)}</b>{data.mail && <Chip now={sum(data.mail.sent)} prev={data.mail.sentPrev} />}</div>
-          <p className="v2-m-s v2-card-sub">{data.mail ? Math.round((data.totals.clicked / Math.max(1, sum(data.mail.sent))) * 100) : 0}% clicked · {countFmt.format(data.totals.clicked)} people</p>
+          <p className="v2-m-s v2-card-sub">{data.mail && sum(data.mail.sent) ? Math.round((data.totals.clicked / Math.max(1, sum(data.mail.sent))) * 100) : 0}% clicked · {countFmt.format(data.totals.clicked)} people</p>
           <Area values={data.mail ? (day ? data.mail.sent.slice(0, nowHour + 1) : data.mail.sent) : zeros(n)} color="#4F4BE0" />
         </Card>
       </div>
 
       <div className="v2-row v2-two">
         <Card icon="megaphone" title="Sales by campaign" className="v2-gauge-card">
-          <div className="v2-gauge-wrap">
-            {data.mail ? <Gauge parts={DEMO_CAMPAIGNS.map((c, i) => ({ share: c.share, color: CAMPAIGN_COLORS[i] }))} /> : <EmptyGauge />}
-            <div className="v2-gauge-mid"><span>Total from email</span><b>{money.format(data.totals.sales)}</b></div>
-          </div>
-          {data.mail ? (
-            <div className="v2-legend">{DEMO_CAMPAIGNS.map((c, i) => (
-              <button key={c.name} type="button" onClick={onInbox}><i style={{ ['--c' as string]: CAMPAIGN_COLORS[i] }} /><span>{c.name}</span><small>{Math.round(c.share * 100)}%</small><b>{money.format(Math.round(data.totals.sales * c.share))}</b></button>
-            ))}</div>
-          ) : <p className="ho-empty omer-center">No campaigns yet.</p>}
+          {(() => {
+            const camps = demo && data.mail
+              ? DEMO_CAMPAIGNS.map((c, i) => ({ name: c.name, share: c.share, revenue: Math.round(data.totals.sales * c.share), color: CAMPAIGN_COLORS[i] }))
+              : (data.mail?.campaigns ?? []).map((c, i) => ({ ...c, color: CAMPAIGN_COLORS[i % CAMPAIGN_COLORS.length] }));
+            const parts = camps.length ? camps : [];
+            return <>
+              <div className="v2-gauge-wrap">
+                {parts.length ? <Gauge parts={parts.map((c) => ({ share: Math.max(0.01, c.share), color: c.color }))} /> : <EmptyGauge />}
+                <div className="v2-gauge-mid"><span>Total attributed</span><b>{money.format(data.totals.sales)}</b></div>
+              </div>
+              {parts.length ? (
+                <div className="v2-legend">{parts.map((c) => (
+                  <button key={c.name} type="button"><i style={{ ['--c' as string]: c.color }} /><span>{c.name}</span><small>{Math.round(c.share * 100)}%</small><b>{money.format(Math.round(c.revenue))}</b></button>
+                ))}</div>
+              ) : <p className="ho-empty omer-center">No campaigns yet. Tag purchases with a campaign or wait for email clicks.</p>}
+            </>;
+          })()}
         </Card>
         <Card icon="star" title="Top products">
-          {data.mail ? (
-            <div className="v2-products">{DEMO_PRODUCTS.map((item) => {
-              const amount = Math.round(data.totals.sales * item.share);
-              return (
+          {(() => {
+            const products = demo && data.mail
+              ? DEMO_PRODUCTS.map((item) => {
+                const amount = Math.round(data.totals.sales * item.share);
+                return { name: item.name, revenue: amount, count: Math.max(1, Math.round(amount / item.price)), tint: item.tint };
+              })
+              : (data.mail?.products ?? []).map((item, i) => ({
+                name: item.name,
+                revenue: item.revenue,
+                count: item.count,
+                tint: ['#f6d6c4', '#e2dcf7', '#d7ecf2', '#fbe3cf', '#e9e3d6'][i % 5],
+              }));
+            return products.length ? (
+              <div className="v2-products">{products.map((item) => (
                 <button key={item.name} type="button" className="v2-prod">
                   <span className="omer-thumb" style={{ background: item.tint }} aria-hidden="true"><Icon name="tag" /></span>
-                  <span className="v2-prod-t"><b>{item.name}</b><small>{countFmt.format(Math.max(1, Math.round(amount / item.price)))} orders from email</small></span>
-                  <b className="v2-prod-v">{money.format(amount)}</b>
+                  <span className="v2-prod-t"><b>{item.name}</b><small>{countFmt.format(Math.max(1, Math.round(item.count)))} orders</small></span>
+                  <b className="v2-prod-v">{money.format(Math.round(item.revenue))}</b>
                 </button>
-              );
-            })}</div>
-          ) : <p className="ho-empty">Products show up here after the first sale from an email.</p>}
+              ))}</div>
+            ) : <p className="ho-empty">Products show up after purchase events include line items.</p>;
+          })()}
         </Card>
       </div>
 
       <div className="v2-row">
         {(() => {
           const sales = day ? data.series.sales.slice(0, nowHour + 1) : data.series.sales;
-          const back = sum(sales.map((v, i) => v * RETURNING(i)));
-          const backWas = data.prev.sales * 0.36;
+          const returningSeries = data.mail?.returning ?? (demo ? sales.map((v, i) => v * RETURNING(i)) : sales.map(() => 0));
+          const back = sum(day ? returningSeries.slice(0, nowHour + 1) : returningSeries);
+          const backWas = data.prev.sales * (demo ? 0.36 : 0.3);
           const delta = backWas ? Math.round(((back - backWas) / backWas) * 100) : 0;
           const tallest = Math.max(...sales, 1);
           return (
             <Card icon="chart" title="Sales mix" className="v2-wide" extra={
               <span className="v2-side">Bought before <b>{money.format(Math.round(back))}</b>
-                {data.mail && <b className={`v2-up-s ${delta >= 0 ? 'up' : 'down'}`}><svg viewBox="0 0 10 8" aria-hidden="true"><path d={delta >= 0 ? 'M5 0 10 8H0z' : 'M5 8 0 0h10z'} /></svg>{delta > 0 ? '+' : ''}{delta}%</b>}
+                {data.mail && data.totals.sales > 0 && <b className={`v2-up-s ${delta >= 0 ? 'up' : 'down'}`}><svg viewBox="0 0 10 8" aria-hidden="true"><path d={delta >= 0 ? 'M5 0 10 8H0z' : 'M5 8 0 0h10z'} /></svg>{delta > 0 ? '+' : ''}{delta}%</b>}
               </span>}>
               <div className="v2-head"><b className="v2-val v2-big">{money.format(data.totals.sales)}</b><Chip now={data.totals.sales} prev={data.prev.sales} /></div>
               <div className="v2-bars-wrap">
                 <div className="v2-key" aria-hidden="true"><span><i style={{ ['--c' as string]: '#6360F0' }} />New customers</span><span><i style={{ ['--c' as string]: '#4F4BE0' }} />Bought before</span></div>
-                <div className={`v2-bars${data.mail ? '' : ' omer-bars-empty'}`} aria-hidden="true">
-                  {(data.mail ? sales : zeros(n)).map((v, i) => {
-                    const ret = v * RETURNING(i);
+                <div className={`v2-bars${data.mail && data.totals.sales > 0 ? '' : ' omer-bars-empty'}`} aria-hidden="true">
+                  {(data.mail && data.totals.sales > 0 ? sales : zeros(n)).map((v, i) => {
+                    const ret = Math.min(v, returningSeries[i] ?? 0);
                     return (
                       <span key={i} className="v2-col" style={{ ['--i' as string]: i }} title={data.mail ? `${data.tip(i)}: ${money.format(v)}` : undefined}>
                         <i className="v2-new" style={{ ['--h' as string]: `${(((v - ret) / tallest) * 100).toFixed(2)}%` }} />
@@ -556,7 +705,7 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, head
                     );
                   })}
                 </div>
-                {!data.mail && <p className="omer-bars-note">Sales from your emails will stack here once your store is connected.</p>}
+                {!(data.mail && data.totals.sales > 0) && <p className="omer-bars-note">Sales stack here after purchase events land from your store.</p>}
               </div>
             </Card>
           );
@@ -573,7 +722,9 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, head
                   <tr key={row.name}>
                     <th scope="row"><button type="button" className="v2-stat-src" onClick={onGlobe}><span className={`lvp-src ${sourceKey(row.name)}`} aria-hidden="true"><SourceMark referrer={row.name} /></span>{sourceLabel(row.name)}</button></th>
                     <td className="num">{countFmt.format(row.count)}</td>
-                    <td className="num">{money.format(Math.round(data.totals.sales * (row.count / sourceTotal) * (sourceKey(row.name) === 'direct' ? 0.7 : 1.05)))}</td>
+                    <td className="num">{money.format(Math.round(demo
+                      ? data.totals.sales * (row.count / sourceTotal) * (sourceKey(row.name) === 'direct' ? 0.7 : 1.05)
+                      : (data.mail?.sourceRevenue?.get(row.name) ?? 0)))}</td>
                     <td className="num">{Math.round((row.count / sourceTotal) * 100)}%</td>
                   </tr>
                 ))}
@@ -590,7 +741,9 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, head
                   <tr key={row.path}>
                     <th scope="row"><button type="button" className="v2-stat-src" onClick={onPeople}>{row.path}</button></th>
                     <td className="num">{countFmt.format(row.count)}</td>
-                    <td className="num">{money.format(Math.round(data.totals.sales * (row.count / pageTotal) * (row.path.includes('checkout') ? 1.4 : row.path.includes('blog') ? 0.45 : 1)))}</td>
+                    <td className="num">{money.format(Math.round(demo
+                      ? data.totals.sales * (row.count / pageTotal) * (row.path.includes('checkout') ? 1.4 : row.path.includes('blog') ? 0.45 : 1)
+                      : (data.mail?.pageRevenue?.get(row.path) ?? 0)))}</td>
                     <td className="num">{Math.round((row.count / pageTotal) * 100)}%</td>
                   </tr>
                 ))}
@@ -602,7 +755,7 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, head
 
       <div className="v2-row">
         <Card icon="inbox" title="Needs you" className="v2-wide">
-          {data.mail ? (() => {
+          {demo && data.mail ? (() => {
             const tab = DEMO_NEEDS.find((t) => t.id === need) ?? DEMO_NEEDS[0];
             return (
               <section className="ho-needs" aria-label="What needs you">

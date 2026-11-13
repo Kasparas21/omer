@@ -9,6 +9,7 @@ import { AuthGate } from './auth';
 import { DashboardV2 } from './DashboardV2';
 import { LiveGlobe } from './LiveGlobe';
 import { People } from './People';
+import { Profile } from './Profile';
 import { Settings, type DockMode } from './Settings';
 import { useLive } from './live';
 import { Icon, type IconName } from './ui/Icon';
@@ -19,6 +20,7 @@ import { isDemo } from './demo';
 type ProjectError = { field?: 'name' | 'website'; error: string };
 type SetupStep = 'site' | 'brand' | 'install' | 'check' | 'sender';
 type AppScreen = 'home' | 'inbox' | 'visitors' | 'campaigns' | 'results' | 'globe' | 'settings';
+type ProfileFocus = { projectId: string; seed: string };
 
 const DOCK: { id: AppScreen; label: string; icon: IconName; live?: boolean }[] = [
   { id: 'home', label: 'Dashboard', icon: 'home' },
@@ -78,6 +80,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [analytics, setAnalytics] = useState<Project>();
   const [initial, setInitial] = useState('');
   const [liveFocus, setLiveFocus] = useState<string>();
+  const [profile, setProfile] = useState<ProfileFocus>();
   const [dockMode, setDockMode] = useState<DockMode>(() => {
     try {
       const saved = localStorage.getItem('omer.dock');
@@ -114,6 +117,8 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
     document.documentElement.dataset.dock = 'glass'; // kit setting: glass dock
     return () => { delete document.documentElement.dataset.dash; delete document.documentElement.dataset.dock; };
   }, []);
+
+  useEffect(() => { setProfile(undefined); }, [project?.id]);
 
   useEffect(() => {
     const id = project?.id;
@@ -536,9 +541,13 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
               }} />
           ) : screen === 'globe' && project ? (
             <LiveGlobe key={project.id} {...live} focusSeed={liveFocus} demo={isDemo(project)} />
+          ) : screen === 'visitors' && project && profile?.projectId === project.id ? (
+            <Profile projectId={project.id} seed={profile.seed}
+              onBack={() => setProfile(undefined)}
+              onLive={() => { setLiveFocus(profile.seed); setProfile(undefined); setScreen('globe'); }} />
           ) : screen === 'visitors' && project ? (
             <People key={project.id} {...live} demo={isDemo(project)} onLive={() => { setLiveFocus(undefined); setScreen('globe'); }}
-              onOpen={(seed) => { setLiveFocus(seed); setScreen('globe'); }} />
+              onOpen={(seed) => setProfile({ projectId: project.id, seed })} />
           ) : screen === 'settings' && project ? (
             <Settings project={project} snippet={snippet} dockMode={dockMode} onDockMode={setDockMode}
               onCopy={(kind) => void copy(kind)} onGuide={openGuide} onSetup={() => {
@@ -580,7 +589,13 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
           collapsed={collapsed && dockMode !== 'always'}
           onReveal={() => setCollapsed(false)}
           onLeave={() => { if (dockMode === 'auto') setCollapsed(true); }}
-          onPick={(id) => { if (id === 'globe') setLiveFocus(undefined); setScreen(id); if (dockMode !== 'auto') setCollapsed(false); window.scrollTo({ top: 0 }); }}
+          onPick={(id) => {
+            if (id === 'globe') setLiveFocus(undefined);
+            if (id !== 'visitors') setProfile(undefined);
+            setScreen(id);
+            if (dockMode !== 'auto') setCollapsed(false);
+            window.scrollTo({ top: 0 });
+          }}
         />
       )}
 

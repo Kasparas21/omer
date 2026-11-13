@@ -1,6 +1,5 @@
-/* People: the kit's visitor directory, written for real visits from the last day.
-   Sessions are counted from those visits (a 30-minute gap starts a new one). Email and revenue are
-   not connected yet, so those tabs and the Revenue column stay at zero until they are. */
+/* People: the kit's visitor directory from the last day of visits.
+   Sessions use a 30-minute gap. Email and revenue come from identify/purchase events (demo fills pawsome). */
 import { useEffect, useMemo, useState } from 'react';
 import { isOnline, type LivePayload, type LiveVisit } from './live';
 import { Icon } from './ui/Icon';
@@ -59,8 +58,11 @@ export function People({ data, loading, failed, onLive, onOpen, demo = false }: 
     return [...byVisitor.entries()].map(([seed, visits]): Person => {
       const times = visits.map((v) => Date.parse(v.seenAt)).sort((a, b) => a - b);
       const sessions = times.reduce((count, t, i) => count + (i === 0 || t - times[i - 1] > SESSION_GAP ? 1 : 0), 0);
-      // Email and revenue aren't connected yet; only the demo project shows example customers.
-      const known = demo ? demoCustomer(seed, handle(seed)) : { email: null, revenue: 0 };
+      const realEmail = visits.find((v) => v.email)?.email ?? null;
+      const realRevenue = Math.max(0, ...visits.map((v) => v.revenue ?? 0));
+      const known = demo && !realEmail && !realRevenue
+        ? demoCustomer(seed, handle(seed))
+        : { email: realEmail, revenue: realRevenue };
       return { seed, latest: visits[0], first: visits[visits.length - 1], sessions, online: visits.some((v) => isOnline(v, now)), ...known };
     });
   }, [data.visits, now, demo]);
@@ -68,7 +70,7 @@ export function People({ data, loading, failed, onLive, onOpen, demo = false }: 
   const term = query.trim().toLowerCase();
   const picked = people.filter((p) => (source === 'all' || sourceKey(p.first.referrer) === source)
     && (country === 'all' || p.latest.cc === country)
-    && (!term || [handle(p.seed), p.latest.path, p.latest.place, sourceLabel(p.first.referrer)].some((v) => v?.toLowerCase().includes(term))));
+    && (!term || [handle(p.seed), p.email, p.latest.path, p.latest.place, sourceLabel(p.first.referrer)].some((v) => v?.toLowerCase().includes(term))));
   const inTab = (p: Person, t: Tab) => (t === 'live' ? p.online : t === 'email' ? Boolean(p.email) : t === 'customers' ? p.revenue > 0 : true);
   const rows = picked.filter((p) => inTab(p, tab)).sort((a, b) => (sort === 'sessions'
     ? b.sessions - a.sessions
@@ -141,7 +143,7 @@ export function People({ data, loading, failed, onLive, onOpen, demo = false }: 
             )}
             {!failed && !loading && rows.map((p) => (
               <div key={p.seed} className="people-row" role="row" tabIndex={0}
-                aria-label={`${handle(p.seed)}, open on the Live globe`}
+                aria-label={`${handle(p.seed)}, open profile`}
                 onClick={() => onOpen(p.seed)}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(p.seed); } }}>
                 <span className="people-who" role="rowheader">

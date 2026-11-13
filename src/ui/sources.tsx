@@ -19,7 +19,7 @@ export function sourceKey(referrer: string): SourceKey {
   if (name.includes('facebook') || name === 'fb.com' || name.endsWith('.fb.com') || name.includes('meta')) return 'meta';
   if (name.includes('tiktok')) return 'tiktok';
   if (name.includes('pinterest') || name === 'pin.it') return 'pinterest';
-  if (name.includes('mail')) return 'email';
+  if (name.includes('mail') || name.includes('email') || name.includes('newsletter')) return 'email';
   return 'other';
 }
 

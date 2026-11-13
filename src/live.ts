@@ -12,12 +12,15 @@ export type LiveVisit = {
   lng: number | null;
   seenAt: string;
   activeAt: string;
+  email?: string | null;
+  name?: string | null;
+  revenue?: number;
 };
 
 export type LivePayload = {
   online: number;
   minutes: number[];
-  sources: { name: string; count: number }[];
+  sources: { name: string; count: number; orders?: number }[];
   visits: LiveVisit[];
 };
 

@@ -42,13 +42,13 @@
     }
   }
 
-  function post(url, body) {
-    return fetch(url, {
+  function post(body) {
+    return fetch(eventURL, {
       method: 'POST',
-      body,
+      body: JSON.stringify(body),
       credentials: 'omit',
       keepalive: true,
-      headers: typeof body === 'string' && body.startsWith('{') ? { 'Content-Type': 'application/json' } : undefined,
+      headers: { 'Content-Type': 'application/json' },
     }).catch(() => undefined);
   }
 
@@ -57,12 +57,12 @@
     const ms = Math.min(1_800_000, Math.max(0, Date.now() - pageAt));
     pageAt = 0;
     if (ms < 1000) return;
-    void post(eventURL, JSON.stringify({ key, type: 'dwell', vid: visitorId(), path, ms }));
+    void post({ key, type: 'dwell', vid: visitorId(), path, ms });
   }
 
   function sendPresence() {
     if (!consented || !path || document.visibilityState !== 'visible') return;
-    void post(eventURL, JSON.stringify({ key, type: 'presence', vid: visitorId(), path }));
+    void post({ key, type: 'presence', vid: visitorId(), path });
   }
 
   function trackPage() {
@@ -70,13 +70,13 @@
     sendDwell();
     path = pagePath();
     pageAt = Date.now();
-    void post(eventURL, JSON.stringify({
+    void post({
       key,
       type: 'pageview',
       vid: visitorId(),
       path,
       ref: referrerHost(),
-    }));
+    });
   }
 
   function onConsent(preferences) {
@@ -94,9 +94,58 @@
     consented = true;
     if (!installSent) {
       installSent = true;
-      void post(installURL, key);
+      void fetch(installURL, {
+        method: 'POST',
+        body: key,
+        credentials: 'omit',
+        keepalive: true,
+      }).catch(() => undefined);
     }
     trackPage();
+  }
+
+  function identify(input) {
+    if (!consented || !input || typeof input !== 'object') return;
+    const email = typeof input.email === 'string' ? input.email.trim() : '';
+    if (!email) return;
+    const payload = { key, type: 'identify', vid: visitorId(), path: pagePath(), email };
+    if (typeof input.name === 'string' && input.name.trim()) payload.name = input.name.trim().slice(0, 80);
+    void post(payload);
+  }
+
+  function purchase(input) {
+    if (!consented || !input || typeof input !== 'object') return;
+    const amount = Number(input.amount);
+    if (!Number.isFinite(amount) || amount < 0 || amount > 1_000_000) return;
+    const payload = {
+      key,
+      type: 'purchase',
+      vid: visitorId(),
+      path: pagePath(),
+      ref: referrerHost(),
+      amount,
+      currency: typeof input.currency === 'string' ? input.currency : 'usd',
+    };
+    if (typeof input.orderId === 'string' && input.orderId.trim()) payload.orderId = input.orderId.trim().slice(0, 120);
+    if (typeof input.campaign === 'string' && input.campaign.trim()) payload.campaign = input.campaign.trim().slice(0, 120);
+    if (Array.isArray(input.products)) {
+      payload.products = input.products.slice(0, 20).map((item) => ({
+        name: String(item?.name || 'Product').slice(0, 120),
+        price: Number.isFinite(Number(item?.price)) ? Number(item.price) : undefined,
+        qty: Number.isFinite(Number(item?.qty)) ? Math.max(1, Math.round(Number(item.qty))) : 1,
+      }));
+    }
+    void post(payload);
+  }
+
+  function emailEvent(type, input) {
+    if (!consented || (type !== 'email_open' && type !== 'email_click')) return;
+    const payload = { key, type, vid: visitorId(), path: pagePath() };
+    if (input && typeof input === 'object') {
+      if (typeof input.campaign === 'string' && input.campaign.trim()) payload.campaign = input.campaign.trim().slice(0, 120);
+      if (typeof input.messageId === 'string' && input.messageId.trim()) payload.messageId = input.messageId.trim().slice(0, 120);
+    }
+    void post(payload);
   }
 
   document.addEventListener('visibilitychange', () => {
@@ -122,5 +171,11 @@
   };
   window.addEventListener('popstate', () => { if (consented) trackPage(); });
 
-  window.unfairweekend = { consent: onConsent };
+  window.unfairweekend = {
+    consent: onConsent,
+    identify,
+    purchase,
+    emailOpen: (input) => emailEvent('email_open', input),
+    emailClick: (input) => emailEvent('email_click', input),
+  };
 })();

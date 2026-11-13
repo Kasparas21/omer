@@ -36,6 +36,13 @@
       "when": 1794573600001,
       "tag": "0004_live_presence",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794650000000,
+      "tag": "0005_commerce_events",
+      "breakpoints": true
     }
   ]
 }
