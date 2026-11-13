@@ -32,7 +32,7 @@ function Row({ title, children, wide }: { title: string; children: React.ReactNo
 
 const Soon = () => <span className="status-pill">Soon</span>;
 
-export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab, demo = false, onGo, onReplay, storageReady = false, replayBusy = false }: {
+export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab, demo = false, onGo }: {
   startTab?: Tab;
   /** The demo store shows the kit's full example Settings. */
   demo?: boolean;
@@ -53,7 +53,6 @@ export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab
   const host = (() => { try { return new URL(project.origin).host; } catch { return project.origin; } })();
   const counts = useDemoSettingsCounts();
   const space = demo ? DEMO_BRAND_SPACE : project.id;
-  const replayOn = Boolean(project.replayEnabled);
   const tabs: { id: Tab; title: string; badge?: number }[] = [
     { id: 'brand', title: 'Brand knowledge', badge: demo ? counts.company : 0 },
     { id: 'company', title: 'Store' },
@@ -126,11 +125,6 @@ export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab
           {!demo && tab === 'privacy' && (
             <div className="set-main solo">
               <Row title="Consent"><span className="status-pill received"><Icon name="check" />Required</span></Row>
-              <Row title="Session replay">
-                {storageReady ? (
-                  <label className={`switch${replayBusy ? ' is-busy' : ''}`}><input type="checkbox" checked={replayOn} disabled={replayBusy || !onReplay} aria-label="Session replay" onChange={(e) => onReplay?.(e.target.checked)} /></label>
-                ) : <span className="status-pill">Not set up</span>}
-              </Row>
               <Row title="Location"><span className="omer-set-val">City</span></Row>
             </div>
           )}

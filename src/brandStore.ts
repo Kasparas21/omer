@@ -28,7 +28,7 @@ export type Brand = {
   facts: StoreFact[];
   importedAt?: string | null;
 };
-export type FolderId = 'logo' | 'colors' | 'fonts' | 'products' | 'brand' | 'facts';
+export type FolderId = 'identity' | 'products' | 'brand' | 'facts';
 
 export const DEMO_BRAND_SPACE = 'demo';
 export const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
@@ -255,12 +255,21 @@ export function fileFrom(file: File): BrandFile {
 
 /** How many things are in each folder, for its label. */
 export function folderCount(b: Brand, folder: FolderId) {
-  if (folder === 'logo') return Object.values(b.logos).filter(Boolean).length;
-  if (folder === 'colors') return b.colors.length;
-  if (folder === 'fonts') return b.fonts.filter((f) => f.family || f.file).length;
+  if (folder === 'identity') return Object.values(b.logos).filter(Boolean).length + b.colors.length + b.fonts.filter((f) => f.family || f.file).length;
   if (folder === 'products') return b.products.length;
   const docs = b.docs || { product: '', voice: '' };
   // Product Information sits with the store facts; the Brand Voice Guide with photos & voice.
   if (folder === 'facts') return (b.facts?.length ?? 0) + (docs.product.trim() ? 1 : 0);
   return b.photos.length + (b.voice.tagline || b.voice.tone || b.voice.about ? 1 : 0) + (docs.voice.trim() ? 1 : 0);
+}
+
+/** Closed Identity folder caption: "3 logos · 5 colors · 2 fonts". */
+export function identityLabel(b: Brand, empty: string) {
+  const parts = [
+    [Object.values(b.logos).filter(Boolean).length, 'logo', 'logos'],
+    [b.colors.length, 'color', 'colors'],
+    [b.fonts.filter((f) => f.family || f.file).length, 'font', 'fonts'],
+  ] as const;
+  const shown = parts.filter(([n]) => n > 0).map(([n, one, many]) => `${n} ${n === 1 ? one : many}`);
+  return shown.length ? shown.join(' · ') : empty;
 }

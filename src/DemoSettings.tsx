@@ -129,17 +129,23 @@ export function DemoChanges({ onGo }: { onGo?: (go: Go) => void }) {
 
   return <>
     <div className="set-main solo">
-      {failed ? (
-        <div className="alert alert-warning ch-fail"><Icon name="alert" /><div><b>Couldn’t check Salmon Kibble 4 kg</b><p>Timed out {failed.age}</p></div>
-          <button type="button" className={`btn btn-secondary btn-sm${x.retrying ? ' loading' : ''}`} disabled={x.retrying} onClick={() => {
-            set((y) => ({ ...y, retrying: true }));
-            window.setTimeout(() => {
-              set((y) => ({ ...y, retrying: false, pages: y.pages.map((p) => (p.failed ? { ...p, failed: false, age: 'just now' } : p)), changes: [{ id: 'stock', page: '/products/salmon-kibble-4kg', title: 'Salmon Kibble 4 kg', old: 'Out of stock', now: 'In stock', when: 'just now', kind: 'stock' }, ...y.changes], facts: y.facts.map((f) => (f.id === 'kibble' ? { ...f, value: '$42.00, in stock', stale: false, age: 'Now' } : f)) }));
-              toast('Checked. Salmon Kibble is back in stock');
-            }, 1200);
-          }}>{x.retrying ? 'Checking…' : 'Try again'}</button></div>
-      ) : null}
-      {open.length ? <><h3 className="kn-group-h">To review</h3><div className="ch-rows">{open.map(row)}</div></> : failed ? null : <p className="ch-none">Nothing to review</p>}
+      {open.length || failed ? <><h3 className="kn-group-h">To review</h3><div className="ch-rows">
+        {failed ? (
+          <article className="ch-row">
+            <header><b>Salmon Kibble 4 kg</b><span className="ch-flag"><i />Couldn’t check</span><small>{failed.url} · {failed.age}</small></header>
+            <div className="ch-act">
+              <button type="button" className={`btn btn-secondary btn-sm${x.retrying ? ' loading' : ''}`} disabled={x.retrying} onClick={() => {
+                set((y) => ({ ...y, retrying: true }));
+                window.setTimeout(() => {
+                  set((y) => ({ ...y, retrying: false, pages: y.pages.map((p) => (p.failed ? { ...p, failed: false, age: 'just now' } : p)), changes: [{ id: 'stock', page: '/products/salmon-kibble-4kg', title: 'Salmon Kibble 4 kg', old: 'Out of stock', now: 'In stock', when: 'just now', kind: 'stock' }, ...y.changes], facts: y.facts.map((f) => (f.id === 'kibble' ? { ...f, value: '$42.00, in stock', stale: false, age: 'Now' } : f)) }));
+                  toast('Checked. Salmon Kibble is back in stock');
+                }, 1200);
+              }}>{x.retrying ? 'Checking…' : 'Check again'}</button>
+            </div>
+          </article>
+        ) : null}
+        {open.map(row)}
+      </div></> : <p className="ch-none">Nothing to review</p>}
       {done.length ? <><h3 className="kn-group-h">Handled</h3><div className="ch-rows">{done.map(row)}</div></> : null}
     </div>
   </>;
@@ -181,7 +187,6 @@ export function DemoPrivacy() {
   const put = (k: keyof S['privacy'], v: string | boolean) => { set((y) => ({ ...y, privacy: { ...y.privacy, [k]: v } })); saved(); };
   return <>
     <div className="set-main solo">
-      <Row title="Session replay"><label className="switch"><input type="checkbox" checked={x.privacy.replay} aria-label="Session replay" onChange={(e) => put('replay', e.target.checked)} /></label></Row>
       <Row title="AI">
         <div className="seg" role="group" aria-label="AI mode">{['Standard', 'Strict', 'Off'].map((m) => <button key={m} type="button" aria-pressed={x.privacy.ai === m} onClick={() => put('ai', m)}>{m}</button>)}</div>
       </Row>
