@@ -3,6 +3,7 @@ import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { bodyLimit } from 'hono/body-limit';
 import { auth, googleAuthEnabled, pool } from './auth';
+import { objectStoreConfigured } from './object-store';
 import projects from './projects';
 
 // Single-server demo limits; bounded memory, no visitor IP persisted in project data.
@@ -22,15 +23,21 @@ function limiter(max: number) {
 const env = { ALLOW_LOCAL_SITES: process.env.ALLOW_LOCAL_SITES, CREATE_LIMIT: limiter(10), COLLECT_LIMIT: limiter(120) };
 const app = new Hono();
 app.use('/api/*', bodyLimit({ maxSize: 16384 }));
+app.use('/v1/collect/replay-chunks', bodyLimit({ maxSize: 900_000 }));
+app.use('/v1/collect/event', bodyLimit({ maxSize: 16384 }));
 app.use('/api/*', async (c, next) => { c.header('Cache-Control', 'no-store'); await next(); });
 app.all('/api/auth/*', (c) => auth.handler(c.req.raw));
-app.get('/api/config', (c) => c.json({ googleAuth: googleAuthEnabled }));
+app.get('/api/config', (c) => c.json({ googleAuth: googleAuthEnabled, replayStorage: objectStoreConfigured() }));
 app.all('/api/projects', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id', (c) => projects.fetch(c.req.raw, env));
 app.get('/api/projects/:id/live/stream', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/live', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/visitors/:vid', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/replays/:rid', (c) => projects.fetch(c.req.raw, env));
 app.all('/v1/collect/install', (c) => projects.fetch(c.req.raw, env));
 app.all('/v1/collect/event', (c) => projects.fetch(c.req.raw, env));
+app.all('/v1/collect/config', (c) => projects.fetch(c.req.raw, env));
+app.all('/v1/collect/replay-chunks', (c) => projects.fetch(c.req.raw, env));
 app.get('/health', async (c) => { await pool.query('select 1'); return c.json({ status: 'ready' }); });
 app.all('/api/*', (c) => c.json({ error: 'Not found' }, 404));
 app.all('/v1/*', (c) => c.json({ error: 'Not found' }, 404));
@@ -46,7 +53,16 @@ const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: Number(pro
 // Delete expired visit records in the background instead of on every page view.
 const prune = () => void pool.query("delete from project_visits where seen_at < now() - interval '7 days'")
   .catch(() => console.error('Unable to prune expired visit records'));
-const retentionTimer = setInterval(prune, 60 * 60 * 1000);
+const pruneReplays = () => void pool.query(`
+  with expired as (
+    select id from project_replay_sessions where expires_at < now() and status <> 'expired'
+  ), marked as (
+    update project_replay_sessions set status = 'expired' where id in (select id from expired) returning id
+  )
+  select count(*) from marked
+`).catch(() => console.error('Unable to mark expired replays'));
+const retentionTimer = setInterval(() => { prune(); pruneReplays(); }, 60 * 60 * 1000);
 retentionTimer.unref();
 prune();
+pruneReplays();
 process.on('SIGTERM', () => { server.close(async () => { await pool.end(); process.exit(0); }); });

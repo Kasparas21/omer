@@ -9,6 +9,7 @@ export const projects = pgTable('onboarding_projects', {
   writeKey: uuid('write_key').defaultRandom().notNull().unique(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   firstEventAt: timestamp('first_event_at', { withTimezone: true }),
+  replayEnabled: boolean('replay_enabled').default(false).notNull(),
 }, (table) => [index('onboarding_projects_owner_idx').on(table.owner)]);
 
 export const pageViews = pgTable('project_page_views', {
@@ -48,6 +49,9 @@ export const visits = pgTable('project_visits', {
   id: uuid('id').defaultRandom().primaryKey(),
   projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   visitorId: text('visitor_id').notNull(),
+  sessionId: text('session_id'),
+  device: text('device'),
+  dwellMs: bigint('dwell_ms', { mode: 'number' }).default(0).notNull(),
   path: text('path').notNull(),
   referrer: text('referrer').notNull(),
   cc: text('cc'),
@@ -57,8 +61,11 @@ export const visits = pgTable('project_visits', {
   lng: doublePrecision('lng'),
   activeAt: timestamp('active_at', { withTimezone: true }),
   seenAt: timestamp('seen_at', { withTimezone: true }).defaultNow().notNull(),
-}, (table) => [index('project_visits_project_seen_idx').on(table.projectId, table.seenAt),
-  index('project_visits_browser_seen_idx').on(table.projectId, table.visitorId, table.seenAt)]);
+}, (table) => [
+  index('project_visits_project_seen_idx').on(table.projectId, table.seenAt),
+  index('project_visits_browser_seen_idx').on(table.projectId, table.visitorId, table.seenAt),
+  index('project_visits_session_idx').on(table.projectId, table.visitorId, table.sessionId, table.seenAt),
+]);
 
 export const purchases = pgTable('project_purchases', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -99,3 +106,35 @@ export const emailEvents = pgTable('project_email_events', {
   messageId: text('message_id'),
   seenAt: timestamp('seen_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [index('project_email_events_project_seen_idx').on(table.projectId, table.seenAt)]);
+
+export const replaySessions = pgTable('project_replay_sessions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  visitorId: text('visitor_id').notNull(),
+  sessionId: text('session_id').notNull(),
+  tabId: text('tab_id').default('main').notNull(),
+  startedAt: timestamp('started_at', { withTimezone: true }).defaultNow().notNull(),
+  endedAt: timestamp('ended_at', { withTimezone: true }),
+  status: text('status').default('recording').notNull(),
+  bytes: bigint('bytes', { mode: 'number' }).default(0).notNull(),
+  hasFullSnapshot: boolean('has_full_snapshot').default(false).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+}, (table) => [
+  index('project_replay_sessions_visitor_idx').on(table.projectId, table.visitorId, table.startedAt),
+  uniqueIndex('project_replay_sessions_sid_uidx').on(table.projectId, table.sessionId, table.tabId),
+]);
+
+export const replayChunks = pgTable('project_replay_chunks', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  sessionPk: uuid('session_pk').notNull().references(() => replaySessions.id, { onDelete: 'cascade' }),
+  seq: bigint('seq', { mode: 'number' }).notNull(),
+  clientBatchId: text('client_batch_id').notNull(),
+  checksum: text('checksum').notNull(),
+  objectKey: text('object_key').notNull(),
+  byteSize: bigint('byte_size', { mode: 'number' }).notNull(),
+  hasFullSnapshot: boolean('has_full_snapshot').default(false).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index('project_replay_chunks_session_idx').on(table.sessionPk, table.seq),
+  uniqueIndex('project_replay_chunks_batch_uidx').on(table.sessionPk, table.clientBatchId),
+]);

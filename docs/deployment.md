@@ -60,6 +60,22 @@ Tracker snippets use `APP_URL` / the page origin. After the hostname change, re-
 
 `cdn.tryomer.com` can host `tracker.js` later (Visitors-style CDN). Not required now: the script is served from the same app origin.
 
+## Session replay (Cloudflare R2)
+
+Replay chunks are private objects. Postgres only stores manifests. Add these to `/opt/omer/runtime.env` (and keep secrets out of git):
+
+```sh
+R2_ACCOUNT_ID=...
+R2_ACCESS_KEY_ID=...
+R2_SECRET_ACCESS_KEY=...
+R2_BUCKET=omer-replays
+# optional if not using the default account endpoint:
+# R2_ENDPOINT=https://<accountid>.r2.cloudflarestorage.com
+# R2_REGION=auto
+```
+
+Create the bucket with `npx wrangler r2 bucket create omer-replays`, then an R2 API token with Object Read & Write on that bucket. Until these vars are present, Settings shows “Storage not configured” and replay stays off. Raw recordings expire after 7 days.
+
 ## Update app image
 
 Create a release archive with `git archive` from the reviewed commit. Extract it under `/opt/omer/releases/<release>` on the VPS so only committed source is deployed. Keep env files outside that directory. Build before stopping the running app:

@@ -1,8 +1,10 @@
-import { and, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { createHash } from 'node:crypto';
 import { amountCents, cleanCampaign, cleanCurrency, cleanEmail, cleanName, cleanOrderId, cleanProducts } from './commerce';
 import { localDemoPlace, placeFromRequest } from './geo';
-import { dailyVisitors, dwell, emailEvents, identities, pageViews, pathViews, projects, purchases, referrerViews, visits } from './schema';
+import { deleteObject, objectKeyFor, objectStoreConfigured, putObject, signedGetUrl } from './object-store';
+import { dailyVisitors, dwell, emailEvents, identities, pageViews, pathViews, projects, purchases, referrerViews, replayChunks, replaySessions, visits } from './schema';
 import { auth, pool, appURL } from './auth';
 
 type RateLimit = { limit(input: { key: string }): Promise<{ success: boolean }> };
@@ -18,13 +20,26 @@ const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const liveListeners = new Map<string, Set<() => void>>();
 
 const visitorId = /^[A-Za-z0-9_-]{8,80}$/;
+const sessionIdRe = /^[A-Za-z0-9_-]{8,80}$/;
+const SESSION_GAP_MS = 30 * 60_000;
 const projectFields = {
   id: projects.id,
   name: projects.name,
   origin: projects.origin,
   writeKey: projects.writeKey,
   firstEventAt: projects.firstEventAt,
+  replayEnabled: projects.replayEnabled,
 };
+
+function cleanSessionId(value: unknown) {
+  return typeof value === 'string' && sessionIdRe.test(value) ? value : null;
+}
+
+function cleanDevice(value: unknown, request?: Request) {
+  if (value === 'phone' || value === 'monitor') return value;
+  const ua = request?.headers.get('user-agent') || '';
+  return /Mobi|Android|iPhone|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(ua) ? 'phone' : 'monitor';
+}
 
 function json(data: unknown, status = 200, headers?: HeadersInit) {
   const responseHeaders = new Headers(headers);
@@ -384,6 +399,19 @@ async function receiveEvent(request: Request, env: Env) {
             samples: sql`${dwell.samples} + 1`,
           },
         });
+      const visitKey = typeof body?.visitId === 'string' && uuid.test(body.visitId) ? body.visitId : null;
+      if (visitKey) {
+        await tx.update(visits).set({ dwellMs: sql`${visits.dwellMs} + ${ms}` }).where(and(
+          eq(visits.id, visitKey),
+          eq(visits.projectId, project.id),
+          eq(visits.visitorId, vid),
+        ));
+      } else {
+        await tx.update(visits).set({ dwellMs: sql`${visits.dwellMs} + ${ms}` }).where(eq(visits.id, sql`(
+          select id from project_visits where project_id = ${project.id} and visitor_id = ${vid}
+            and seen_at > now() - interval '24 hours' order by seen_at desc limit 1
+        )`));
+      }
       return project.id;
     }
 
@@ -468,6 +496,8 @@ async function receiveEvent(request: Request, env: Env) {
     await tx.insert(visits).values({
       projectId: project.id,
       visitorId: vid,
+      sessionId: cleanSessionId(body?.sid),
+      device: cleanDevice(body?.device, request),
       path,
       referrer,
       cc: geo?.cc ?? null,
@@ -602,20 +632,68 @@ async function liveFeed(request: Request, env: Env, projectId: string, stream: b
   });
 }
 
+function groupSessions<T extends {
+  id: string; sessionId: string | null; device: string | null; dwellMs: number;
+  path: string; referrer: string; seenAt: string | Date; activeAt: string | Date;
+}>(rows: T[]) {
+  const chronological = [...rows].sort((a, b) => Date.parse(String(a.seenAt)) - Date.parse(String(b.seenAt)));
+  const sessions: {
+    sessionId: string;
+    startedAt: string;
+    endedAt: string;
+    durationMs: number;
+    device: string;
+    referrer: string;
+    live: boolean;
+    events: { id: string; path: string; seenAt: string }[];
+  }[] = [];
+  let current: typeof sessions[number] | null = null;
+  let lastAt = 0;
+  for (const row of chronological) {
+    const at = Date.parse(String(row.seenAt));
+    const sid: string = row.sessionId
+      || (current && at - lastAt <= SESSION_GAP_MS ? current.sessionId : `gap_${row.id}`);
+    if (!current || current.sessionId !== sid) {
+      current = {
+        sessionId: sid,
+        startedAt: new Date(at).toISOString(),
+        endedAt: new Date(at).toISOString(),
+        durationMs: Number(row.dwellMs) || 0,
+        device: row.device === 'phone' ? 'phone' : 'monitor',
+        referrer: row.referrer || '(direct)',
+        live: false,
+        events: [],
+      };
+      sessions.push(current);
+    }
+    current.endedAt = new Date(at).toISOString();
+    current.durationMs += Number(row.dwellMs) || 0;
+    if (row.device === 'phone') current.device = 'phone';
+    current.events.push({ id: row.id, path: cleanPath(row.path) ?? '/', seenAt: new Date(at).toISOString() });
+    const active = Date.parse(String(row.activeAt));
+    if (Date.now() - active < 300_000) current.live = true;
+    lastAt = at;
+  }
+  return sessions.reverse();
+}
+
 async function visitorProfile(request: Request, env: Env, projectId: string, visitorKey: string) {
   if (!uuid.test(projectId) || !visitorId.test(visitorKey)) return json({ error: 'Not found.' }, 404);
   const owner = await ownerID(request);
   if (!owner) return json({ error: 'Sign in to view profiles.' }, 401);
 
   return withDatabase(env, async (db) => {
-    const [project] = await db.select({ id: projects.id })
+    const [project] = await db.select({ id: projects.id, replayEnabled: projects.replayEnabled })
       .from(projects)
       .where(and(eq(projects.id, projectId), eq(projects.owner, owner)))
       .limit(1);
     if (!project) return json({ error: 'Project not found.' }, 404);
 
-    const journey = await db.select({
+    const rows = await db.select({
       id: visits.id,
+      sessionId: visits.sessionId,
+      device: visits.device,
+      dwellMs: visits.dwellMs,
       path: visits.path,
       referrer: visits.referrer,
       cc: visits.cc,
@@ -629,7 +707,7 @@ async function visitorProfile(request: Request, env: Env, projectId: string, vis
       .from(visits)
       .where(and(eq(visits.projectId, projectId), eq(visits.visitorId, visitorKey)))
       .orderBy(desc(visits.seenAt))
-      .limit(60);
+      .limit(200);
 
     const [identity] = await db.select({
       email: identities.email,
@@ -668,30 +746,99 @@ async function visitorProfile(request: Request, env: Env, projectId: string, vis
       .orderBy(desc(emailEvents.seenAt))
       .limit(40);
 
+    const replayRows = await db.select({
+      id: replaySessions.id,
+      sessionId: replaySessions.sessionId,
+      status: replaySessions.status,
+      hasFullSnapshot: replaySessions.hasFullSnapshot,
+      startedAt: replaySessions.startedAt,
+      expiresAt: replaySessions.expiresAt,
+    })
+      .from(replaySessions)
+      .where(and(eq(replaySessions.projectId, projectId), eq(replaySessions.visitorId, visitorKey)))
+      .orderBy(desc(replaySessions.startedAt))
+      .limit(40);
+
     const revenue = orderRows.reduce((sum, row) => sum + row.amountCents, 0) / 100;
     const opens = mail.filter((row) => row.type === 'email_open').length;
     const clicks = mail.filter((row) => row.type === 'email_click').length;
-    const latest = journey[0];
+    const sessions = groupSessions(rows);
+    const firstSeen = rows.length
+      ? new Date(Math.min(...rows.map((r) => Date.parse(String(r.seenAt))))).toISOString()
+      : null;
+    const dwellMs = rows.reduce((sum, row) => sum + (Number(row.dwellMs) || 0), 0);
+    const pageviews = rows.length;
+    const firstGeo = [...rows].reverse().find((r) => r.cc || r.lat != null) ?? rows[rows.length - 1];
+    const firstReferrer = sessions[sessions.length - 1]?.referrer ?? rows[rows.length - 1]?.referrer ?? '(direct)';
+    const firstPath = sessions[sessions.length - 1]?.events[0]?.path ?? rows[rows.length - 1]?.path ?? '/';
+    const lastOpen = mail.find((row) => row.type === 'email_open');
+    const end = new Date();
+    end.setHours(0, 0, 0, 0);
+    const activity: Record<string, number> = {};
+    for (const row of rows) {
+      const day = new Date(String(row.seenAt));
+      day.setHours(0, 0, 0, 0);
+      const ago = Math.round((end.getTime() - day.getTime()) / 86_400_000);
+      if (ago >= 0 && ago < 22 * 7) activity[String(ago)] = (activity[String(ago)] ?? 0) + 1;
+    }
+    const replayBySession = new Map(replayRows.map((row) => [row.sessionId, {
+      id: row.id,
+      status: row.expiresAt && Date.parse(String(row.expiresAt)) < Date.now() ? 'expired' : row.status,
+      hasFullSnapshot: row.hasFullSnapshot,
+      startedAt: row.startedAt,
+    }]));
+    const journey = sessions.map((session) => ({
+      ...session,
+      purchases: orderRows
+        .filter((p) => {
+          const t = Date.parse(String(p.seenAt));
+          return t >= Date.parse(session.startedAt) - 60_000 && t <= Date.parse(session.endedAt) + SESSION_GAP_MS;
+        })
+        .map((row) => ({
+          id: row.id,
+          amount: row.amountCents / 100,
+          currency: row.currency,
+          path: row.path,
+          products: row.products,
+          campaign: row.campaign,
+          isReturning: row.isReturning,
+          seenAt: row.seenAt,
+        })),
+      replay: replayBySession.get(session.sessionId) ?? null,
+    }));
 
     return json({
       seed: visitorKey,
       identity: identity ?? null,
-      place: latest ? { cc: latest.cc, city: latest.city, place: latest.place, lat: latest.lat, lng: latest.lng } : null,
+      place: firstGeo ? {
+        cc: firstGeo.cc, city: firstGeo.city, place: firstGeo.place, lat: firstGeo.lat, lng: firstGeo.lng,
+      } : null,
+      firstReferrer,
+      firstPath,
+      live: sessions.some((s) => s.live),
+      lastSeenAt: rows[0] ? String(rows[0].activeAt) : null,
+      device: sessions[0]?.device ?? 'monitor',
       stats: {
-        visits: journey.length,
+        firstSeen,
+        sessions: sessions.length,
+        pageviews,
+        dwellMs,
         revenue,
         orders: orderRows.length,
+        sent: 0,
         opens,
         clicks,
         attributed: orderRows.filter((row) => row.campaign).length,
       },
-      journey: journey.map((row) => ({
-        id: row.id,
-        path: cleanPath(row.path) ?? '/',
-        referrer: row.referrer,
-        seenAt: row.seenAt,
-        activeAt: row.activeAt,
-      })),
+      mail: {
+        sent: 0,
+        opened: opens,
+        clicked: clicks,
+        lastOpenedAt: lastOpen ? String(lastOpen.seenAt) : null,
+        attributed: orderRows.filter((row) => row.campaign).length,
+      },
+      activity,
+      journey,
       purchases: orderRows.map((row) => ({
         id: row.id,
         orderId: row.orderId,
@@ -705,8 +852,162 @@ async function visitorProfile(request: Request, env: Env, projectId: string, vis
         seenAt: row.seenAt,
       })),
       emailEvents: mail,
-      replay: null,
+      replayEnabled: project.replayEnabled && objectStoreConfigured(),
     });
+  });
+}
+
+async function collectConfig(request: Request, env: Env) {
+  const origin = request.headers.get('Origin');
+  if (!origin || origin === 'null') return new Response(null, { status: 403 });
+  const writeKey = new URL(request.url).searchParams.get('key') || '';
+  if (!uuid.test(writeKey)) return json({ replay: false }, 200, cors(origin));
+  const [project] = await withDatabase(env, (db) => db.select({
+    replayEnabled: projects.replayEnabled,
+  }).from(projects).where(and(eq(projects.writeKey, writeKey), eq(projects.origin, origin))).limit(1));
+  return json({ replay: Boolean(project?.replayEnabled && objectStoreConfigured()) }, 200, cors(origin));
+}
+
+async function receiveReplayChunk(request: Request, env: Env) {
+  const origin = request.headers.get('Origin');
+  if (!origin || origin === 'null') return new Response(null, { status: 403 });
+  if (!objectStoreConfigured()) return new Response(null, { status: 503 });
+  const ip = request.headers.get('CF-Connecting-IP') ?? 'local';
+  if (!(await env.COLLECT_LIMIT.limit({ key: `${ip}:replay` })).success) return new Response(null, { status: 429 });
+
+  const raw = await readText(request, 900_000);
+  if (raw == null) return new Response(null, { status: 413 });
+  let body: Record<string, unknown> | null;
+  try { body = JSON.parse(raw); } catch { return new Response(null, { status: 400 }); }
+  const writeKey = typeof body?.key === 'string' ? body.key : '';
+  const vid = typeof body?.vid === 'string' && visitorId.test(body.vid) ? body.vid : null;
+  const sid = cleanSessionId(body?.sid);
+  const tabId = typeof body?.tabId === 'string' && sessionIdRe.test(body.tabId) ? body.tabId : 'main';
+  const clientBatchId = typeof body?.clientBatchId === 'string' ? body.clientBatchId.slice(0, 80) : '';
+  const seq = typeof body?.seq === 'number' && Number.isFinite(body.seq) ? Math.max(0, Math.round(body.seq)) : -1;
+  const events = Array.isArray(body?.events) ? body.events : null;
+  if (!uuid.test(writeKey) || !vid || !sid || !clientBatchId || seq < 0 || !events || events.length > 400) {
+    return new Response(null, { status: 400 });
+  }
+
+  const [project] = await withDatabase(env, (db) => db.select({
+    id: projects.id, replayEnabled: projects.replayEnabled,
+  }).from(projects).where(and(eq(projects.writeKey, writeKey), eq(projects.origin, origin))).limit(1));
+  if (!project?.replayEnabled) return new Response(null, { status: 403 });
+
+  const payload = Buffer.from(JSON.stringify(events));
+  if (payload.length > 700_000) return new Response(null, { status: 413 });
+  const checksum = createHash('sha256').update(payload).digest('hex');
+  const hasFull = Boolean(body?.hasFullSnapshot) || events.some((e) => (e as { type?: number })?.type === 2);
+
+  await withDatabase(env, async (db) => {
+    const existing = await db.select({ id: replayChunks.id }).from(replayChunks)
+      .innerJoin(replaySessions, eq(replayChunks.sessionPk, replaySessions.id))
+      .where(and(
+        eq(replaySessions.projectId, project.id),
+        eq(replaySessions.sessionId, sid),
+        eq(replaySessions.tabId, tabId),
+        eq(replayChunks.clientBatchId, clientBatchId),
+      )).limit(1);
+    if (existing[0]) return;
+
+    let [session] = await db.select().from(replaySessions)
+      .where(and(eq(replaySessions.projectId, project.id), eq(replaySessions.sessionId, sid), eq(replaySessions.tabId, tabId)))
+      .limit(1);
+    if (!session) {
+      const expires = new Date(Date.now() + 7 * 86_400_000);
+      [session] = await db.insert(replaySessions).values({
+        projectId: project.id,
+        visitorId: vid,
+        sessionId: sid,
+        tabId,
+        status: hasFull ? 'ready' : 'incomplete',
+        hasFullSnapshot: hasFull,
+        bytes: 0,
+        expiresAt: expires,
+      }).returning();
+    }
+
+    const objectKey = objectKeyFor(project.id, session.id, clientBatchId);
+    await putObject(objectKey, payload);
+    try {
+      await db.insert(replayChunks).values({
+        sessionPk: session.id,
+        seq,
+        clientBatchId,
+        checksum,
+        objectKey,
+        byteSize: payload.length,
+        hasFullSnapshot: hasFull,
+      });
+      await db.update(replaySessions).set({
+        bytes: sql`${replaySessions.bytes} + ${payload.length}`,
+        hasFullSnapshot: sql`${replaySessions.hasFullSnapshot} or ${hasFull}`,
+        status: hasFull || session.hasFullSnapshot ? 'ready' : 'incomplete',
+        endedAt: sql`now()`,
+      }).where(eq(replaySessions.id, session.id));
+    } catch (error) {
+      await deleteObject(objectKey).catch(() => undefined);
+      throw error;
+    }
+  });
+
+  return new Response(null, { status: 204, headers: cors(origin) });
+}
+
+async function getReplay(request: Request, env: Env, projectId: string, replayId: string) {
+  if (!uuid.test(projectId) || !uuid.test(replayId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to view replays.' }, 401);
+  return withDatabase(env, async (db) => {
+    const [project] = await db.select({ id: projects.id })
+      .from(projects).where(and(eq(projects.id, projectId), eq(projects.owner, owner))).limit(1);
+    if (!project) return json({ error: 'Not found.' }, 404);
+    const [session] = await db.select().from(replaySessions)
+      .where(and(eq(replaySessions.id, replayId), eq(replaySessions.projectId, projectId))).limit(1);
+    if (!session) return json({ error: 'Not found.' }, 404);
+    const expired = Date.parse(String(session.expiresAt)) < Date.now();
+    if (expired) {
+      await db.update(replaySessions).set({ status: 'expired' }).where(eq(replaySessions.id, session.id));
+      return json({ id: session.id, status: 'expired', chunks: [], gaps: true });
+    }
+    const chunks = await db.select().from(replayChunks)
+      .where(eq(replayChunks.sessionPk, session.id)).orderBy(asc(replayChunks.seq));
+    const urls = chunks.map((chunk) => ({
+      seq: chunk.seq,
+      url: signedGetUrl(chunk.objectKey, 300),
+      hasFullSnapshot: chunk.hasFullSnapshot,
+    }));
+    const seqs = chunks.map((c) => c.seq);
+    const gaps = seqs.length > 0 && (Math.max(...seqs) - Math.min(...seqs) + 1 !== seqs.length || !session.hasFullSnapshot);
+    return json({
+      id: session.id,
+      status: session.hasFullSnapshot ? 'ready' : 'incomplete',
+      hasFullSnapshot: session.hasFullSnapshot,
+      chunks: urls,
+      gaps,
+    });
+  });
+}
+
+async function patchProject(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to update settings.' }, 401);
+  const raw = await readText(request, 2048);
+  let body: { replayEnabled?: unknown } | null;
+  try { body = raw === null ? null : JSON.parse(raw); } catch { return json({ error: 'Invalid JSON.' }, 400); }
+  if (typeof body?.replayEnabled !== 'boolean') return json({ error: 'replayEnabled required.' }, 400);
+  if (body.replayEnabled && !objectStoreConfigured()) {
+    return json({ error: 'Replay storage is not configured on this server.' }, 400);
+  }
+  return withDatabase(env, async (db) => {
+    const [project] = await db.update(projects)
+      .set({ replayEnabled: body!.replayEnabled as boolean })
+      .where(and(eq(projects.id, projectId), eq(projects.owner, owner)))
+      .returning(projectFields);
+    if (!project) return json({ error: 'Not found.' }, 404);
+    return json({ project, storageReady: objectStoreConfigured() });
   });
 }
 
@@ -747,9 +1048,19 @@ export default {
   async fetch(request: Request, env: Env) {
     const url = new URL(request.url);
     try {
+      const replayMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/replays\/([0-9a-f-]{36})$/i);
+      if (replayMatch) {
+        if (request.method === 'GET') return await getReplay(request, env, replayMatch[1], replayMatch[2]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
       const profileMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/visitors\/([A-Za-z0-9_-]{8,80})$/i);
       if (profileMatch) {
         if (request.method === 'GET') return await visitorProfile(request, env, profileMatch[1], profileMatch[2]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const projectMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})$/i);
+      if (projectMatch) {
+        if (request.method === 'PATCH') return await patchProject(request, env, projectMatch[1]);
         return json({ error: 'Method not allowed.' }, 405);
       }
       const liveMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/live(\/stream)?$/i);
@@ -762,25 +1073,35 @@ export default {
         if (request.method === 'POST') return await createProject(request, env, url);
         return json({ error: 'Method not allowed.' }, 405);
       }
+      if (url.pathname === '/v1/collect/config') {
+        if (request.method === 'GET') return await collectConfig(request, env);
+        return new Response(null, { status: 405 });
+      }
       if (url.pathname === '/v1/collect/install') {
         if (request.method === 'POST') return await receiveInstall(request, env);
         return new Response(null, { status: 405 });
       }
+      const collectCors = () => {
+        const origin = request.headers.get('Origin');
+        if (!origin || origin === 'null') return new Response(null, { status: 403 });
+        return new Response(null, {
+          status: 204,
+          headers: {
+            ...cors(origin),
+            'Access-Control-Allow-Methods': 'POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'content-type',
+            'Access-Control-Max-Age': '86400',
+          },
+        });
+      };
       if (url.pathname === '/v1/collect/event') {
-        if (request.method === 'OPTIONS') {
-          const origin = request.headers.get('Origin');
-          if (!origin || origin === 'null') return new Response(null, { status: 403 });
-          return new Response(null, {
-            status: 204,
-            headers: {
-              ...cors(origin),
-              'Access-Control-Allow-Methods': 'POST, OPTIONS',
-              'Access-Control-Allow-Headers': 'content-type',
-              'Access-Control-Max-Age': '86400',
-            },
-          });
-        }
+        if (request.method === 'OPTIONS') return collectCors();
         if (request.method === 'POST') return await receiveEvent(request, env);
+        return new Response(null, { status: 405 });
+      }
+      if (url.pathname === '/v1/collect/replay-chunks') {
+        if (request.method === 'OPTIONS') return collectCors();
+        if (request.method === 'POST') return await receiveReplayChunk(request, env);
         return new Response(null, { status: 405 });
       }
       return json({ error: 'Page not found.' }, 404);

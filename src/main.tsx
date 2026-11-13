@@ -81,6 +81,8 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [initial, setInitial] = useState('');
   const [liveFocus, setLiveFocus] = useState<string>();
   const [profile, setProfile] = useState<ProfileFocus>();
+  const [replayStorage, setReplayStorage] = useState(false);
+  const [replayBusy, setReplayBusy] = useState(false);
   const [dockMode, setDockMode] = useState<DockMode>(() => {
     try {
       const saved = localStorage.getItem('omer.dock');
@@ -107,6 +109,12 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
       .then((data: { user?: { name?: string; email?: string } } | null) => {
         const who = data?.user?.name?.trim() || data?.user?.email || '';
         setInitial(who.charAt(0).toUpperCase());
+      })
+      .catch(() => {});
+    fetch('/api/config', { cache: 'no-store', signal: controller.signal })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data: { replayStorage?: boolean } | null) => {
+        if (data) setReplayStorage(Boolean(data.replayStorage));
       })
       .catch(() => {});
     return () => controller.abort();
@@ -550,6 +558,28 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
               onOpen={(seed) => setProfile({ projectId: project.id, seed })} />
           ) : screen === 'settings' && project ? (
             <Settings project={project} snippet={snippet} dockMode={dockMode} onDockMode={setDockMode}
+              storageReady={replayStorage} replayBusy={replayBusy}
+              onReplay={async (enabled) => {
+                if (!project) return;
+                setReplayBusy(true);
+                try {
+                  const response = await fetch(`/api/projects/${project.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ replayEnabled: enabled }),
+                  });
+                  const data: { project?: Project; storageReady?: boolean; error?: string } = await response.json();
+                  if (!response.ok) throw new Error(data.error || 'Unable to update replay');
+                  if (typeof data.storageReady === 'boolean') setReplayStorage(data.storageReady);
+                  if (data.project) {
+                    setProjects((list) => list.map((row) => (row.id === data.project!.id ? { ...row, ...data.project } : row)));
+                  }
+                } catch (error) {
+                  setNotice(error instanceof Error ? error.message : 'Unable to update replay');
+                } finally {
+                  setReplayBusy(false);
+                }
+              }}
               onCopy={(kind) => void copy(kind)} onGuide={openGuide} onSetup={() => {
                 setForceSetup(true);
                 setStep('install');

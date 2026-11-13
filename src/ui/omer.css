@@ -221,40 +221,12 @@
 .omer-thumb .ico { width: 18px; height: 18px; }
 .people-pos { font-weight: 600; color: var(--ink); }
 
-/* ---------- Visitor profile ---------- */
-.profile-page { width: var(--v2-rail); margin-inline: auto; padding-block: var(--page-start) 112px; box-sizing: border-box; display: grid; gap: 16px; }
 .profile-back {
   justify-self: start; display: inline-flex; align-items: center; gap: 8px; border: 0; background: none;
-  padding: 0; font: inherit; font-size: 14px; font-weight: 550; color: var(--ink-2); cursor: pointer;
+  padding: 0; margin: 0 0 8px; font: inherit; font-size: 14px; font-weight: 550; color: var(--ink-2); cursor: pointer;
 }
 .profile-back:hover { color: var(--ink); }
 .profile-back .ico { width: 16px; height: 16px; }
-.profile-hero-in { display: grid; gap: 18px; }
-.profile-id { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
-.profile-id h1 { margin: 0; font-size: 22px; letter-spacing: -0.02em; }
-.profile-id p { margin: 4px 0 0; color: var(--ink-2); font-size: 14px; }
-.profile-id .btn { margin-inline-start: auto; }
-.profile-stats, .profile-mail { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-.profile-mail { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.profile-stats > div, .profile-mail > div { display: grid; gap: 2px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
-.profile-stats b, .profile-mail b { font-size: 18px; font-variant-numeric: tabular-nums; }
-.profile-stats span, .profile-mail span { font-size: 12px; color: var(--ink-2); }
-.profile-story { margin: 0; color: var(--ink-2); font-size: 14px; line-height: 1.45; }
-.profile-story .brand-logo, .profile-story svg { width: 14px; height: 14px; vertical-align: -2px; margin-inline-end: 4px; }
-.profile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.profile-place { display: inline-flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; }
-.profile-journey, .profile-purchases { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-.profile-journey li, .profile-purchases li { display: grid; gap: 2px; padding-block: 8px; border-top: 1px solid var(--v2-line); }
-.profile-journey li:first-child, .profile-purchases li:first-child { border-top: 0; padding-top: 0; }
-.profile-journey b, .profile-purchases b { font-size: 14px; }
-.profile-journey small, .profile-purchases small, .profile-purchases span { color: var(--ink-2); font-size: 12.5px; }
-@container app (max-width: 720px) {
-  .profile-grid, .profile-stats, .profile-mail { grid-template-columns: 1fr 1fr; }
-  .profile-id .btn { margin-inline-start: 0; }
-}
-@container app (max-width: 520px) {
-  .profile-stats, .profile-mail, .profile-grid { grid-template-columns: 1fr; }
-}
 @container app (max-width: 620px) {
   .v2-legend button { gap: 8px; padding-inline: 6px; }
   .v2-legend b { min-width: 0; }

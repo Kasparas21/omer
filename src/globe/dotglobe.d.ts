@@ -9,6 +9,11 @@ export function createDotGlobe(container: HTMLElement, options: {
   openOnFocus?: boolean;
   maxZoom?: number;
   radiusScale?: number;
+  startZoom?: number;
+  offsetX?: number;
+  lookAt?: { lat: number; lng: number };
+  showFlags?: boolean;
+  shiftY?: number;
 }): {
   destroy(): void;
   setPeople(people: Person[]): void;
