@@ -52,14 +52,18 @@ export function MailEditor({ space, brand, published, onPublish }: {
   const [uploading, setUploading] = useState(false);
   // What you can put in an email: the store's own photos and products (the demo store's examples otherwise).
   const shelf = useMemo(() => {
-    const photos: { key: string; label: string; file?: BrandFile; src: string }[] = [
-      ...brand.photos.map((f) => ({ key: `p-${f.id}`, label: f.name, file: f, src: f.src })),
-      ...brand.products.flatMap((p) => [p.image, p.image2].filter(Boolean).map((f) => ({ key: `r-${f!.id}`, label: p.name, file: f!, src: f!.src }))),
-    ].filter((x) => x.src);
+    type Pic = { key: string; label: string; file?: BrandFile; src: string };
+    // Everything with a picture in Brand knowledge, by folder.
+    const groups: { id: string; name: string; items: Pic[] }[] = [
+      { id: 'products', name: 'Products', items: brand.products.flatMap((p) => [p.image, p.image2].filter(Boolean).map((f, i) => ({ key: `r-${f!.id}-${i}`, label: p.name, file: f!, src: f!.src }))) },
+      { id: 'photos', name: 'Photos', items: brand.photos.map((f, i) => ({ key: `p-${f.id}-${i}`, label: f.name, file: f, src: f.src })) },
+      { id: 'logos', name: 'Logos', items: (['primary', 'mark', 'dark'] as const).flatMap((k) => (brand.logos[k] ? [{ key: `l-${k}`, label: k === 'primary' ? 'Main logo' : k === 'mark' ? 'Square icon' : 'Logo on dark', file: brand.logos[k]!, src: brand.logos[k]!.src }] : [])) },
+    ].map((g) => ({ ...g, items: g.items.filter((x) => x.src) })).filter((g) => g.items.length);
+    const photos = groups.flatMap((g) => g.items);
     const products: Product[] = brand.products.length
       ? brand.products.map((p) => ({ name: p.name, now: p.price, img: p.image?.src }))
       : space === 'demo' ? DEMO_PRODUCTS : [];
-    return { photos, products, files: new Map(brand.products.map((p) => [p.name, p.image ?? null])) };
+    return { groups, photos, products, files: new Map(brand.products.map((p) => [p.name, p.image ?? null])) };
   }, [brand]);
   async function imageFrom(file: BrandFile | File | null, src?: string): Promise<string | null> {
     if (!file) return src ?? null;
@@ -143,9 +147,11 @@ export function MailEditor({ space, brand, published, onPublish }: {
     change((d) => {
       const o = d.doc.order;
       // With nothing picked, new blocks go above the sign-off (or the footer).
-      const end = o.includes('sig') ? o.indexOf('sig') : o.indexOf('footer');
+      // Pictures and products go above the button; anything else above the sign-off.
+      const visual = (type === 'image' || type === 'product') && o.includes('cta');
+      const end = visual ? o.indexOf('cta') : o.includes('sig') ? o.indexOf('sig') : o.indexOf('footer');
       const at = sel === 'page' || sel === 'logo' ? Math.max(-1, end - 1) : o.indexOf(sel);
-      if (type === 'body') { d.doc.body.push('Write something here.'); key = `body.${d.doc.body.length - 1}`; }
+      if (type === 'body') { d.doc.body.push(''); key = `body.${d.doc.body.length - 1}`; }
       else if (type === 'div') key = `div.${Date.now()}`;
       else if (type === 'header') { if (!d.doc.headline) d.doc.headline = 'A short heading'; key = 'headline'; }
       else if (type === 'image') { d.doc.hero ??= {}; key = 'hero'; }
@@ -222,15 +228,16 @@ export function MailEditor({ space, brand, published, onPublish }: {
             </>}
             {type === 'hero' && <>
               {heroSrc ? <div className="cpe-img-now"><img src={heroSrc} alt="" /></div> : null}
-              {shelf.photos.length ? <div className="cpe-f"><span>From Brand knowledge</span>
-                <div className="cpe-shelf">{shelf.photos.map((p) => (
-                  <button key={p.key} type="button" className="cpe-shelf-i" aria-label={`Use ${p.label}`} aria-pressed={heroSrc === p.src} disabled={uploading}
-                    onClick={() => void imageFrom(p.file ?? null, p.src).then(setHero)}><img src={p.src} alt="" /></button>
-                ))}</div></div> : null}
-              <Uploader compact accept="image/png,image/jpeg,image/webp,image/gif" maxMb={5} title={uploading ? 'Uploading…' : 'Upload an image'}
-                onFiles={([f]) => void imageFrom(f).then(setHero)} />
-              <label className="cpe-f"><span>Or a link</span><input className="input cpe-text" placeholder="https://…" inputMode="url" defaultValue={doc.hero?.src?.startsWith('http') ? doc.hero.src : ''}
-                onBlur={(e) => { const v = e.target.value.trim(); if (/^https?:\/\//i.test(v)) setHero(v); }} /></label>
+              {shelf.groups.length ? (
+                <BrandLibrary groups={shelf.groups} current={heroSrc} busy={uploading} onPick={(p) => void imageFrom(p.file ?? null, p.src).then(setHero)} />
+              ) : <p className="cpe-lib-empty">Nothing in Brand knowledge yet. Add products, photos or a logo there and they show up here.</p>}
+              <details className="cpe-more" open={!shelf.groups.length}>
+                <summary><Icon name="upload" />Upload or paste a link</summary>
+                <Uploader compact accept="image/png,image/jpeg,image/webp,image/gif" maxMb={5} title={uploading ? 'Uploading…' : 'Upload an image'}
+                  onFiles={([f]) => void imageFrom(f).then(setHero)} />
+                <input className="input cpe-text" placeholder="https://…" aria-label="Image link" inputMode="url" defaultValue={doc.hero?.src?.startsWith('http') ? doc.hero.src : ''}
+                  onBlur={(e) => { const v = e.target.value.trim(); if (/^https?:\/\//i.test(v)) setHero(v); }} />
+              </details>
             </>}
             {type === 'code' && doc.code && <>
               <label className="cpe-f"><span>Line under the code</span><input className="input cpe-text" value={doc.code.n} onChange={(e) => change((d) => { if (d.doc.code) d.doc.code.n = e.target.value; })} /></label>
@@ -344,5 +351,31 @@ function Num({ label, icon, value, max, onChange }: { label: string; icon: IconN
     <label className="cpe-f"><span>{label}</span>
       <span className="cpe-in"><Icon name={icon} /><input type="number" min={0} max={max} value={value} aria-label={label} onChange={(e) => onChange(Math.max(0, Math.min(max, Math.round(Number(e.target.value) || 0))))} /><small>px</small></span>
     </label>
+  );
+}
+
+/** Pictures already in Brand knowledge, by folder: pick one and it goes in the email. */
+function BrandLibrary({ groups, current, busy, onPick }: {
+  groups: { id: string; name: string; items: { key: string; label: string; file?: BrandFile; src: string }[] }[];
+  current: string;
+  busy: boolean;
+  onPick: (p: { key: string; label: string; file?: BrandFile; src: string }) => void;
+}) {
+  const [tab, setTab] = useState(groups[0]?.id ?? '');
+  const group = groups.find((g) => g.id === tab) ?? groups[0];
+  return (
+    <div className="cpe-lib">
+      <div className="cpe-lib-h"><span>From Brand knowledge</span>
+        {groups.length > 1 ? (
+          <div className="cpe-lib-tabs" role="tablist">
+            {groups.map((g) => <button key={g.id} type="button" role="tab" aria-selected={g.id === group.id} onClick={() => setTab(g.id)}>{g.name}</button>)}
+          </div>
+        ) : null}
+      </div>
+      <div className="cpe-shelf is-lib">{group.items.map((p) => (
+        <button key={p.key} type="button" className={`cpe-shelf-i${group.id === 'logos' ? ' is-logo' : ''}${p.key === 'l-dark' ? ' is-dark' : ''}`} title={p.label} aria-label={`Use ${p.label}`}
+          aria-pressed={current === p.src} disabled={busy} onClick={() => onPick(p)}><img src={p.src} alt="" /></button>
+      ))}</div>
+    </div>
   );
 }
