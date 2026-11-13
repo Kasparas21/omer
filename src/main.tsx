@@ -637,17 +637,9 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
                 <div className="v2-in omer-soon">
                   <div className="empty">
                     <span className="empty-ico"><Icon name={DOCK.find(({ id }) => id === screen)?.icon ?? 'inbox'} /></span>
-                    <h4>
-                      {screen === 'inbox' && 'No opportunities yet'}
-                      {screen === 'campaigns' && 'No campaigns yet'}
-                      {screen === 'results' && 'No results yet'}
-                    </h4>
-                    <p>
-                      {screen === 'inbox' && 'Moments where a follow-up would help show up here once email drafting is connected.'}
-                      {screen === 'campaigns' && 'Follow-up recipes and their sends live here once the email engine ships.'}
-                      {screen === 'results' && 'Revenue from follow-up emails shows up here once campaigns start sending.'}
-                    </p>
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setScreen('home')}>Back to Dashboard</button>
+                    <h4>Add your store first</h4>
+                    <p>Connect a store and this page fills in with its visitors, follow-ups and sales.</p>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setScreen('home')}>Go to Home</button>
                   </div>
                 </div>
               </section>
