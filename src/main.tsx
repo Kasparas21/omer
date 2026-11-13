@@ -14,6 +14,7 @@ import { useLive } from './live';
 import { Icon, type IconName } from './ui/Icon';
 import { Dock } from './ui/Dock';
 import { ProjectMenu } from './ui/ProjectMenu';
+import { isDemo } from './demo';
 
 type ProjectError = { field?: 'name' | 'website'; error: string };
 type SetupStep = 'site' | 'brand' | 'install' | 'check' | 'sender';
@@ -534,9 +535,9 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
                 setReached(stepIndex('check'));
               }} />
           ) : screen === 'globe' && project ? (
-            <LiveGlobe key={project.id} {...live} focusSeed={liveFocus} />
+            <LiveGlobe key={project.id} {...live} focusSeed={liveFocus} demo={isDemo(project)} />
           ) : screen === 'visitors' && project ? (
-            <People key={project.id} {...live} onLive={() => { setLiveFocus(undefined); setScreen('globe'); }}
+            <People key={project.id} {...live} demo={isDemo(project)} onLive={() => { setLiveFocus(undefined); setScreen('globe'); }}
               onOpen={(seed) => { setLiveFocus(seed); setScreen('globe'); }} />
           ) : screen === 'settings' && project ? (
             <Settings project={project} snippet={snippet} dockMode={dockMode} onDockMode={setDockMode}

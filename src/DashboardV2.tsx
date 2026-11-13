@@ -4,6 +4,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Project } from './project';
 import { Icon, type IconName } from './ui/Icon';
 import { SourceMark, sourceKey, sourceLabel } from './ui/sources';
+import { Orb } from './ui/Orb';
+import { CAMPAIGN_COLORS, DEMO_CAMPAIGNS, DEMO_NEEDS, DEMO_PRODUCTS, DEMO_SCHEDULE, RETURNING, demoSeries, isDemo } from './demo';
 
 type Metric = 'people' | 'views' | 'dwell' | 'clicked' | 'sales';
 const RANGES = [1, 7, 14, 30] as const;
@@ -125,6 +127,47 @@ function CountUp({ value, kind, run }: { value: number; kind: Metric | 'count'; 
   return <b ref={el}>{text}</b>;
 }
 
+type Series = Record<Metric, number[]>;
+type Totals = Record<Metric, number>;
+/** Demo project only: email clicks and revenue that follow its visitor curve (see demo.ts). */
+function withDemo<T extends { series: Series; back: Series; totals: Totals; prev: Totals; liveAt?: number }>(demo: boolean, d: T) {
+  if (!demo) return { ...d, mail: null };
+  const now = demoSeries(d.series.people, 1);
+  const was = demoSeries(d.back.people, 7);
+  const cut = d.liveAt == null ? now.sales.length : d.liveAt + 1; // Today stops at the current hour
+  const upTo = (xs: number[]) => xs.map((x, i) => (i < cut ? x : 0));
+  const series = { ...d.series, clicked: upTo(now.clicked), sales: upTo(now.sales) };
+  const back = { ...d.back, clicked: was.clicked, sales: was.sales };
+  const before = (xs: number[]) => sum(xs.slice(0, cut));
+  return {
+    ...d, series, back,
+    totals: { ...d.totals, clicked: sum(series.clicked), sales: sum(series.sales) },
+    prev: { ...d.prev, clicked: before(was.clicked), sales: before(was.sales) },
+    mail: { sent: upTo(now.sent), sentPrev: before(was.sent), customers: Math.round(sum(upTo(now.orders)) * 0.9) },
+  };
+}
+
+/** Half ring split by campaign share; each arc draws in after the one before. */
+function Gauge({ parts }: { parts: { share: number; color: string }[] }) {
+  const P = (a: number) => [150 + 112 * Math.cos((a * Math.PI) / 180), 148 - 112 * Math.sin((a * Math.PI) / 180)];
+  let angle = 180;
+  let delay = 0;
+  return (
+    <svg className="v2-gauge" viewBox="0 0 300 160" aria-hidden="true">
+      {parts.map((part, i) => {
+        const span = 180 * part.share;
+        const a0 = angle - (i ? 0.55 : 0);
+        const a1 = angle - span + (i < parts.length - 1 ? 0.55 : 0);
+        angle -= span;
+        const [x0, y0] = P(a0), [x1, y1] = P(a1);
+        const style = { ['--c' as string]: part.color, ['--d' as string]: `${delay.toFixed(2)}s`, ['--t' as string]: `${(0.25 + part.share * 0.9).toFixed(2)}s` };
+        delay += 0.2 + part.share * 0.9;
+        return <path key={i} d={`M${x0.toFixed(2)} ${y0.toFixed(2)} A112 112 0 0 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`} pathLength={100} style={style} />;
+      })}
+    </svg>
+  );
+}
+
 /** A soft line with a fill to the card's bottom edge (kit v2Area); all zeros draws a calm baseline. */
 function Area({ values, color }: { values: number[]; color: string }) {
   const n = Math.max(values.length, 2);
@@ -228,7 +271,9 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, head
   const nowHour = new Date(clock).getUTCHours();
 
   // One shape for both modes: n points now, n points before, labels, totals and the comparison.
-  const data = useMemo(() => {
+  const demo = isDemo(project);
+  const [need, setNeed] = useState(DEMO_NEEDS[0].id);
+  const data = useMemo(() => withDemo(demo, (() => {
     if (range === 1) {
       const hourly = { views: Array(24).fill(0), people: Array(24).fill(0) };
       const back = { views: Array(24).fill(0), people: Array(24).fill(0) };
@@ -270,7 +315,7 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, head
       at: (i: number) => dayLabel.format(dates[i]),
       earlier: `${range} days earlier`, last: 'Today',
     };
-  }, [range, end, maps, project.hours, today, yesterday, nowHour]);
+  })()), [range, end, maps, project.hours, today, yesterday, nowHour, demo]);
 
   const { n } = data;
   const day = range === 1;
@@ -345,8 +390,8 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, head
                     {key === 'people' && 'Unique people'}
                     {key === 'views' && (data.totals.people ? `${(data.totals.views / data.totals.people).toFixed(1)} per session` : 'No sessions yet')}
                     {key === 'dwell' && 'Avg. active time'}
-                    {key === 'clicked' && 'No emails sent yet'}
-                    {key === 'sales' && 'From 0 customers'}
+                    {key === 'clicked' && (data.mail ? `${Math.round((data.totals.clicked / Math.max(1, sum(data.mail.sent))) * 100)}% of emails` : 'No emails sent yet')}
+                    {key === 'sales' && `From ${countFmt.format(data.mail?.customers ?? 0)} customers`}
                   </span>
                 </button>
               ))}
@@ -418,62 +463,104 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, head
     <div className="v2-rest">
       <div className="v2-row v2-two">
         <Card icon="ghost" title="Brand read" extra={<Link label="Brand DNA" onClick={onSetup} />}>
-          <div className="v2-brand-read">
-            <b className="v2-brand-word">Not read yet</b>
-            <p>Import {project.name}’s Brand DNA to see how emails match it.</p>
-            <p className="v2-brand-ind">Conversion vs store average · <em>Waiting for sales</em></p>
-          </div>
+          {data.mail ? (
+            <div className="v2-brand-read">
+              <b className="v2-brand-word">Credible</b>
+              <p>Emails match {project.name}’s Brand DNA.</p>
+              <p className="v2-brand-ind">Conversion vs pet-store average · <em>Decent</em></p>
+            </div>
+          ) : (
+            <div className="v2-brand-read">
+              <b className="v2-brand-word">Not read yet</b>
+              <p>Import {project.name}’s Brand DNA to see how emails match it.</p>
+              <p className="v2-brand-ind">Conversion vs store average · <em>Waiting for sales</em></p>
+            </div>
+          )}
         </Card>
         <Card icon="dollar" title="Email revenue">
-          <div className="v2-head"><b className="v2-val v2-big">{money.format(0)}</b></div>
-          <p className="v2-m-s v2-card-sub">From 0 customers</p>
-          <Area values={zeros(n)} color="#12b886" />
+          <div className="v2-head"><b className="v2-val v2-big">{money.format(data.totals.sales)}</b><Chip now={data.totals.sales} prev={data.prev.sales} /></div>
+          <p className="v2-m-s v2-card-sub">From {countFmt.format(data.mail?.customers ?? 0)} customers</p>
+          <Area values={day ? data.series.sales.slice(0, nowHour + 1) : data.series.sales} color="#12b886" />
         </Card>
       </div>
 
       <div className="v2-row v2-two">
         <Card icon="clock" title="Schedule" extra={<Link label="Opportunities" onClick={onInbox} />}>
           <div className="v2-sched">
-            <b className="v2-val">0 <span>sends lined up</span></b>
-            <p className="ho-empty">Follow-ups you approve are scheduled here, in each person’s own time zone.</p>
+            <b className="v2-val">{data.mail ? DEMO_SCHEDULE.length : 0} <span>sends lined up</span></b>
+            {data.mail ? (
+              <ul>{DEMO_SCHEDULE.map((row) => (
+                <li key={row.seed}><button type="button" onClick={onInbox}><Orb seed={row.seed} size={22} /><span><b>{row.name}</b><small>{row.when}</small></span></button></li>
+              ))}</ul>
+            ) : <p className="ho-empty">Follow-ups you approve are scheduled here, in each person’s own time zone.</p>}
           </div>
         </Card>
         <Card icon="send" title="Emails">
-          <div className="v2-head"><b className="v2-val">0</b></div>
-          <p className="v2-m-s v2-card-sub">0% clicked · 0 people</p>
-          <Area values={zeros(n)} color="#4F4BE0" />
+          <div className="v2-head"><b className="v2-val">{countFmt.format(data.mail ? sum(data.mail.sent) : 0)}</b>{data.mail && <Chip now={sum(data.mail.sent)} prev={data.mail.sentPrev} />}</div>
+          <p className="v2-m-s v2-card-sub">{data.mail ? Math.round((data.totals.clicked / Math.max(1, sum(data.mail.sent))) * 100) : 0}% clicked · {countFmt.format(data.totals.clicked)} people</p>
+          <Area values={data.mail ? (day ? data.mail.sent.slice(0, nowHour + 1) : data.mail.sent) : zeros(n)} color="#4F4BE0" />
         </Card>
       </div>
 
       <div className="v2-row v2-two">
         <Card icon="megaphone" title="Sales by campaign" className="v2-gauge-card">
           <div className="v2-gauge-wrap">
-            <EmptyGauge />
-            <div className="v2-gauge-mid"><span>Total from email</span><b>{money.format(0)}</b></div>
+            {data.mail ? <Gauge parts={DEMO_CAMPAIGNS.map((c, i) => ({ share: c.share, color: CAMPAIGN_COLORS[i] }))} /> : <EmptyGauge />}
+            <div className="v2-gauge-mid"><span>Total from email</span><b>{money.format(data.totals.sales)}</b></div>
           </div>
-          <p className="ho-empty omer-center">No campaigns yet.</p>
+          {data.mail ? (
+            <div className="v2-legend">{DEMO_CAMPAIGNS.map((c, i) => (
+              <button key={c.name} type="button" onClick={onInbox}><i style={{ ['--c' as string]: CAMPAIGN_COLORS[i] }} /><span>{c.name}</span><small>{Math.round(c.share * 100)}%</small><b>{money.format(Math.round(data.totals.sales * c.share))}</b></button>
+            ))}</div>
+          ) : <p className="ho-empty omer-center">No campaigns yet.</p>}
         </Card>
         <Card icon="star" title="Top products">
-          <p className="ho-empty">Products show up here after the first sale from an email.</p>
+          {data.mail ? (
+            <div className="v2-products">{DEMO_PRODUCTS.map((item) => {
+              const amount = Math.round(data.totals.sales * item.share);
+              return (
+                <button key={item.name} type="button" className="v2-prod">
+                  <span className="omer-thumb" style={{ background: item.tint }} aria-hidden="true"><Icon name="tag" /></span>
+                  <span className="v2-prod-t"><b>{item.name}</b><small>{countFmt.format(Math.max(1, Math.round(amount / item.price)))} orders from email</small></span>
+                  <b className="v2-prod-v">{money.format(amount)}</b>
+                </button>
+              );
+            })}</div>
+          ) : <p className="ho-empty">Products show up here after the first sale from an email.</p>}
         </Card>
       </div>
 
       <div className="v2-row">
-        <Card icon="chart" title="Sales mix" className="v2-wide"
-          extra={<span className="v2-side">Bought before <b>{money.format(0)}</b></span>}>
-          <div className="v2-head"><b className="v2-val v2-big">{money.format(0)}</b></div>
-          <div className="v2-bars-wrap">
-            <div className="v2-key" aria-hidden="true"><span><i style={{ ['--c' as string]: '#6360F0' }} />New customers</span><span><i style={{ ['--c' as string]: '#4F4BE0' }} />Bought before</span></div>
-            <div className="v2-bars omer-bars-empty" aria-hidden="true">
-              {zeros(n).map((_, i) => (
-                <span key={i} className="v2-col" style={{ ['--i' as string]: i }}>
-                  <i className="v2-new" style={{ ['--h' as string]: '0%' }} /><i className="v2-ret" style={{ ['--h' as string]: '0%' }} />
-                </span>
-              ))}
-            </div>
-            <p className="omer-bars-note">Sales from your emails will stack here once your store is connected.</p>
-          </div>
-        </Card>
+        {(() => {
+          const sales = day ? data.series.sales.slice(0, nowHour + 1) : data.series.sales;
+          const back = sum(sales.map((v, i) => v * RETURNING(i)));
+          const backWas = data.prev.sales * 0.36;
+          const delta = backWas ? Math.round(((back - backWas) / backWas) * 100) : 0;
+          const tallest = Math.max(...sales, 1);
+          return (
+            <Card icon="chart" title="Sales mix" className="v2-wide" extra={
+              <span className="v2-side">Bought before <b>{money.format(Math.round(back))}</b>
+                {data.mail && <b className={`v2-up-s ${delta >= 0 ? 'up' : 'down'}`}><svg viewBox="0 0 10 8" aria-hidden="true"><path d={delta >= 0 ? 'M5 0 10 8H0z' : 'M5 8 0 0h10z'} /></svg>{delta > 0 ? '+' : ''}{delta}%</b>}
+              </span>}>
+              <div className="v2-head"><b className="v2-val v2-big">{money.format(data.totals.sales)}</b><Chip now={data.totals.sales} prev={data.prev.sales} /></div>
+              <div className="v2-bars-wrap">
+                <div className="v2-key" aria-hidden="true"><span><i style={{ ['--c' as string]: '#6360F0' }} />New customers</span><span><i style={{ ['--c' as string]: '#4F4BE0' }} />Bought before</span></div>
+                <div className={`v2-bars${data.mail ? '' : ' omer-bars-empty'}`} aria-hidden="true">
+                  {(data.mail ? sales : zeros(n)).map((v, i) => {
+                    const ret = v * RETURNING(i);
+                    return (
+                      <span key={i} className="v2-col" style={{ ['--i' as string]: i }} title={data.mail ? `${data.tip(i)}: ${money.format(v)}` : undefined}>
+                        <i className="v2-new" style={{ ['--h' as string]: `${(((v - ret) / tallest) * 100).toFixed(2)}%` }} />
+                        <i className="v2-ret" style={{ ['--h' as string]: `${((ret / tallest) * 100).toFixed(2)}%` }} />
+                      </span>
+                    );
+                  })}
+                </div>
+                {!data.mail && <p className="omer-bars-note">Sales from your emails will stack here once your store is connected.</p>}
+              </div>
+            </Card>
+          );
+        })()}
       </div>
 
       <div className="v2-row v2-two">
@@ -486,7 +573,7 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, head
                   <tr key={row.name}>
                     <th scope="row"><button type="button" className="v2-stat-src" onClick={onGlobe}><span className={`lvp-src ${sourceKey(row.name)}`} aria-hidden="true"><SourceMark referrer={row.name} /></span>{sourceLabel(row.name)}</button></th>
                     <td className="num">{countFmt.format(row.count)}</td>
-                    <td className="num">{money.format(0)}</td>
+                    <td className="num">{money.format(Math.round(data.totals.sales * (row.count / sourceTotal) * (sourceKey(row.name) === 'direct' ? 0.7 : 1.05)))}</td>
                     <td className="num">{Math.round((row.count / sourceTotal) * 100)}%</td>
                   </tr>
                 ))}
@@ -503,7 +590,7 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, head
                   <tr key={row.path}>
                     <th scope="row"><button type="button" className="v2-stat-src" onClick={onPeople}>{row.path}</button></th>
                     <td className="num">{countFmt.format(row.count)}</td>
-                    <td className="num">{money.format(0)}</td>
+                    <td className="num">{money.format(Math.round(data.totals.sales * (row.count / pageTotal) * (row.path.includes('checkout') ? 1.4 : row.path.includes('blog') ? 0.45 : 1)))}</td>
                     <td className="num">{Math.round((row.count / pageTotal) * 100)}%</td>
                   </tr>
                 ))}
@@ -515,7 +602,27 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, head
 
       <div className="v2-row">
         <Card icon="inbox" title="Needs you" className="v2-wide">
-          {project.firstEventAt ? (
+          {data.mail ? (() => {
+            const tab = DEMO_NEEDS.find((t) => t.id === need) ?? DEMO_NEEDS[0];
+            return (
+              <section className="ho-needs" aria-label="What needs you">
+                <header className="ho-needs-h">
+                  <nav className="ib-tabs" aria-label="What needs you">
+                    {DEMO_NEEDS.map((t) => <button key={t.id} type="button" className="ib-tab" aria-pressed={t.id === tab.id} onClick={() => setNeed(t.id)}>{t.label}<span>{t.rows.length}</span></button>)}
+                  </nav>
+                  <Link label={tab.go} onClick={tab.go === 'Settings' ? onSetup : onInbox} />
+                </header>
+                <div className="ho-need-rows">
+                  {tab.rows.slice(0, 3).map((row) => (
+                    <button key={row.who} type="button" className="ho-need" onClick={tab.go === 'Settings' ? onSetup : onInbox}>
+                      {row.seed ? <Orb seed={row.seed} size={26} /> : <span className="ho-need-ic"><Icon name={row.icon ?? 'alert'} /></span>}
+                      <b>{row.who}</b><span>{row.what}</span><time>{row.when ?? ''}</time>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            );
+          })() : project.firstEventAt ? (
             <section className="ho-needs" aria-label="What needs you"><p className="ho-empty">Nothing needs you right now.</p></section>
           ) : (
             <section className="ho-needs" aria-label="What needs you">

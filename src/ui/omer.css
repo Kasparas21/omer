@@ -215,3 +215,16 @@
 .app-site-opt small { font-size: 12px; color: var(--ink-3); }
 .app-site-opt[aria-checked="true"] { background: var(--surface-2); }
 .app-shelf-site .menu { min-width: 240px; }
+
+/* ---------- Demo cards ---------- */
+.omer-thumb { display: grid; place-items: center; flex: none; width: 42px; height: 42px; border-radius: 11px; color: rgb(0 0 0 / 0.42); }
+.omer-thumb .ico { width: 18px; height: 18px; }
+.people-pos { font-weight: 600; color: var(--ink); }
+@container app (max-width: 620px) {
+  .v2-legend button { gap: 8px; padding-inline: 6px; }
+  .v2-legend b { min-width: 0; }
+}
+@container app (max-width: 620px) {
+  .v2-card > header:has(.v2-side) { flex-wrap: wrap; row-gap: 0; padding-block: 8px; }
+  .v2-card > header .v2-side { margin-left: 0; font-size: 12.5px; }
+}
