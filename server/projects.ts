@@ -104,9 +104,10 @@ function cleanPath(value: unknown) {
 
 function cleanReferrer(value: unknown) {
   if (typeof value !== 'string' || value.length > 120) return '(direct)';
-  const trimmed = value.trim().toLowerCase() || '(direct)';
-  if (trimmed === '(direct)') return trimmed;
-  if (!/^[a-z0-9.-]+$/.test(trimmed)) return '(direct)';
+  // Accept hostnames and short UTM slugs (linkedin, reddit, google, …).
+  const trimmed = value.trim().toLowerCase().replace(/^www\./, '') || '(direct)';
+  if (trimmed === '(direct)' || trimmed === 'direct') return '(direct)';
+  if (!/^[a-z0-9][a-z0-9.-]{0,118}$/.test(trimmed)) return '(direct)';
   return trimmed;
 }
 

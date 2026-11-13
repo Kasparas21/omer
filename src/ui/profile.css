@@ -2,9 +2,48 @@
 
 .profile-top-actions { margin-top: 12px; }
 .rp-page { width: var(--v2-rail); margin-inline: auto; padding-block: var(--page-start) 112px; display: grid; gap: 12px; }
-.rp-shell header { display: flex; align-items: center; gap: 8px; }
-.rp-status { margin-inline-start: auto; color: var(--ink-2); font-size: 13px; }
-.rp-stage { min-height: 480px; overflow: hidden; border-radius: 12px; background: var(--surface-2); }
+.rp-shell { overflow: hidden; }
+.rp-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 14px 16px 0; flex-wrap: wrap;
+}
+.rp-head-title { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.rp-head-title h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.rp-head-meta { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-inline-start: auto; }
+.rp-chip {
+  display: inline-flex; align-items: center; height: 24px; padding: 0 9px;
+  border-radius: 999px; border: 1px solid var(--people-line, var(--line));
+  background: var(--people-soft, var(--surface-2)); color: var(--ink-2); font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.rp-chip.muted { opacity: 0.85; }
+.rp-status { color: var(--ink-2); font-size: 13px; }
+.rp-status.is-load { color: var(--ink); }
+.rp-status.is-bad { color: #b42318; }
+.rp-body { position: relative; padding: 12px 12px 8px; }
+.rp-stage {
+  min-height: 420px; overflow: hidden; border-radius: 14px;
+  background:
+    radial-gradient(120% 80% at 50% 0%, color-mix(in oklab, var(--accent, #5b6cff) 10%, transparent), transparent 55%),
+    var(--surface-2);
+  border: 1px solid color-mix(in oklab, var(--people-line, var(--line)) 80%, transparent);
+}
+.rp-stage[data-ready="1"] { background: #0f1115; }
+.rp-stage .rr-player { margin-inline: auto; }
+.rp-skeleton {
+  position: absolute; inset: 12px; z-index: 2; display: grid; place-content: center; gap: 14px;
+  border-radius: 14px; background: color-mix(in oklab, var(--surface) 88%, transparent);
+  backdrop-filter: blur(6px); pointer-events: none;
+}
+.rp-skeleton p { margin: 0; text-align: center; color: var(--ink-2); font-size: 13px; }
+.rp-skeleton-bar {
+  height: 3px; max-width: 220px; width: 40%; margin-inline: auto; border-radius: 999px;
+  background: linear-gradient(90deg, color-mix(in oklab, var(--accent, #5b6cff) 70%, white), var(--accent, #5b6cff));
+  transition: width 160ms ease;
+}
+.rp-empty { margin: 24px 8px; }
+.rp-hint {
+  margin: 0; padding: 0 16px 14px; color: var(--ink-2); font-size: 12px; line-height: 1.4;
+}
 .people-source-mark { display: inline-flex; }
 .people-source-mark > :is(svg, img) { width: 14px; height: 14px; }
 .profile.people-page { width: var(--v2-rail); margin-inline: auto; }

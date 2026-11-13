@@ -4,7 +4,7 @@ import { Icon } from './ui/Icon';
 import { Orb } from './ui/Orb';
 import { SourceMark, sourceKind, sourceLabel } from './ui/sources';
 import { ActivityHeatmap } from './ui/Activity';
-import { ReplayPlayer } from './ReplayPlayer';
+import { prefetchReplayPlayer, ReplayPlayer } from './ReplayPlayer';
 
 const money = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 const ADJ = ['Quiet', 'Bold', 'Swift', 'Calm', 'Bright', 'Gentle', 'Lucky', 'Clever', 'Brave', 'Sunny', 'Misty', 'Happy', 'Witty', 'Mellow', 'Rapid', 'Keen'];
@@ -292,7 +292,13 @@ export function Profile({ projectId, seed, onBack, onLive }: {
                               {session.replay?.status === 'expired' ? (
                                 <span className="profile-replay-gone">Replay expired</span>
                               ) : session.replay?.hasFullSnapshot && data.replayEnabled ? (
-                                <button type="button" className="btn btn-ghost btn-sm profile-play" onClick={() => setReplayId(session.replay!.id)}>
+                                <button
+                                  type="button"
+                                  className="btn btn-ghost btn-sm profile-play"
+                                  onMouseEnter={() => prefetchReplayPlayer()}
+                                  onFocus={() => prefetchReplayPlayer()}
+                                  onClick={() => setReplayId(session.replay!.id)}
+                                >
                                   <Icon name="play" />Watch replay
                                 </button>
                               ) : !data.replayEnabled ? (

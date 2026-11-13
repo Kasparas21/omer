@@ -67,11 +67,29 @@
     return value.length > 300 ? value.slice(0, 300) : value;
   }
 
-  function referrerHost() {
+  function slugSource(value) {
+    const slug = String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9.-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80);
+    return slug || '';
+  }
+
+  // Prefer UTMs / click ids — many social apps strip document.referrer.
+  function trafficSource() {
     try {
+      const params = new URLSearchParams(location.search);
+      const utm = slugSource(params.get('utm_source'));
+      if (utm) return utm;
+      if (params.get('gclid') || params.get('gbraid') || params.get('wbraid')) return 'google';
+      if (params.get('fbclid')) return 'facebook.com';
+      if (params.get('ttclid')) return 'tiktok.com';
+      if (params.get('msclkid')) return 'bing.com';
       if (!document.referrer) return '(direct)';
-      const host = new URL(document.referrer).hostname.toLowerCase();
-      if (!host || host === location.hostname) return '(direct)';
+      const host = new URL(document.referrer).hostname.toLowerCase().replace(/^www\./, '');
+      if (!host || host === location.hostname.replace(/^www\./, '')) return '(direct)';
       return host.slice(0, 120);
     } catch {
       return '(direct)';
@@ -130,7 +148,7 @@
     void post({
       ...basePayload('pageview'),
       path,
-      ref: referrerHost(),
+      ref: trafficSource(),
     });
   }
 
@@ -194,7 +212,7 @@
     if (!Number.isFinite(amount) || amount < 0 || amount > 1_000_000) return;
     const payload = {
       ...basePayload('purchase'),
-      ref: referrerHost(),
+      ref: trafficSource(),
       amount,
       currency: typeof input.currency === 'string' ? input.currency : 'usd',
     };
