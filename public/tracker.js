@@ -21,15 +21,17 @@
   let stopReplay = null;
 
   function visitorId() {
-    if (cachedId) return cachedId;
     try {
       let id = localStorage.getItem(storeKey);
       if (!id) {
-        id = (crypto.randomUUID && crypto.randomUUID()) || `v_${Math.random().toString(36).slice(2)}_${Date.now()}`;
+        id = (cachedId && /^[A-Za-z0-9_-]{8,80}$/.test(cachedId))
+          ? cachedId
+          : ((crypto.randomUUID && crypto.randomUUID()) || `v_${Math.random().toString(36).slice(2)}_${Date.now()}`);
         localStorage.setItem(storeKey, id);
       }
       return (cachedId = id);
     } catch {
+      if (cachedId) return cachedId;
       return (cachedId = `session_${Math.random().toString(36).slice(2)}_${Date.now()}`);
     }
   }
@@ -161,6 +163,9 @@
     }
     if (consented) return;
     consented = true;
+    // Ensure ids exist in storage before the first pageview / replay flush.
+    visitorId();
+    sessionId();
     if (!installSent) {
       installSent = true;
       void fetch(installURL, {
