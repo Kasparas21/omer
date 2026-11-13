@@ -63,7 +63,7 @@ export function Opportunities({ demo, editing, onEdit, onPeople, onBack, start }
         <span className="omer-blank-ic" aria-hidden="true"><Icon name="mail" /></span>
         <h2>Nothing to review yet</h2>
         <p>When someone leaves without buying, their follow-up email waits here for you to approve.</p>
-        <button type="button" className="btn btn-primary" onClick={onPeople}>See who’s visiting</button>
+        <button type="button" className="btn btn-secondary omer-blank-cta" onClick={onPeople}>See who’s visiting<Icon name="arrowUpRight" /></button>
       </div>
     );
   }

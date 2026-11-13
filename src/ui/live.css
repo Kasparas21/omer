@@ -126,9 +126,9 @@
     max-height: calc(100% - 100px);
     margin: 16px 0 84px var(--lp-inset);
     gap: 8px;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: thin;
+    /* Pin Right now + Sources; only Recent visits scrolls inside its card. */
+    overflow: hidden;
+    overscroll-behavior: none;
   }
   .app.has-shelf.globe-mode .globe-wrap:not(.is-fs) .live-panel {
     top: auto;
@@ -199,14 +199,35 @@
 .lvp-src { flex: none; display: grid; place-items: center; width: 15px; height: 15px; color: var(--c); }
 .lvp-src svg, .lvp-src .brand-logo { display: block; width: 100%; height: 100%; object-fit: contain; }
 .lvp-src.direct { color: var(--ink-3); }
-.live-panel .lvp-feed { flex: 1 1 0; min-height: 0; }
-/* Empty visits should stay compact under Sources — not a tall hollow card. */
+.live-panel .lvp-feed {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* Empty visits stay compact under Sources — not a tall hollow card. */
 .live-panel .lvp-feed[data-empty="1"] { flex: 0 0 auto; min-height: 0; }
-.live-panel .lvp-feed[data-empty="0"] { min-height: 120px; }
-.lvp-feed .v2-in { padding: 6px; }
-.lvp-feed[data-empty="1"] .v2-in { padding: 12px 14px; }
-.lvp-feed ol { height: 100%; margin: 0; padding: 0; list-style: none; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none;
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 36px), transparent); -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 36px), transparent); }
+.live-panel .lvp-feed[data-empty="0"] {
+  min-height: 148px;
+  /* Don’t let visits eat the whole panel on tall screens. */
+  max-height: min(360px, 42vh);
+}
+.lvp-feed .v2-in {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+}
+.lvp-feed[data-empty="1"] .v2-in { flex: none; padding: 12px 14px; display: block; }
+.lvp-feed ol {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0; padding: 0; list-style: none;
+  overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}
 .lvp-feed ol::-webkit-scrollbar { display: none; }
 .lvp-feed button { display: grid; grid-template-columns: 7px 16px minmax(0, 1fr) auto auto; align-items: center; gap: 9px; width: 100%; padding: 6px 10px; border: 0; border-radius: 11px; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
 .lvp-feed button:hover, .lvp-feed button[aria-current] { background: var(--v2-shell); }
@@ -243,8 +264,11 @@
   .live-panel .lvp-now { width: min(100%, 230px); }
   .lvp-visits-toggle.btn { display: inline-flex; align-self: flex-start; background: var(--v2-card); }
   .live-panel .lvp-breakdown, .live-panel:not(.visits-open) .lvp-feed { display: none; }
-  .live-panel .lvp-feed { flex: none; margin-top: auto; width: min(100%, 360px); height: min(40%, 220px); min-height: 92px; }
-  .live-panel .lvp-feed[data-empty="1"] { height: auto; min-height: 0; }
+  .live-panel .lvp-feed {
+    flex: none; margin-top: auto; width: min(100%, 360px);
+    height: min(38%, 240px); min-height: 110px; max-height: 240px;
+  }
+  .live-panel .lvp-feed[data-empty="1"] { height: auto; min-height: 0; max-height: none; }
   .globe-wrap.is-fs .live-panel > * { pointer-events: none; }
   .live-panel .lvp-big b { font-size: 34px; }
   .live-panel .lvp-bars { height: 34px; margin-top: 12px; }

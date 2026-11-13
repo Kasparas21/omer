@@ -167,7 +167,9 @@
   line-height: 1.5;
   color: var(--ink-3);
 }
-.omer-blank .btn { margin-top: 22px; }
+/* Same quiet secondary + arrow as People “Watch them live” — not a glowing primary. */
+.omer-blank-cta { --h: 42px; margin-top: 22px; }
+.omer-blank-cta .ico { width: 15px; height: 15px; }
 @media (max-width: 620px) {
   .omer-blank { min-height: calc(100dvh - 160px); padding: 40px 20px 110px; }
   .omer-blank h2 { font-size: 20px; }
