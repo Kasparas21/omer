@@ -61,13 +61,33 @@ type JourneySession = {
       friction: number | null;
       worthWatching: boolean | null;
       primaryInterest: string | null;
+      emailReady?: boolean | null;
+      emailReadyConfidence?: number | null;
+      stage?: string | null;
+      highlights?: string[];
+      insightVersion?: number;
     } | null;
   } | null;
+};
+
+type VisitorInsight = {
+  status: string;
+  summary: string | null;
+  emailReady: boolean | null;
+  emailReadyConfidence: number | null;
+  interests: string[];
+  emailHooks: string[];
+  gaps: string[];
+  insightVersion?: number;
+  sourceSessionCount?: number;
+  error?: string | null;
 };
 
 type ProfileData = {
   seed: string;
   identity: { email: string; name: string | null } | null;
+  visitorInsight?: VisitorInsight | null;
+  insightsEnabled?: boolean;
   place: { cc: string | null; city: string | null; place: string | null; lat: number | null; lng: number | null } | null;
   firstReferrer: string;
   firstPath: string;
@@ -85,6 +105,8 @@ type ProfileData = {
   replayInsights?: boolean;
 };
 
+const CURRENT_INSIGHT_VERSION = 2;
+
 export function Profile({ projectId, seed, onBack, onLive }: {
   projectId: string;
   seed: string;
@@ -95,11 +117,15 @@ export function Profile({ projectId, seed, onBack, onLive }: {
   const [failed, setFailed] = useState(false);
   const [filter, setFilter] = useState<'all' | 'purchases'>('all');
   const [replayId, setReplayId] = useState<string>();
+  const [visitorBusy, setVisitorBusy] = useState(false);
+  const [visitorError, setVisitorError] = useState<string | null>(null);
   const globeRef = useRef<HTMLDivElement>(null);
   const regions = useMemo(() => new Intl.DisplayNames(undefined, { type: 'region' }), []);
+  const visitorInsightRequested = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
+    visitorInsightRequested.current = false;
     async function load() {
       try {
         const response = await fetch(`/api/projects/${projectId}/visitors/${encodeURIComponent(seed)}`, { cache: 'no-store' });
@@ -115,6 +141,39 @@ export function Profile({ projectId, seed, onBack, onLive }: {
     const timer = window.setInterval(() => void load(), 4_000);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [projectId, seed]);
+
+  useEffect(() => {
+    if (!data?.insightsEnabled || visitorBusy || visitorInsightRequested.current) return;
+    const readySessions = (data.journey || []).filter((session) => (
+      session.replay?.insight?.status === 'ready'
+      && (session.replay.insight.insightVersion || 1) >= CURRENT_INSIGHT_VERSION
+    )).length;
+    if (!readySessions) return;
+    const current = data.visitorInsight;
+    const stale = !current
+      || current.status !== 'ready'
+      || !current.summary
+      || (current.insightVersion || 1) < CURRENT_INSIGHT_VERSION
+      || (current.sourceSessionCount || 0) < readySessions;
+    if (!stale) return;
+    visitorInsightRequested.current = true;
+    setVisitorBusy(true);
+    setVisitorError(null);
+    void fetch(`/api/projects/${projectId}/visitors/${encodeURIComponent(seed)}/insight`, {
+      method: 'POST',
+      credentials: 'same-origin',
+    }).then(async (res) => {
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setVisitorError(typeof body.error === 'string' ? body.error : 'Unable to build visitor context');
+        return;
+      }
+      if (body.insight) {
+        setData((prev) => prev ? { ...prev, visitorInsight: body.insight as VisitorInsight } : prev);
+      }
+    }).catch(() => setVisitorError('Unable to build visitor context'))
+      .finally(() => setVisitorBusy(false));
+  }, [data, projectId, seed, visitorBusy]);
 
   useEffect(() => {
     const stage = globeRef.current;
@@ -258,19 +317,58 @@ export function Profile({ projectId, seed, onBack, onLive }: {
                 </div>
                 <details className="profile-followup" open>
                   <summary className="profile-followup-head">
-                    <h3>Follow-ups</h3>
+                    <h3>Visitor context</h3>
                     <Icon name="chevronDown" className="profile-followup-chev" />
                   </summary>
                   <div className="profile-followup-expand"><div className="profile-followup-expand-in">
                     <div className="v2-in profile-followup-body">
                       <div className="profile-fu">
-                        <div className="profile-fu-status profile-elig-wait">
-                          <span className="profile-fu-dot" />
-                          <div className="profile-fu-status-copy">
-                            <b>No follow-ups yet</b>
-                            <span>Email drafting and sending ship next. Profiles already collect the visit evidence.</span>
-                          </div>
-                        </div>
+                        {(() => {
+                          const insight = data.visitorInsight;
+                          const readyPct = insight?.emailReadyConfidence != null
+                            ? Math.round(Math.max(0, Math.min(1, insight.emailReadyConfidence)) * 100)
+                            : null;
+                          const elig = insight?.emailReady ? 'profile-elig-ok'
+                            : insight?.status === 'ready' ? 'profile-elig-wait'
+                              : 'profile-elig-wait';
+                          return (
+                            <>
+                              <div className={`profile-fu-status ${elig}`}>
+                                <span className="profile-fu-dot" />
+                                <div className="profile-fu-status-copy">
+                                  <b>
+                                    {visitorBusy ? 'Building visitor context…'
+                                      : insight?.status === 'ready' && insight.summary
+                                        ? (insight.emailReady ? `Email-ready ${readyPct}%` : `Not email-ready yet${readyPct != null ? ` · ${readyPct}%` : ''}`)
+                                        : 'Context grows with each analyzed session'}
+                                  </b>
+                                  <span>
+                                    {visitorError
+                                      || insight?.summary
+                                      || 'Open a Watch replay to analyze a session. We roll those insights into this visitor brief — email drafts come later.'}
+                                  </span>
+                                </div>
+                              </div>
+                              {!!insight?.interests?.length && (
+                                <div className="profile-insight-chips-row">
+                                  {insight.interests.map((item) => (
+                                    <span key={item} className="profile-insight-chip">{item}</span>
+                                  ))}
+                                </div>
+                              )}
+                              {!!insight?.emailHooks?.length && (
+                                <ul className="profile-insight-list">
+                                  {insight.emailHooks.slice(0, 4).map((item) => (
+                                    <li key={item}>{item}</li>
+                                  ))}
+                                </ul>
+                              )}
+                              {!!insight?.gaps?.length && (
+                                <p className="profile-insight-gaps">Gaps: {insight.gaps.join(' · ')}</p>
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
                     </div>
                   </div></div>
@@ -309,6 +407,7 @@ export function Profile({ projectId, seed, onBack, onLive }: {
                                   {session.replay?.insight?.status === 'ready' && session.replay.insight.outcome && (
                                     <span className="profile-insight-chip">
                                       {session.replay.insight.outcome}
+                                      {session.replay.insight.stage ? ` · ${session.replay.insight.stage}` : ''}
                                       {session.replay.insight.worthWatching ? ' · watch' : ''}
                                     </span>
                                   )}

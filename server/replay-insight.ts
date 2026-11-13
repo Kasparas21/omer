@@ -1,10 +1,17 @@
 import { getObject } from './object-store';
 
+/** Bump when evidence/question shape changes so cached insights regenerate. */
+export const INSIGHT_VERSION = 2;
+
+export type PageDwell = { path: string; dwellMs: number };
+
+export type ClickLabel = { label: string; tag: string; count: number };
+
 export type ReplayEvidence = {
   durationMs: number;
   device: string;
   referrer: string;
-  paths: string[];
+  pages: PageDwell[];
   pageviews: number;
   clicks: number;
   inputs: number;
@@ -15,6 +22,13 @@ export type ReplayEvidence = {
   formInteraction: boolean;
   eventCount: number;
   chunkCount: number;
+  pageTitle: string | null;
+  clicked: ClickLabel[];
+  noticed: string[];
+  ctas: string[];
+  formHints: string[];
+  hasEmail: boolean;
+  hasName: boolean;
 };
 
 export type ReplayInsightResult = {
@@ -23,17 +37,69 @@ export type ReplayInsightResult = {
   friction: number;
   worthWatching: boolean;
   primaryInterest: string;
+  emailReady: boolean;
+  emailReadyConfidence: number;
+  stage: string;
+  intent: number;
+  highlights: string[];
+  emailHooks: string[];
   decisionsJson: unknown;
   model: string;
+  insightVersion: number;
+};
+
+export type VisitorInsightInput = {
+  hasEmail: boolean;
+  hasName: boolean;
+  sessions: Array<{
+    outcome: string | null;
+    primaryInterest: string | null;
+    summary: string | null;
+    emailReady: boolean | null;
+    emailReadyConfidence: number | null;
+    stage: string | null;
+    intent: number | null;
+    highlights: string[] | null;
+    emailHooks: string[] | null;
+    durationMs: number;
+  }>;
+  totalDwellMs: number;
+  pageviews: number;
+  orders: number;
+  revenue: number;
+};
+
+export type VisitorInsightResult = {
+  summaryText: string;
+  emailReady: boolean;
+  emailReadyConfidence: number;
+  interests: string[];
+  emailHooks: string[];
+  gaps: string[];
+  decisionsJson: unknown;
+  model: string;
+  insightVersion: number;
+  sourceSessionCount: number;
+};
+
+type RrwebNode = {
+  id?: number;
+  type?: number;
+  tagName?: string;
+  attributes?: Record<string, string>;
+  childNodes?: RrwebNode[];
+  textContent?: string;
 };
 
 type RrwebEvent = {
   type?: number;
   timestamp?: number;
-  data?: { source?: number; type?: number | string };
+  data?: Record<string, unknown>;
 };
 
 const MODEL = 'gpt-6-luna';
+const SKIP_TAGS = /^(script|style|noscript|svg|path|meta|link|head)$/i;
+const NOISE_TEXT = /[{:;]|--[a-z]|#lovable|@media|function\s*\(|<\/?[a-z]|https?:\/\/|\.css\b|\.js\b/i;
 
 export function openaiConfigured() {
   return Boolean(process.env.OPENAI_API_KEY?.trim());
@@ -43,43 +109,122 @@ function openaiKey() {
   return process.env.OPENAI_API_KEY?.trim() || '';
 }
 
-/** Count coarse signals from rrweb events without keeping DOM or typed text. */
-export function summarizeEvents(events: RrwebEvent[]): Pick<
-  ReplayEvidence,
-  'clicks' | 'inputs' | 'scrolls' | 'mouseMoves' | 'formInteraction' | 'eventCount' | 'durationMs'
-> {
+function cleanText(value: unknown, max = 120) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (text.length < 2 || text.length > 220) return '';
+  if (NOISE_TEXT.test(text)) return '';
+  return text.slice(0, max);
+}
+
+function nodeText(node: RrwebNode | undefined, max = 100): string {
+  if (!node) return '';
+  const parts: string[] = [];
+  const walk = (n: RrwebNode | undefined) => {
+    if (!n || parts.join(' ').length >= max) return;
+    if (n.type === 3) {
+      const t = cleanText(n.textContent, max);
+      if (t) parts.push(t);
+      return;
+    }
+    if (n.type === 2 && n.tagName && SKIP_TAGS.test(n.tagName)) return;
+    for (const child of n.childNodes || []) walk(child);
+  };
+  walk(node);
+  return parts.join(' ').slice(0, max);
+}
+
+function indexNode(map: Map<number, RrwebNode>, node: RrwebNode | undefined) {
+  if (!node || typeof node !== 'object') return;
+  if (typeof node.id === 'number') map.set(node.id, node);
+  for (const child of node.childNodes || []) indexNode(map, child);
+}
+
+function labelForNode(map: Map<number, RrwebNode>, id: number | undefined) {
+  if (id == null) return null;
+  const node = map.get(id);
+  if (!node) return null;
+  const tag = (node.tagName || '').toLowerCase();
+  const attrs = node.attributes || {};
+  const text = cleanText(
+    attrs['aria-label'] || attrs.title || attrs.alt || attrs.placeholder || nodeText(node, 100),
+    100,
+  );
+  if (!text && !attrs.href) return null;
+  return {
+    tag: tag || 'node',
+    label: text || cleanText(attrs.href, 80) || tag,
+    href: attrs.href || null,
+  };
+}
+
+function pushUnique(list: string[], value: string, max: number) {
+  const cleaned = cleanText(value, 140);
+  if (!cleaned) return;
+  const key = cleaned.toLowerCase();
+  if (list.some((item) => item.toLowerCase() === key)) return;
+  if (list.length >= max) return;
+  list.push(cleaned);
+}
+
+function bumpClick(map: Map<string, ClickLabel>, label: string, tag: string) {
+  const key = `${tag}::${label.toLowerCase()}`;
+  const prev = map.get(key);
+  if (prev) prev.count += 1;
+  else map.set(key, { label, tag, count: 1 });
+}
+
+/** Parse replay chunks into merchant-useful evidence (labels/copy, not typed secrets). */
+export async function extractReplayEvidence(input: {
+  objectKeys: string[];
+  device?: string | null;
+  referrer?: string | null;
+  pages: PageDwell[];
+  hasEmail?: boolean;
+  hasName?: boolean;
+}): Promise<ReplayEvidence> {
+  const nodeMap = new Map<number, RrwebNode>();
+  const clickMap = new Map<string, ClickLabel>();
+  const noticed: string[] = [];
+  const ctas: string[] = [];
+  const formHints: string[] = [];
+  let pageTitle: string | null = null;
   let clicks = 0;
   let inputs = 0;
   let scrolls = 0;
   let mouseMoves = 0;
   let formInteraction = false;
+  let eventCount = 0;
   let minTs = Number.POSITIVE_INFINITY;
   let maxTs = 0;
-  for (const event of events) {
-    const ts = Number(event.timestamp) || 0;
-    if (ts) {
-      if (ts < minTs) minTs = ts;
-      if (ts > maxTs) maxTs = ts;
-    }
-    if (event.type !== 3) continue;
-    const source = Number(event.data?.source);
-    // IncrementalSource: MouseMove=1, MouseInteraction=2, Scroll=3, Input=5, TouchMove=6
-    if (source === 1 || source === 6) mouseMoves += 1;
-    else if (source === 2) clicks += 1;
-    else if (source === 3) scrolls += 1;
-    else if (source === 5) {
-      inputs += 1;
-      formInteraction = true;
-    }
-  }
-  const durationMs = Number.isFinite(minTs) && maxTs >= minTs ? Math.max(0, maxTs - minTs) : 0;
-  return { clicks, inputs, scrolls, mouseMoves, formInteraction, eventCount: events.length, durationMs };
-}
 
-export async function loadChunkEvents(objectKeys: string[]): Promise<RrwebEvent[]> {
-  const events: RrwebEvent[] = [];
-  // Cap how many chunks we inspect so insight stays cheap.
-  for (const key of objectKeys.slice(0, 40)) {
+  const harvestVisible = (node: RrwebNode | undefined) => {
+    if (!node) return;
+    if (node.type === 2) {
+      const tag = (node.tagName || '').toLowerCase();
+      const attrs = node.attributes || {};
+      if (tag === 'title') {
+        const title = nodeText(node, 120);
+        if (title) pageTitle = title;
+      }
+      if (/^h[1-3]$/.test(tag)) pushUnique(noticed, nodeText(node, 120), 16);
+      if (tag === 'button' || attrs.role === 'button') pushUnique(ctas, nodeText(node, 80) || attrs['aria-label'] || '', 16);
+      if (tag === 'a' && (attrs.href || nodeText(node, 60))) {
+        pushUnique(ctas, nodeText(node, 80) || attrs['aria-label'] || attrs.href || '', 16);
+      }
+      if (tag === 'img' && attrs.alt) pushUnique(noticed, attrs.alt, 16);
+      if ((tag === 'input' || tag === 'textarea') && attrs.placeholder) {
+        pushUnique(formHints, attrs.placeholder, 10);
+      }
+      // Product-card style short copy on paragraphs/spans near buttons.
+      if ((tag === 'p' || tag === 'span' || tag === 'li') && !SKIP_TAGS.test(tag)) {
+        const text = nodeText(node, 140);
+        if (text.length >= 24 && text.length <= 140) pushUnique(noticed, text, 16);
+      }
+    }
+    for (const child of node.childNodes || []) harvestVisible(child);
+  };
+
+  for (const key of input.objectKeys.slice(0, 50)) {
     try {
       const raw = await getObject(key);
       const parsed = JSON.parse(raw.toString('utf8'));
@@ -87,28 +232,126 @@ export async function loadChunkEvents(objectKeys: string[]): Promise<RrwebEvent[
       for (const item of parsed) {
         if (!item || typeof item !== 'object') continue;
         const event = item as RrwebEvent;
-        // Drop bulky snapshot payloads — keep type/timestamp/source only.
+        eventCount += 1;
+        const ts = Number(event.timestamp) || 0;
+        if (ts) {
+          if (ts < minTs) minTs = ts;
+          if (ts > maxTs) maxTs = ts;
+        }
+
         if (event.type === 2) {
-          events.push({ type: 2, timestamp: event.timestamp });
+          const node = event.data?.node as RrwebNode | undefined;
+          indexNode(nodeMap, node);
+          harvestVisible(node);
           continue;
         }
-        if (event.type === 3) {
-          events.push({
-            type: 3,
-            timestamp: event.timestamp,
-            data: { source: Number((event.data as { source?: number } | undefined)?.source) },
-          });
+
+        if (event.type === 4) {
+          const href = cleanText(event.data?.href, 160);
+          const title = cleanText(event.data?.title, 120);
+          if (title) pageTitle = title;
+          if (href) {
+            try {
+              const path = new URL(href).pathname;
+              if (path) pushUnique(noticed, `Page ${path}`, 16);
+            } catch { /* ignore */ }
+          }
           continue;
         }
-        events.push({ type: event.type, timestamp: event.timestamp });
+
+        if (event.type !== 3) continue;
+        const source = Number(event.data?.source);
+        if (source === 0) {
+          const adds = event.data?.adds;
+          if (Array.isArray(adds)) {
+            for (const add of adds) {
+              const node = add && typeof add === 'object' ? (add as { node?: RrwebNode }).node : undefined;
+              indexNode(nodeMap, node);
+              harvestVisible(node);
+            }
+          }
+          const texts = event.data?.texts;
+          if (Array.isArray(texts)) {
+            for (const row of texts) {
+              if (!row || typeof row !== 'object') continue;
+              const id = Number((row as { id?: number }).id);
+              const value = cleanText((row as { value?: string }).value, 140);
+              if (id && value && nodeMap.has(id)) {
+                const existing = nodeMap.get(id)!;
+                existing.textContent = value;
+              }
+            }
+          }
+          continue;
+        }
+
+        // MouseMove=1, MouseInteraction=2, Scroll=3, Input=5, TouchMove=6
+        if (source === 1 || source === 6) mouseMoves += 1;
+        else if (source === 3) scrolls += 1;
+        else if (source === 5) {
+          inputs += 1;
+          formInteraction = true;
+          const id = Number(event.data?.id);
+          const labeled = labelForNode(nodeMap, id);
+          if (labeled?.label) pushUnique(formHints, labeled.label, 10);
+        } else if (source === 2) {
+          const kind = Number(event.data?.type);
+          // MouseInteractions: MouseUp=1, Click=2, … Prefer Click only.
+          if (kind !== 2) continue;
+          clicks += 1;
+          const id = Number(event.data?.id);
+          const labeled = labelForNode(nodeMap, id);
+          if (labeled?.label) {
+            bumpClick(clickMap, labeled.label, labeled.tag || 'node');
+            if (labeled.tag === 'button' || labeled.tag === 'a') pushUnique(ctas, labeled.label, 16);
+            else if (labeled.label.length >= 12) pushUnique(noticed, labeled.label, 16);
+          }
+        }
       }
     } catch {
-      // Skip unreadable chunks; evidence can still be built from visits.
+      // Skip unreadable chunks; visit dwell still informs the summary.
     }
   }
-  return events;
+
+  const pages = input.pages
+    .map((page) => ({ path: (page.path || '/').slice(0, 120), dwellMs: Math.max(0, Number(page.dwellMs) || 0) }))
+    .slice(0, 20);
+  const durationFromEvents = Number.isFinite(minTs) && maxTs >= minTs ? Math.max(0, maxTs - minTs) : 0;
+  const durationMs = Math.max(durationFromEvents, pages.reduce((sum, page) => sum + page.dwellMs, 0));
+  const clicked = [...clickMap.values()].sort((a, b) => b.count - a.count).slice(0, 16);
+
+  return {
+    durationMs,
+    device: input.device === 'phone' ? 'phone' : 'monitor',
+    referrer: (input.referrer || '(direct)').slice(0, 120),
+    pages: pages.length ? pages : [{ path: '/', dwellMs: durationMs }],
+    pageviews: Math.max(pages.length, 1),
+    clicks,
+    inputs,
+    scrolls,
+    mouseMoves,
+    shortBounce: durationMs > 0 && durationMs < 10_000,
+    multiPage: pages.length > 1,
+    formInteraction,
+    eventCount,
+    chunkCount: input.objectKeys.length,
+    pageTitle,
+    clicked,
+    noticed: noticed.slice(0, 16),
+    ctas: ctas.slice(0, 16),
+    formHints: formHints.slice(0, 10),
+    hasEmail: Boolean(input.hasEmail),
+    hasName: Boolean(input.hasName),
+  };
 }
 
+/** @deprecated Use extractReplayEvidence — kept for older call sites during transition. */
+export async function loadChunkEvents(objectKeys: string[]) {
+  await extractReplayEvidence({ objectKeys, pages: [] });
+  return [] as RrwebEvent[];
+}
+
+/** @deprecated Use extractReplayEvidence. */
 export function buildEvidence(input: {
   device?: string | null;
   referrer?: string | null;
@@ -117,24 +360,28 @@ export function buildEvidence(input: {
   chunkCount: number;
   events: RrwebEvent[];
 }): ReplayEvidence {
-  const paths = [...new Set(input.paths.map((p) => (p || '/').slice(0, 120)))].slice(0, 20);
-  const stats = summarizeEvents(input.events);
-  const durationMs = Math.max(stats.durationMs, Number(input.dwellMs) || 0);
   return {
-    durationMs,
+    durationMs: Number(input.dwellMs) || 0,
     device: input.device === 'phone' ? 'phone' : 'monitor',
     referrer: (input.referrer || '(direct)').slice(0, 120),
-    paths,
-    pageviews: Math.max(paths.length, input.paths.length),
-    clicks: stats.clicks,
-    inputs: stats.inputs,
-    scrolls: stats.scrolls,
-    mouseMoves: stats.mouseMoves,
-    shortBounce: durationMs > 0 && durationMs < 10_000,
-    multiPage: paths.length > 1,
-    formInteraction: stats.formInteraction,
-    eventCount: stats.eventCount,
+    pages: (input.paths.length ? input.paths : ['/']).map((path) => ({ path, dwellMs: 0 })),
+    pageviews: Math.max(input.paths.length, 1),
+    clicks: 0,
+    inputs: 0,
+    scrolls: 0,
+    mouseMoves: 0,
+    shortBounce: false,
+    multiPage: input.paths.length > 1,
+    formInteraction: false,
+    eventCount: input.events.length,
     chunkCount: input.chunkCount,
+    pageTitle: null,
+    clicked: [],
+    noticed: [],
+    ctas: [],
+    formHints: [],
+    hasEmail: false,
+    hasName: false,
   };
 }
 
@@ -144,12 +391,51 @@ function answerByName(answers: unknown, name: string): Record<string, unknown> |
   return row && typeof row === 'object' ? row as Record<string, unknown> : null;
 }
 
-async function runDecisions(evidence: ReplayEvidence) {
-  const pathChoices = [...evidence.paths.slice(0, 8), 'other'];
-  const uniqueChoices = [...new Set(pathChoices.map((p) => p.slice(0, 80)))].map((value) => ({
+function choiceOptions(values: string[], fallback: string[], otherLabel: string) {
+  const merged = [...values, ...fallback, 'other']
+    .map((value) => cleanText(value, 80))
+    .filter(Boolean);
+  const unique = [...new Set(merged.map((value) => value.toLowerCase()))]
+    .map((key) => merged.find((value) => value.toLowerCase() === key)!)
+    .slice(0, 12);
+  if (!unique.includes('other')) unique.push('other');
+  return unique.map((value) => ({
     value,
-    description: value === 'other' ? 'None of the listed paths fit well.' : `Visitor activity around ${value}.`,
+    description: value === 'other' ? otherLabel : `Signal: ${value}`,
   }));
+}
+
+function frictionBand(score: number) {
+  if (score < 0.75) return 'none';
+  if (score < 1.5) return 'low';
+  if (score < 2.25) return 'medium';
+  return 'high';
+}
+
+function fmtDur(ms: number) {
+  const sec = Math.round(Math.max(0, ms) / 1000);
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  return `${min}m ${sec % 60}s`;
+}
+
+async function runDecisions(evidence: ReplayEvidence) {
+  const interestChoices = choiceOptions(
+    [
+      ...evidence.clicked.map((row) => row.label),
+      ...evidence.noticed.slice(0, 8),
+      evidence.pageTitle || '',
+      ...evidence.pages.map((page) => page.path),
+    ],
+    ['homepage', 'product details', 'pricing', 'upload flow', 'style preferences'],
+    'None of the listed interests fit well.',
+  );
+  const hookChoices = choiceOptions(
+    evidence.clicked.map((row) => row.label).concat(evidence.noticed.slice(0, 6)),
+    ['finish what they started', 'remind them of a style they liked', 'help with upload', 'answer a product question'],
+    'A different angle fits better.',
+  );
+
   const res = await fetch('https://api.openai.com/v1/decisions', {
     method: 'POST',
     headers: {
@@ -163,7 +449,11 @@ async function runDecisions(evidence: ReplayEvidence) {
         content: [
           {
             type: 'input_text',
-            text: 'Classify this website session for a shop analytics product. Use only the JSON evidence.',
+            text: [
+              'Classify this website session for a merchant analytics product.',
+              'Use only the JSON evidence. Prefer concrete UI labels from clicked/noticed/ctas.',
+              'email_ready means: enough behavioral detail to write a useful personalized email later (drafts come later; score readiness only).',
+            ].join(' '),
           },
           { type: 'input_json', data: evidence },
         ],
@@ -177,8 +467,21 @@ async function runDecisions(evidence: ReplayEvidence) {
             { value: 'bounce', description: 'Left almost immediately with little engagement.' },
             { value: 'browse', description: 'Looked around lightly without strong intent.' },
             { value: 'engaged', description: 'Actively explored content or options.' },
-            { value: 'intent', description: 'Showed purchase or signup intent.' },
+            { value: 'intent', description: 'Showed purchase, signup, or configuration intent.' },
             { value: 'frustrated', description: 'Showed struggle, rage clicks, or repeated friction.' },
+          ],
+        },
+        {
+          name: 'stage',
+          type: 'choice',
+          instructions: 'Where they are in the journey this session.',
+          choices: [
+            { value: 'land', description: 'Just arrived / scanning the first screen.' },
+            { value: 'explore', description: 'Reading and browsing options.' },
+            { value: 'configure', description: 'Setting preferences, filters, or upload steps.' },
+            { value: 'compare', description: 'Comparing products, styles, or plans.' },
+            { value: 'convert', description: 'Near signup, checkout, or primary CTA.' },
+            { value: 'abandon', description: 'Started something meaningful then backed out.' },
           ],
         },
         {
@@ -193,6 +496,17 @@ async function runDecisions(evidence: ReplayEvidence) {
           ],
         },
         {
+          name: 'intent',
+          type: 'score',
+          instructions: 'Strength of purchase or conversion intent.',
+          levels: [
+            { label: 'none', description: 'No intent signals.' },
+            { label: 'low', description: 'Mild curiosity.' },
+            { label: 'medium', description: 'Clear interest in a specific option.' },
+            { label: 'high', description: 'Strong conversion intent.' },
+          ],
+        },
+        {
           name: 'worth_watching',
           type: 'predicate',
           instructions: 'A human merchant should watch this replay.',
@@ -200,8 +514,62 @@ async function runDecisions(evidence: ReplayEvidence) {
         {
           name: 'primary_interest',
           type: 'choice',
-          instructions: 'Best label for what they seemed interested in, from paths or other.',
-          choices: uniqueChoices,
+          instructions: 'Best concrete interest label from the evidence.',
+          choices: interestChoices,
+        },
+        {
+          name: 'secondary_interest',
+          type: 'choice',
+          instructions: 'Second-best interest label, or other.',
+          choices: interestChoices,
+        },
+        {
+          name: 'compared_options',
+          type: 'predicate',
+          instructions: 'They compared multiple options, styles, or products.',
+        },
+        {
+          name: 'used_form',
+          type: 'predicate',
+          instructions: 'They typed into a form or described what they want.',
+        },
+        {
+          name: 'hesitated',
+          type: 'predicate',
+          instructions: 'They hesitated, re-clicked, or second-guessed a choice.',
+        },
+        {
+          name: 'knows_specific_hook',
+          type: 'predicate',
+          instructions: 'We know a concrete hook (product, style, CTA, or goal) for a later email.',
+        },
+        {
+          name: 'email_ready',
+          type: 'predicate',
+          instructions: 'Behavioral evidence is strong enough to personalize an email later (identity optional).',
+        },
+        {
+          name: 'needs_identity',
+          type: 'predicate',
+          instructions: 'Personalization would improve a lot if we had their email or name.',
+        },
+        {
+          name: 'best_email_angle',
+          type: 'choice',
+          instructions: 'Best angle for a future personalized email (do not write the email).',
+          choices: hookChoices,
+        },
+        {
+          name: 'merchant_watch_reason',
+          type: 'choice',
+          instructions: 'If worth watching, why; else pick other.',
+          choices: [
+            { value: 'high intent', description: 'Close to converting.' },
+            { value: 'rich preferences', description: 'Revealed clear tastes or constraints.' },
+            { value: 'friction', description: 'Stuck or confused somewhere important.' },
+            { value: 'drop-off', description: 'Abandoned after meaningful progress.' },
+            { value: 'other', description: 'Another reason or not especially watchable.' },
+          ],
         },
       ],
     }),
@@ -212,32 +580,87 @@ async function runDecisions(evidence: ReplayEvidence) {
   }
   const answers = (body as { answers?: unknown }).answers;
   const outcome = String(answerByName(answers, 'outcome')?.choice || 'browse');
+  const stage = String(answerByName(answers, 'stage')?.choice || 'explore');
   const frictionRaw = Number(answerByName(answers, 'friction')?.score);
   const friction = Number.isFinite(frictionRaw) ? Math.max(0, Math.min(3, frictionRaw)) : 0;
+  const intentRaw = Number(answerByName(answers, 'intent')?.score);
+  const intent = Number.isFinite(intentRaw) ? Math.max(0, Math.min(3, intentRaw)) : 0;
   const worthProb = Number(answerByName(answers, 'worth_watching')?.probability);
   const worthWatching = Number.isFinite(worthProb) ? worthProb >= 0.5 : false;
-  const primaryInterest = String(answerByName(answers, 'primary_interest')?.choice || evidence.paths[0] || '/');
-  return { answers, outcome, friction, worthWatching, primaryInterest };
+  const primaryInterest = String(
+    answerByName(answers, 'primary_interest')?.choice
+    || evidence.clicked[0]?.label
+    || evidence.pages[0]?.path
+    || '/',
+  );
+  const emailProb = Number(answerByName(answers, 'email_ready')?.probability);
+  const emailReadyConfidence = Number.isFinite(emailProb) ? Math.max(0, Math.min(1, emailProb)) : 0;
+  const emailReady = emailReadyConfidence >= 0.55;
+  const bestAngle = String(answerByName(answers, 'best_email_angle')?.choice || '');
+  const secondary = String(answerByName(answers, 'secondary_interest')?.choice || '');
+  return {
+    answers,
+    outcome,
+    stage,
+    friction,
+    intent,
+    worthWatching,
+    primaryInterest,
+    emailReady,
+    emailReadyConfidence,
+    bestAngle,
+    secondary,
+  };
 }
 
-function frictionBand(score: number) {
-  if (score < 0.75) return 'none';
-  if (score < 1.5) return 'low';
-  if (score < 2.25) return 'medium';
-  return 'high';
+function extractResponseText(body: unknown) {
+  const direct = (body as { output_text?: string }).output_text;
+  if (typeof direct === 'string' && direct.trim()) return direct.trim();
+  const output = (body as { output?: unknown[] }).output;
+  if (!Array.isArray(output)) return '';
+  const parts: string[] = [];
+  for (const item of output) {
+    if (!item || typeof item !== 'object') continue;
+    if ((item as { type?: string }).type && (item as { type?: string }).type !== 'message') continue;
+    const content = (item as { content?: unknown[] }).content;
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      if (part && typeof part === 'object' && typeof (part as { text?: string }).text === 'string') {
+        parts.push((part as { text: string }).text);
+      }
+    }
+  }
+  return parts.join(' ').trim();
 }
 
 async function runNarrative(evidence: ReplayEvidence, decisions: {
   outcome: string;
+  stage: string;
   friction: number;
+  intent: number;
   worthWatching: boolean;
   primaryInterest: string;
+  emailReady: boolean;
+  emailReadyConfidence: number;
+  bestAngle: string;
+  secondary: string;
 }) {
+  const pageLine = evidence.pages
+    .map((page) => `${page.path} (${fmtDur(page.dwellMs)})`)
+    .join(', ');
+  const clickLine = evidence.clicked
+    .slice(0, 8)
+    .map((row) => `${row.label}${row.count > 1 ? `×${row.count}` : ''}`)
+    .join(', ');
+
   const prompt = [
-    'Write 1-2 short sentences summarizing this website visit for a merchant.',
-    'Ground only in the evidence and labels. Do not invent personal details, emails, or quotes.',
-    'No markdown. Plain prose.',
-    `Labels: outcome=${decisions.outcome}; friction=${frictionBand(decisions.friction)}; worth_watching=${decisions.worthWatching}; interest=${decisions.primaryInterest}`,
+    'Write 2-4 short sentences for a merchant about this website visit.',
+    'Must mention approximate time spent and, when available, specific UI labels they clicked or read.',
+    'Ground only in evidence and labels. Do not invent personal details, emails, quotes, or prices.',
+    'Do not write an email. Plain prose, no markdown.',
+    `Labels: outcome=${decisions.outcome}; stage=${decisions.stage}; friction=${frictionBand(decisions.friction)}; intent=${decisions.intent.toFixed(2)}; interest=${decisions.primaryInterest}; secondary=${decisions.secondary}; email_ready=${decisions.emailReady} (${decisions.emailReadyConfidence.toFixed(2)}); watch=${decisions.worthWatching}; angle=${decisions.bestAngle}`,
+    `Time by page: ${pageLine || 'unknown'}`,
+    `Clicked: ${clickLine || 'none labeled'}`,
     `Evidence JSON: ${JSON.stringify(evidence)}`,
   ].join('\n');
 
@@ -250,8 +673,7 @@ async function runNarrative(evidence: ReplayEvidence, decisions: {
     body: JSON.stringify({
       model: MODEL,
       input: prompt,
-      // Luna spends tokens on hidden reasoning first; keep effort low and leave room for prose.
-      max_output_tokens: 220,
+      max_output_tokens: 320,
       reasoning: { effort: 'low' },
     }),
   });
@@ -259,30 +681,61 @@ async function runNarrative(evidence: ReplayEvidence, decisions: {
   if (!res.ok) {
     throw new Error(`Responses API ${res.status}: ${JSON.stringify(body).slice(0, 300)}`);
   }
+  const text = extractResponseText(body);
+  if (text) return text.slice(0, 700);
 
-  // Responses API shapes vary; collect any output_text.
-  const direct = (body as { output_text?: string }).output_text;
-  if (typeof direct === 'string' && direct.trim()) return direct.trim().slice(0, 500);
+  const topClick = evidence.clicked[0]?.label;
+  return [
+    `${decisions.outcome} ${fmtDur(evidence.durationMs)} session`,
+    topClick ? `focused on “${topClick}”` : `on ${evidence.pages[0]?.path || '/'}`,
+    decisions.emailReady ? 'enough detail to personalize later.' : 'needs more signal before a strong email.',
+  ].join(' — ');
+}
 
-  const output = (body as { output?: unknown[] }).output;
-  if (Array.isArray(output)) {
-    const parts: string[] = [];
-    for (const item of output) {
-      if (!item || typeof item !== 'object') continue;
-      if ((item as { type?: string }).type && (item as { type?: string }).type !== 'message') continue;
-      const content = (item as { content?: unknown[] }).content;
-      if (!Array.isArray(content)) continue;
-      for (const part of content) {
-        if (part && typeof part === 'object' && typeof (part as { text?: string }).text === 'string') {
-          parts.push((part as { text: string }).text);
-        }
-      }
-    }
-    const joined = parts.join(' ').trim();
-    if (joined) return joined.slice(0, 500);
+function buildHighlights(evidence: ReplayEvidence, decisions: {
+  primaryInterest: string;
+  secondary: string;
+  stage: string;
+  bestAngle: string;
+}) {
+  const highlights: string[] = [];
+  for (const page of evidence.pages.slice(0, 5)) {
+    highlights.push(`${page.path} · ${fmtDur(page.dwellMs)}`);
   }
+  for (const click of evidence.clicked.slice(0, 6)) {
+    highlights.push(`Clicked “${click.label}”${click.count > 1 ? ` ×${click.count}` : ''}`);
+  }
+  if (evidence.formInteraction) {
+    const hint = evidence.formHints[0];
+    highlights.push(hint ? `Typed in form (${hint.slice(0, 60)})` : 'Interacted with a form');
+  }
+  if (evidence.pageTitle) highlights.push(`Page: ${evidence.pageTitle}`);
+  if (decisions.primaryInterest && decisions.primaryInterest !== 'other') {
+    pushUnique(highlights, `Interest: ${decisions.primaryInterest}`, 20);
+  }
+  if (decisions.secondary && decisions.secondary !== 'other' && decisions.secondary !== decisions.primaryInterest) {
+    pushUnique(highlights, `Also: ${decisions.secondary}`, 20);
+  }
+  pushUnique(highlights, `Stage: ${decisions.stage}`, 20);
+  return highlights.slice(0, 12);
+}
 
-  return `${decisions.outcome} session on ${evidence.paths[0] || '/'} (${Math.round(evidence.durationMs / 1000)}s).`;
+function buildEmailHooks(evidence: ReplayEvidence, decisions: {
+  primaryInterest: string;
+  bestAngle: string;
+  emailReady: boolean;
+}) {
+  const hooks: string[] = [];
+  if (decisions.bestAngle && decisions.bestAngle !== 'other') pushUnique(hooks, decisions.bestAngle, 8);
+  if (decisions.primaryInterest && decisions.primaryInterest !== 'other') {
+    pushUnique(hooks, `Reference their interest in ${decisions.primaryInterest}`, 8);
+  }
+  for (const click of evidence.clicked.slice(0, 4)) {
+    pushUnique(hooks, `Mention they explored “${click.label}”`, 8);
+  }
+  if (!evidence.hasEmail) pushUnique(hooks, 'Capture email before sending', 8);
+  if (!decisions.emailReady) pushUnique(hooks, 'Gather one clearer preference next visit', 8);
+  return hooks.slice(0, 6);
 }
 
 export async function generateReplayInsight(evidence: ReplayEvidence): Promise<ReplayInsightResult> {
@@ -295,8 +748,162 @@ export async function generateReplayInsight(evidence: ReplayEvidence): Promise<R
     friction: decisions.friction,
     worthWatching: decisions.worthWatching,
     primaryInterest: decisions.primaryInterest,
+    emailReady: decisions.emailReady,
+    emailReadyConfidence: decisions.emailReadyConfidence,
+    stage: decisions.stage,
+    intent: decisions.intent,
+    highlights: buildHighlights(evidence, decisions),
+    emailHooks: buildEmailHooks(evidence, decisions),
     decisionsJson: decisions.answers,
     model: MODEL,
+    insightVersion: INSIGHT_VERSION,
+  };
+}
+
+async function runVisitorDecisions(input: VisitorInsightInput) {
+  const res = await fetch('https://api.openai.com/v1/decisions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${openaiKey()}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      input: [{
+        role: 'user',
+        content: [
+          {
+            type: 'input_text',
+            text: 'Roll up this visitor across sessions for a merchant. Score email readiness for a future personalized email (do not write it). Use only the JSON.',
+          },
+          { type: 'input_json', data: input },
+        ],
+      }],
+      questions: [
+        {
+          name: 'dominant_interest',
+          type: 'choice',
+          instructions: 'Their clearest interest across sessions.',
+          choices: choiceOptions(
+            input.sessions.flatMap((session) => [session.primaryInterest || '', ...(session.highlights || []).slice(0, 3)]),
+            ['product', 'pricing', 'support', 'unknown'],
+            'Unclear overall interest.',
+          ),
+        },
+        {
+          name: 'relationship',
+          type: 'choice',
+          instructions: 'Overall relationship stage.',
+          choices: [
+            { value: 'new', description: 'First meaningful visits.' },
+            { value: 'warming', description: 'Returning with growing interest.' },
+            { value: 'ready', description: 'Ready for a personalized email soon.' },
+            { value: 'customer', description: 'Already purchased.' },
+            { value: 'cooling', description: 'Interest fading.' },
+          ],
+        },
+        {
+          name: 'email_ready',
+          type: 'predicate',
+          instructions: 'We have enough visitor context to personalize an email later.',
+        },
+        {
+          name: 'needs_identity',
+          type: 'predicate',
+          instructions: 'Missing email/name is the main blocker.',
+        },
+        {
+          name: 'best_hook',
+          type: 'choice',
+          instructions: 'Best personalization hook across sessions.',
+          choices: choiceOptions(
+            input.sessions.flatMap((session) => session.emailHooks || []),
+            ['remind unfinished flow', 'reference liked option', 'help with a stuck step'],
+            'Another hook fits better.',
+          ),
+        },
+      ],
+    }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(`Visitor Decisions API ${res.status}: ${JSON.stringify(body).slice(0, 300)}`);
+  }
+  const answers = (body as { answers?: unknown }).answers;
+  const emailProb = Number(answerByName(answers, 'email_ready')?.probability);
+  const emailReadyConfidence = Number.isFinite(emailProb) ? Math.max(0, Math.min(1, emailProb)) : 0;
+  return {
+    answers,
+    dominantInterest: String(answerByName(answers, 'dominant_interest')?.choice || 'unknown'),
+    relationship: String(answerByName(answers, 'relationship')?.choice || 'new'),
+    emailReady: emailReadyConfidence >= 0.55,
+    emailReadyConfidence,
+    needsIdentity: Number(answerByName(answers, 'needs_identity')?.probability) >= 0.5,
+    bestHook: String(answerByName(answers, 'best_hook')?.choice || ''),
+  };
+}
+
+export async function generateVisitorInsight(input: VisitorInsightInput): Promise<VisitorInsightResult> {
+  if (!openaiConfigured()) throw new Error('OPENAI_API_KEY is not configured');
+  const decisions = await runVisitorDecisions(input);
+  const prompt = [
+    'Write 2-3 short sentences summarizing this visitor across sessions for a merchant.',
+    'Mention recurring interests and whether we are ready to personalize email later (do not write an email).',
+    'Ground only in the JSON. No markdown.',
+    `Labels: interest=${decisions.dominantInterest}; relationship=${decisions.relationship}; email_ready=${decisions.emailReady} (${decisions.emailReadyConfidence.toFixed(2)}); hook=${decisions.bestHook}`,
+    `Visitor JSON: ${JSON.stringify(input)}`,
+  ].join('\n');
+
+  const res = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${openaiKey()}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      input: prompt,
+      max_output_tokens: 280,
+      reasoning: { effort: 'low' },
+    }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(`Visitor Responses API ${res.status}: ${JSON.stringify(body).slice(0, 300)}`);
+  }
+  const summaryText = extractResponseText(body).slice(0, 700)
+    || `${decisions.relationship} visitor interested in ${decisions.dominantInterest}.`;
+
+  const interests = [...new Set(
+    [decisions.dominantInterest, ...input.sessions.map((session) => session.primaryInterest || '')]
+      .map((value) => cleanText(value, 80))
+      .filter((value) => value && value !== 'other' && value !== 'unknown'),
+  )].slice(0, 8);
+
+  const emailHooks = [...new Set(
+    [decisions.bestHook, ...input.sessions.flatMap((session) => session.emailHooks || [])]
+      .map((value) => cleanText(value, 120))
+      .filter(Boolean),
+  )].slice(0, 6);
+
+  const gaps: string[] = [];
+  if (!input.hasEmail) gaps.push('No email on file yet');
+  if (!input.hasName) gaps.push('No name on file yet');
+  if (!decisions.emailReady) gaps.push('Need a clearer preference signal');
+  if (decisions.needsIdentity) gaps.push('Identity would unlock stronger personalization');
+  if (input.sessions.length < 2) gaps.push('Only one analyzed session so far');
+
+  return {
+    summaryText,
+    emailReady: decisions.emailReady,
+    emailReadyConfidence: decisions.emailReadyConfidence,
+    interests,
+    emailHooks,
+    gaps: gaps.slice(0, 6),
+    decisionsJson: decisions.answers,
+    model: MODEL,
+    insightVersion: INSIGHT_VERSION,
+    sourceSessionCount: input.sessions.length,
   };
 }
 
@@ -307,9 +914,22 @@ export function publicInsight(row: {
   friction: number | null;
   worthWatching: boolean | null;
   primaryInterest: string | null;
+  emailReady?: boolean | null;
+  emailReadyConfidence?: number | null;
+  stage?: string | null;
+  intent?: number | null;
+  highlightsJson?: unknown;
+  emailHooksJson?: unknown;
+  insightVersion?: number | null;
   generatedAt?: string | Date | null;
   error?: string | null;
 }) {
+  const highlights = Array.isArray(row.highlightsJson)
+    ? row.highlightsJson.filter((item): item is string => typeof item === 'string').slice(0, 12)
+    : [];
+  const emailHooks = Array.isArray(row.emailHooksJson)
+    ? row.emailHooksJson.filter((item): item is string => typeof item === 'string').slice(0, 6)
+    : [];
   return {
     status: row.status,
     summary: row.summaryText,
@@ -317,7 +937,45 @@ export function publicInsight(row: {
     friction: row.friction,
     worthWatching: row.worthWatching,
     primaryInterest: row.primaryInterest,
+    emailReady: row.emailReady ?? null,
+    emailReadyConfidence: row.emailReadyConfidence ?? null,
+    stage: row.stage ?? null,
+    intent: row.intent ?? null,
+    highlights,
+    emailHooks,
+    insightVersion: row.insightVersion ?? 1,
     generatedAt: row.generatedAt ? new Date(row.generatedAt).toISOString() : null,
     error: row.status === 'failed' ? (row.error || 'Unable to generate summary') : null,
+  };
+}
+
+export function publicVisitorInsight(row: {
+  status: string;
+  summaryText: string | null;
+  emailReady: boolean | null;
+  emailReadyConfidence: number | null;
+  interestsJson?: unknown;
+  emailHooksJson?: unknown;
+  gapsJson?: unknown;
+  insightVersion?: number | null;
+  sourceSessionCount?: number | null;
+  generatedAt?: string | Date | null;
+  error?: string | null;
+}) {
+  const asStrings = (value: unknown) => (
+    Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+  );
+  return {
+    status: row.status,
+    summary: row.summaryText,
+    emailReady: row.emailReady,
+    emailReadyConfidence: row.emailReadyConfidence,
+    interests: asStrings(row.interestsJson).slice(0, 8),
+    emailHooks: asStrings(row.emailHooksJson).slice(0, 6),
+    gaps: asStrings(row.gapsJson).slice(0, 6),
+    insightVersion: row.insightVersion ?? 1,
+    sourceSessionCount: row.sourceSessionCount ?? 0,
+    generatedAt: row.generatedAt ? new Date(row.generatedAt).toISOString() : null,
+    error: row.status === 'failed' ? (row.error || 'Unable to generate visitor insight') : null,
   };
 }
