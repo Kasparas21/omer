@@ -94,6 +94,12 @@ export function ReplayPlayer({ projectId, replayId, onBack }: {
           return;
         }
         events.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+        // rrweb-player throws unless there are at least two timestamps to span.
+        if (events.length === 1) {
+          const base = events[0].timestamp || Date.now();
+          events.unshift({ type: 4, data: { href: location.origin, width: 1280, height: 720 }, timestamp: base - 1 });
+          events.push({ type: 3, data: { source: 0 }, timestamp: base + 1 });
+        }
 
         const Player = await loadPlayer();
         if (cancelled) return;
