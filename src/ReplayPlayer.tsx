@@ -19,7 +19,7 @@ type Insight = {
   error?: string | null;
 };
 
-const CURRENT_INSIGHT_VERSION = 2;
+const CURRENT_INSIGHT_VERSION = 3;
 
 function insightNeedsRefresh(insight: Insight | null | undefined) {
   if (!insight || insight.status !== 'ready' || !insight.summary) return true;

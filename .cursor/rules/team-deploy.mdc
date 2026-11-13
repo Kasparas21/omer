@@ -1,0 +1,33 @@
+---
+description: Safe teammate git + VPS deploy — one trunk, never wipe UI
+alwaysApply: true
+---
+
+# Team deploy safety
+
+Two people ship this repo. Deploying the wrong branch wipes the other’s UI.
+
+## One trunk only
+
+- **Deploy trunk: `main`**
+- Do **not** deploy `codex/dashboard-onboarding`, private feature branches, or any tip that is behind `origin/main`.
+- Both of you: open PRs **into `main`**, merge, then deploy.
+
+## Before any VPS deploy
+
+1. `git fetch origin`
+2. `git checkout main && git pull --ff-only`
+3. Confirm `git status` is clean and `HEAD` equals `origin/main`
+4. Deploy **only** that commit (`git archive` from that SHA)
+5. If `main` is missing either latest UI or latest backend, **stop** — merge the missing PR first
+
+## While coding
+
+- Short private branches (`ben/…`, `kasparas/…`) → PR → `main`
+- Never `git push --force` to `main`. Own branch only: `--force-with-lease`
+- Backend/insight work: avoid rewriting `src/ui/**` / layout CSS unless the task is explicitly UI
+- UI work: avoid reverting `server/**` insight/replay changes
+
+## If unsure
+
+Ask before deploying. One merge wait beats redoing the whole UI kit.
