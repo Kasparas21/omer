@@ -152,10 +152,11 @@ export function Profile({ projectId, seed, onLive, onName }: {
           autoSpin: false,
           quietIntro: true,
           openOnFocus: false,
-          maxZoom: 1.7,
-          radiusScale: 1.05,
-          startZoom: 1.06,
-          offsetX: 0.14,
+          // Close in on where they are, like a map: the globe overflows the card and the pin sits mid-frame.
+          maxZoom: 3.4,
+          radiusScale: 1,
+          startZoom: 1.9,
+          offsetX: stage.clientWidth < 320 ? 0.02 : 0.12,
           lookAt: { lat, lng },
           showFlags: false,
         });
@@ -178,7 +179,8 @@ export function Profile({ projectId, seed, onLive, onName }: {
   const email = data?.identity?.email;
   const identity = !email ? 'Anonymous visitor' : data?.identity?.name ? 'Known visitor' : 'Email only';
   const country = data?.place?.cc ? (regions.of(data.place.cc.toUpperCase()) ?? data.place.cc.toUpperCase()) : null;
-  const city = data?.place?.city || data?.place?.place || country || 'Unknown';
+  const knownCity = data?.place?.city || data?.place?.place || '';
+  const city = knownCity || country || 'Unknown';
   const sessions = (data?.journey ?? []).filter((s) => filter === 'all' || s.purchases.length > 0);
   const hasPurchases = (data?.journey ?? []).some((s) => s.purchases.length > 0);
   // Campaign tags only count as follow-up sales once we have actually emailed this person.
@@ -247,7 +249,7 @@ export function Profile({ projectId, seed, onLive, onName }: {
                   <b className="profile-place-city">{city}</b>
                   <span className="profile-place-country">
                     {data.place?.cc && <span className="profile-place-flag flag"><img src={`/assets/flags/${data.place.cc}.svg`} alt="" /></span>}
-                    {country || 'Unknown'}
+                    {knownCity ? (country || 'Unknown') : 'City unknown'}
                   </span>
                 </div>
                 <div className="profile-mini-globe" id="profileGlobe" ref={globeRef} role="img" aria-label={`Globe focused on ${city}`} />

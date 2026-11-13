@@ -26,10 +26,14 @@ export function useThumb<T extends HTMLElement>(selector: string, key: unknown, 
         t.style.transform = `translate(${on.offsetLeft}px, ${on.offsetTop}px)`;
       }
       if (!move) { void t.offsetWidth; t.classList.remove('no-anim'); }
+      else { t.classList.remove('is-moving'); void t.offsetWidth; t.classList.add('is-moving'); }
     };
     place(placed.current);
     placed.current = true;
-    const observer = new ResizeObserver(() => place(false));
+    // ResizeObserver reports once as soon as it starts watching; placing again then would cancel the slide
+    // that just began. Later reports are real size changes (a count appearing), so follow those smoothly.
+    let first = true;
+    const observer = new ResizeObserver(() => { if (first) { first = false; return; } place(true); });
     observer.observe(bar);
     return () => observer.disconnect();
   }, [key, selector, xOnly]);

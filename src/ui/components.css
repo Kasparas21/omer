@@ -609,10 +609,16 @@ uf-loading-demo { display: grid; gap: 12px; width: 100%; max-width: 440px; }
 .dock-thumb { position: absolute; left: 0; top: 0; border-radius: var(--dock-item-r); background: var(--dock-item-active); pointer-events: none; will-change: transform;
   transition: transform 520ms var(--dock-morph, var(--dock-ease)), width 520ms var(--dock-morph, var(--dock-ease)), background-color 220ms var(--dock-ease), opacity 160ms var(--dock-ease); }
 .dock-thumb.no-anim { transition: none; }
+/* While it glides to a new item the pill squeezes a little and settles, and the new icon pops in. */
+.dock-thumb.is-moving { animation: dock-thumb-squish 520ms var(--dock-ease); }
+@keyframes dock-thumb-squish { 0% { scale: 1 1; } 35% { scale: 1.06 0.84; } 70% { scale: 0.98 1.03; } 100% { scale: 1 1; } }
+.dock-item[aria-current="page"] .ico { animation: dock-icon-pop 460ms var(--dock-ease); }
+@keyframes dock-icon-pop { 0% { scale: 0.82; } 55% { scale: 1.12; } 100% { scale: 1; } }
 .dock-thumb.live { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .dock-bar.has-thumb .dock-item[aria-current="page"], .dock-bar.has-thumb .dock-item.live[aria-current="page"] { background: transparent; }
 @media (prefers-reduced-motion: reduce) {
   .dock-thumb { transition: none; }
+  .dock-thumb.is-moving, .dock-item[aria-current="page"] .ico { animation: none; }
   .dock-host .dock, .dock-host .dock > *, .dock-host .dock-stick,
   .dock-frame::before { transition: none !important; }
 }

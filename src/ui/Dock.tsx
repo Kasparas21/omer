@@ -19,9 +19,25 @@ export function Dock<T extends string>({ items, current, onPick, collapsed, onRe
   const leaveTimer = useRef(0);
   const host = useRef<HTMLDivElement>(null);
   const spring = useRef({ position: 0, velocity: 0, target: 0, frame: 0 });
-  const bar = useThumb<HTMLDivElement>('.dock-item[aria-current]', current);
+  // The pill moves first and the screen follows a couple of frames later: a heavy screen (the globe) can
+  // block the page while it starts, and the slide should already be running on its own by then.
+  const [shown, setShown] = useState(current);
+  const handoff = useRef(0);
+  useEffect(() => { setShown(current); }, [current]);
+  useEffect(() => () => clearTimeout(handoff.current), []);
+  const pick = (id: T) => {
+    if (id === shown && id === current) { onPick(id); return; }
+    setShown(id);
+    clearTimeout(handoff.current);
+    if (still()) { onPick(id); return; }
+    // The live globe takes a few hundred ms to start and freezes the page meanwhile, so let the pill land first.
+    if (items.find((item) => item.id === id)?.live) { handoff.current = window.setTimeout(() => onPick(id), 300); return; }
+    // Other screens are lighter; a short head start keeps the first part of the slide smooth.
+    handoff.current = window.setTimeout(() => onPick(id), 120);
+  };
+  const bar = useThumb<HTMLDivElement>('.dock-item[aria-current]', shown);
   const [revealed, setRevealed] = useState(!collapsed);
-  const active = items.find((item) => item.id === current) ?? items[0];
+  const active = items.find((item) => item.id === shown) ?? items[0];
 
   function move(target: number) {
     const el = host.current;
@@ -103,9 +119,9 @@ export function Dock<T extends string>({ items, current, onPick, collapsed, onRe
                 className={`dock-item${live ? ' live' : ''}`}
                 title={label}
                 aria-label={live ? `${label}, ${count ?? 0} online` : label}
-                aria-current={current === id ? 'page' : undefined}
+                aria-current={shown === id ? 'page' : undefined}
                 tabIndex={revealed ? undefined : -1}
-                onClick={() => onPick(id)}
+                onClick={() => pick(id)}
               >
                 <Icon name={icon} />
                 {live ? <span className="count">{count ?? 0}</span> : null}
