@@ -6,6 +6,7 @@ import { Area, Card } from './DashboardV2';
 import type { DayCount, Project } from './project';
 import { DEMO_DAYS, RESULT_CAMPAIGNS, NOT_SENT, SAID_NO, campaignStats } from './storeData';
 import { useDemo } from './demoState';
+import { useSlidingPill } from './ui/useSlidingPill';
 
 const RANGES = [7, 14, 30] as const;
 type Range = (typeof RANGES)[number];
@@ -49,6 +50,7 @@ function Delta({ now, prev, range }: { now: number; prev: number; range: number 
 export function Results({ project, demo, onCampaign, onCampaigns }: { project: Project; demo: boolean; onCampaign: (id: string) => void; onCampaigns?: () => void }) {
   const { campaigns: live } = useDemo();
   const [range, setRange] = useState<Range>(14);
+  const rangePill = useSlidingPill<HTMLDivElement>(range);
   const [inView, setIn] = useState(false);
   useEffect(() => { setIn(false); const t = requestAnimationFrame(() => requestAnimationFrame(() => setIn(true))); return () => cancelAnimationFrame(t); }, [range]);
 
@@ -108,7 +110,7 @@ export function Results({ project, demo, onCampaign, onCampaigns }: { project: P
     <div className={`rs-screen v2${inView ? ' is-in' : ''}`}>
       <header className="rs-top">
         <h1 className="v2-title">Results</h1>
-        <div className="seg rs-seg" role="group" aria-label="Date range">
+        <div className="seg rs-seg" role="group" aria-label="Date range" ref={rangePill}>
           {RANGES.map((r) => <button key={r} type="button" aria-pressed={range === r} onClick={() => setRange(r)}>Last {r} days</button>)}
         </div>
       </header>

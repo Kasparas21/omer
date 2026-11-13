@@ -264,6 +264,18 @@ export function Card({ icon, title, children, extra, className = '' }: {
   );
 }
 
+/** What a card says before it has data: a soft icon, what goes here, and when it fills in. */
+export function CardEmpty({ icon, title, text, children }: { icon: IconName; title: string; text: string; children?: React.ReactNode }) {
+  return (
+    <div className="v2-card-empty">
+      <span className="v2-card-empty-ic" aria-hidden="true"><Icon name={icon} /></span>
+      <b>{title}</b>
+      <p>{text}</p>
+      {children}
+    </div>
+  );
+}
+
 const CAMPAIGN_IDS: Record<string, string | undefined> = { 'Interest match': 'interest', 'Expired code rescue': 'expired', 'Free shipping nudge': 'shipping' };
 
 function Link({ label, onClick }: { label: string; onClick: () => void }) {
@@ -670,12 +682,12 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
       <div className="v2-row v2-two">
         <Card icon="clock" title="Schedule" extra={<Link label="Opportunities" onClick={() => onGo({ to: 'inbox', tab: 'review' })} />}>
           <div className="v2-sched">
-            <b className="v2-val">{demo && data.mail ? DEMO_SCHEDULE.length : 0} <span>sends lined up</span></b>
+            {demo && data.mail ? <b className="v2-val">{DEMO_SCHEDULE.length} <span>sends lined up</span></b> : null}
             {demo && data.mail ? (
               <ul>{DEMO_SCHEDULE.map((row) => (
                 <li key={row.seed}><button type="button" onClick={() => onGo({ to: 'inbox', tab: 'review', id: row.seed })}><Orb seed={row.seed} size={22} /><span><b>{row.name}</b><small>{row.when}</small></span></button></li>
               ))}</ul>
-            ) : <p className="ho-empty">Follow-ups you approve are scheduled here once email sending ships.</p>}
+            ) : <CardEmpty icon="clock" title="Nothing scheduled" text="Follow-ups you approve get a send time and wait here." />}
           </div>
         </Card>
         <Card icon="send" title="Emails">
@@ -701,7 +713,7 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
                 <div className="v2-legend">{parts.map((c) => (
                   <button key={c.name} type="button" onClick={() => onGo({ to: 'campaigns', id: CAMPAIGN_IDS[c.name] })}><i style={{ ['--c' as string]: c.color }} /><span>{c.name}</span><small>{Math.round(c.share * 100)}%</small><b>{money.format(Math.round(c.revenue))}</b></button>
                 ))}</div>
-              ) : <p className="ho-empty omer-center">No campaigns yet. Tag purchases with a campaign or wait for email clicks.</p>}
+              ) : <p className="ho-empty omer-center">Each campaign’s share shows up after its first sale.</p>}
             </>;
           })()}
         </Card>
@@ -726,7 +738,7 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
                   <b className="v2-prod-v">{money.format(Math.round(item.revenue))}</b>
                 </button>
               ))}</div>
-            ) : <p className="ho-empty">Products show up after purchase events include line items.</p>;
+            ) : <CardEmpty icon="tag" title="No products yet" text="Your best sellers show up here after the first orders." />;
           })()}
         </Card>
       </div>
@@ -740,10 +752,11 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
           const delta = backWas ? Math.round(((back - backWas) / backWas) * 100) : 0;
           const tallest = Math.max(...sales, 1);
           return (
-            <Card icon="chart" title="Sales mix" className="v2-wide" extra={
+            <Card icon="chart" title="Sales mix" className="v2-wide" extra={!(data.mail && data.totals.sales > 0) ? undefined :
               <span className="v2-side">Bought before <b>{money.format(Math.round(back))}</b>
                 {data.mail && data.totals.sales > 0 && <b className={`v2-up-s ${delta >= 0 ? 'up' : 'down'}`}><svg viewBox="0 0 10 8" aria-hidden="true"><path d={delta >= 0 ? 'M5 0 10 8H0z' : 'M5 8 0 0h10z'} /></svg>{delta > 0 ? '+' : ''}{delta}%</b>}
               </span>}>
+              {data.mail && data.totals.sales > 0 ? <>
               <div className="v2-head"><b className="v2-val v2-big">{money.format(data.totals.sales)}</b><Chip now={data.totals.sales} prev={data.prev.sales} /></div>
               <div className="v2-bars-wrap">
                 <div className="v2-key" aria-hidden="true"><span><i style={{ ['--c' as string]: '#6360F0' }} />New customers</span><span><i style={{ ['--c' as string]: '#4F4BE0' }} />Bought before</span></div>
@@ -758,8 +771,15 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
                     );
                   })}
                 </div>
-                {!(data.mail && data.totals.sales > 0) && <p className="omer-bars-note">Sales stack here after purchase events land from your store.</p>}
               </div>
+              </> : (
+                <div className="v2-mix-empty">
+                  <div className="v2-mix-ghost" aria-hidden="true">
+                    {[34, 52, 40, 66, 48, 72, 58, 44, 62, 80, 54, 68, 46, 76].map((h, i) => <i key={i} style={{ height: `${h}%` }} />)}
+                  </div>
+                  <CardEmpty icon="chart" title="No sales yet" text="Sales from new and returning customers stack up here, day by day." />
+                </div>
+              )}
             </Card>
           );
         })()}
@@ -767,7 +787,7 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
 
       <div className="v2-row v2-two">
         <Card icon="arrowRight" title="Sources">
-          {sources.length === 0 ? <p className="ho-empty">Referrers show up after the first consented page views.</p> : (
+          {sources.length === 0 ? <CardEmpty icon="arrowRight" title="No sources yet" text="Where your visitors come from shows up after the first visits." /> : (
             <table className="v2-stat-table">
               <thead><tr><th scope="col">Source</th><th scope="col">Views</th><th scope="col">Revenue</th><th scope="col">Share</th></tr></thead>
               <tbody>
@@ -786,7 +806,7 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
           )}
         </Card>
         <Card icon="file" title="Pages" extra={<Link label="People" onClick={onPeople} />}>
-          {pages.length === 0 ? <p className="ho-empty">Top paths appear once people start browsing.</p> : (
+          {pages.length === 0 ? <CardEmpty icon="file" title="No pages yet" text="The pages people look at most show up here." /> : (
             <table className="v2-stat-table">
               <thead><tr><th scope="col">Page</th><th scope="col">Views</th><th scope="col">Revenue</th><th scope="col">Share</th></tr></thead>
               <tbody>
@@ -830,7 +850,7 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
               </section>
             );
           })() : project.firstEventAt ? (
-            <section className="ho-needs" aria-label="What needs you"><p className="ho-empty">Nothing needs you right now.</p></section>
+            <section className="ho-needs" aria-label="What needs you"><CardEmpty icon="check" title="Nothing needs you right now" text="Emails to approve, replies and anything that needs a decision show up here." /></section>
           ) : (
             <section className="ho-needs" aria-label="What needs you">
               <header className="ho-needs-h">

@@ -181,16 +181,8 @@
 .cpx-main-card.is-off .cpx-stage::before { display: none; }
 .cpx-main-card.is-off .ml-peek { filter: grayscale(1); opacity: 0.5; }
 
-.cpx-new { position: relative; display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; }
-.cpx-new > header { gap: 10px; }
 .cpx-sk { display: block; height: 10px; border-radius: 6px; background: color-mix(in srgb, var(--ink) 8%, transparent); }
 .cpx-sk-ic { flex: none; width: 18px; height: 18px; border-radius: 6px; }
-.cpx-new-lines { display: grid; gap: 12px; padding: 26px 24px; }
-.cpx-new-lines .cpx-sk:first-child { height: 16px; margin-bottom: 6px; }
-.cpx-new-cta { position: absolute; left: 50%; top: 58%; display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px 0 11px; border: 1px solid var(--v2-line); border-radius: 12px; background: var(--surface); box-shadow: var(--v2-lift); font-size: 13.5px; font-weight: 500; color: var(--ink); transform: translate(-50%, -50%); transition: transform 0.2s var(--ease); white-space: nowrap; }
-.cpx-new-cta .ico { width: 16px; height: 16px; }
-.cpx-new:hover .cpx-new-cta { transform: translate(-50%, -50%) scale(1.04); }
-.cpx-new-note { display: block; padding: 10px 12px 6px; font-size: 13px; color: var(--ink-3); }
 .cp-st { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 99px; font-size: 12px; font-weight: 550; }
 .cp-st-draft { background: var(--surface-3); color: var(--ink-2); }
 .cp-st-inactive { background: color-mix(in srgb, var(--warning-ink, #8a5a00) 12%, transparent); color: var(--warning-ink, #8a5a00); }
@@ -408,3 +400,18 @@
   .cpx-main-card .cpx-stage > .cpx-skmail:nth-of-type(n + 2) { display: none; }
   .cpx-first-chip { left: 16px; right: 16px; justify-content: center; max-width: none; transform: none; border-radius: 16px; white-space: normal; text-align: center; font-size: 13px; line-height: 1.35; }
 }
+
+/* The create card: the whole card is the button, with a dashed outline and one clear plus. */
+.cpx-new { position: relative; display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.cpx-new > header { gap: 8px; }
+.cpx-new > header .ico { color: var(--accent-text); }
+.cpx-new > header h3 { color: var(--ink-2); }
+.cpx-new .cpx-new-stage { display: grid; place-content: center; justify-items: center; gap: 6px; padding: 20px; border: 1.5px dashed color-mix(in srgb, var(--accent) 30%, var(--v2-line)); background: color-mix(in srgb, var(--accent) 3%, #fff); box-shadow: none; text-align: center; transition: border-color 0.2s var(--ease), background 0.2s var(--ease); }
+.cpx-new-plus { display: grid; place-items: center; width: 52px; height: 52px; margin-bottom: 8px; border-radius: 17px; background: var(--accent); color: #fff; box-shadow: 0 10px 24px -10px color-mix(in srgb, var(--accent) 80%, transparent); transition: transform 0.22s var(--ease); }
+.cpx-new-plus .ico { width: 24px; height: 24px; stroke-width: 2.2; }
+.cpx-new-title { font-size: 16px; font-weight: 560; letter-spacing: -0.015em; color: var(--ink); }
+.cpx-new-sub { max-width: 220px; font-size: 13px; line-height: 1.45; color: var(--ink-3); }
+.cpx-new:hover .cpx-new-stage, .cpx-new:focus-visible .cpx-new-stage { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, #fff); }
+.cpx-new:hover .cpx-new-plus { transform: scale(1.08) rotate(90deg); }
+.cpx-new:active .cpx-new-plus { transform: scale(0.94); }
+@media (prefers-reduced-motion: reduce) { .cpx-new-plus { transition: none; } .cpx-new:hover .cpx-new-plus { transform: none; } }

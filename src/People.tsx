@@ -7,6 +7,7 @@ import { Orb } from './ui/Orb';
 import { Dropdown } from './ui/Dropdown';
 import { SourceMark, sourceKey, sourceKind, sourceLabel } from './ui/sources';
 import { demoCustomer } from './demo';
+import { useSlidingPill } from './ui/useSlidingPill';
 
 const ADJ = ['Quiet', 'Bold', 'Swift', 'Calm', 'Bright', 'Gentle', 'Lucky', 'Clever', 'Brave', 'Sunny', 'Misty', 'Happy', 'Witty', 'Mellow', 'Rapid', 'Keen'];
 const ANIMAL = ['Heron', 'Otter', 'Fox', 'Lynx', 'Robin', 'Panda', 'Koala', 'Falcon', 'Badger', 'Finch', 'Hare', 'Wren', 'Seal', 'Owl', 'Moth', 'Crane'];
@@ -43,6 +44,7 @@ export function People({ data, loading, failed, onLive, onOpen, demo = false, st
 }) {
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState<Tab>('all');
+  const tabPill = useSlidingPill<HTMLElement>(tab);
   const [source, setSource] = useState(start?.source ?? 'all');
   const [country, setCountry] = useState(start?.country ?? 'all');
   const [sort, setSort] = useState<Sort>('recent');
@@ -100,7 +102,7 @@ export function People({ data, loading, failed, onLive, onOpen, demo = false, st
 
       <section className="people-dir" aria-label="Visitor directory">
         <div className="people-bar">
-          <nav className="pill-tabs" aria-label="Filter by visitor type">
+          <nav className="pill-tabs" aria-label="Filter by visitor type" ref={tabPill}>
             {tabs.map((t) => (
               <button key={t.id} type="button" className="ib-tab" aria-pressed={tab === t.id} onClick={() => setTab(t.id)}>
                 {t.label}<span>{picked.filter((p) => inTab(p, t.id)).length}</span>
@@ -130,7 +132,7 @@ export function People({ data, loading, failed, onLive, onOpen, demo = false, st
             <span role="columnheader" className="r people-sessions">Sessions</span><span role="columnheader" className="r">Revenue</span>
             <span role="columnheader" className="r">Last seen</span><span aria-hidden="true" />
           </div>
-          <div className="people-rows" role="rowgroup">
+          <div className="people-rows omer-rows-in" role="rowgroup" key={tab}>
             {(failed || loading || rows.length === 0) && (
               <div role="row"><div role="cell" className="people-empty">
                 {failed ? <p role="status">Live connection interrupted. Reconnecting…</p>

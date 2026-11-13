@@ -258,3 +258,22 @@
   .omer-settings .set-main { padding: 20px 18px 12px; min-height: 0; }
   .omer-settings .seg { max-width: 100%; overflow-x: auto; }
 }
+
+/* Sliding tab pill (useSlidingPill): the group draws the pill and the chosen button lets it show through. */
+.has-pill { position: relative; isolation: isolate; }
+.has-pill::before {
+  content: ""; position: absolute; left: 0; top: 0; z-index: -1; pointer-events: none;
+  width: var(--pill-w); height: var(--pill-h); border-radius: var(--pill-r, 99px);
+  transform: translate(var(--pill-x), var(--pill-y));
+  background: var(--v2-card, var(--surface));
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 2px 8px -2px rgb(0 0 0 / 0.1);
+  transition: transform 340ms cubic-bezier(0.22, 1, 0.36, 1), width 340ms cubic-bezier(0.22, 1, 0.36, 1), height 340ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.has-pill.pill-still::before { transition: none; }
+.has-pill > :is([aria-pressed="true"], [aria-selected="true"]) { background: transparent !important; box-shadow: none !important; }
+@media (prefers-reduced-motion: reduce) { .has-pill::before { transition: none; } }
+
+/* Rows that come in after a tab switch ease in instead of popping. */
+@keyframes omer-rows-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.omer-rows-in { animation: omer-rows-in 280ms cubic-bezier(0.22, 1, 0.36, 1); }
+@media (prefers-reduced-motion: reduce) { .omer-rows-in { animation: none; } }

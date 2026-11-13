@@ -5,6 +5,7 @@ import { Orb } from './ui/Orb';
 import { SourceMark, sourceKind, sourceLabel } from './ui/sources';
 import { ActivityHeatmap } from './ui/Activity';
 import { ReplayPlayer } from './ReplayPlayer';
+import { useSlidingPill } from './ui/useSlidingPill';
 
 const money = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 const ADJ = ['Quiet', 'Bold', 'Swift', 'Calm', 'Bright', 'Gentle', 'Lucky', 'Clever', 'Brave', 'Sunny', 'Misty', 'Happy', 'Witty', 'Mellow', 'Rapid', 'Keen'];
@@ -97,6 +98,8 @@ export function Profile({ projectId, seed, onLive, onName }: {
   const [data, setData] = useState<ProfileData>();
   const [failed, setFailed] = useState(false);
   const [filter, setFilter] = useState<'all' | 'purchases'>('all');
+  const [loaded, setLoaded] = useState(false);
+  const filterPill = useSlidingPill<HTMLDivElement>(`${filter}-${loaded}`);
   const [replayId, setReplayId] = useState<string>();
   const globeRef = useRef<HTMLDivElement>(null);
   const regions = useMemo(() => new Intl.DisplayNames(undefined, { type: 'region' }), []);
@@ -108,7 +111,7 @@ export function Profile({ projectId, seed, onLive, onName }: {
         const response = await fetch(`/api/projects/${projectId}/visitors/${encodeURIComponent(seed)}`, { cache: 'no-store' });
         if (!response.ok) throw new Error('profile');
         const payload: ProfileData = await response.json();
-        if (!cancelled) { setData(payload); setFailed(false); }
+        if (!cancelled) { setData(payload); setFailed(false); setLoaded(true); }
       } catch {
         if (!cancelled) setFailed(true);
       }
@@ -296,7 +299,7 @@ export function Profile({ projectId, seed, onLive, onName }: {
               <header className="profile-journey-head"><h3 id="profileJourneyTitle">Visitor journey</h3></header>
               <div className="v2-in profile-journey-in">
                 {hasPurchases && (
-                  <div className="profile-filters v2-seg" role="group" aria-label="Filter visitor journey">
+                  <div className="profile-filters v2-seg" role="group" aria-label="Filter visitor journey" ref={filterPill}>
                     <button type="button" className="ib-tab" aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>All sessions</button>
                     <button type="button" className="ib-tab" aria-pressed={filter === 'purchases'} onClick={() => setFilter('purchases')}>Purchases</button>
                   </div>

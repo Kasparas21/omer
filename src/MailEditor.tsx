@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon, type IconName } from './ui/Icon';
 import { FONTS, MailBody, MailPhone, pageVars, type MailEdit } from './Mail';
 import { STORE, type BlockStyle, type MailDoc, type PageStyle } from './storeData';
+import { useSlidingPill } from './ui/useSlidingPill';
 
 export type Draft = { doc: MailDoc; page: PageStyle };
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -37,6 +38,7 @@ export function MailEditor({ published, onPublish }: {
   const [draft, setDraft] = useState<Draft>(() => clone(published));
   const [sel, setSel] = useState('page');
   const [device, setDevice] = useState<'desktop' | 'phone'>('desktop');
+  const devPill = useSlidingPill<HTMLDivElement>(device);
   const undo = useRef<string[]>([]);
   const redo = useRef<string[]>([]);
   const [, bump] = useState(0);
@@ -216,7 +218,7 @@ export function MailEditor({ published, onPublish }: {
           ))}
         </div>
         <div className="cpe-dock">
-          <div className="seg cpe-devseg" role="group" aria-label="Preview size">
+          <div className="seg cpe-devseg" role="group" aria-label="Preview size" ref={devPill}>
             <button type="button" aria-pressed={device === 'desktop'} onClick={() => setDevice('desktop')}><Icon name="monitor" />Desktop</button>
             <button type="button" aria-pressed={device === 'phone'} onClick={() => setDevice('phone')}><Icon name="phone" />iPhone</button>
           </div>

@@ -102,12 +102,14 @@ function SkeletonMail({ kind, short }: { kind: 'pics' | 'letter'; short?: boolea
 }
 
 function NewCard({ onClick }: { onClick: () => void }) {
-  const bar = (w: string) => <i className="cpx-sk" style={{ width: w }} />;
   return (
-    <button type="button" className="v2-card cpx-card cpx-new" aria-label="Create a new campaign" onClick={onClick}>
-      <header><i className="cpx-sk cpx-sk-ic" />{bar('38%')}</header>
-      <div className="cpx-stage" aria-hidden="true"><div className="cpx-new-lines">{bar('46%')}{bar('92%')}{bar('84%')}{bar('70%')}{bar('88%')}</div></div>
-      <span className="cpx-new-cta"><Icon name="plus" />Create new campaign</span>
+    <button type="button" className="v2-card cpx-card cpx-new" onClick={onClick}>
+      <header><Icon name="plus" /><h3>New campaign</h3></header>
+      <div className="cpx-stage cpx-new-stage">
+        <span className="cpx-new-plus" aria-hidden="true"><Icon name="plus" /></span>
+        <b className="cpx-new-title">Create a campaign</b>
+        <span className="cpx-new-sub">Pick what starts it and we’ll write the email.</span>
+      </div>
     </button>
   );
 }
