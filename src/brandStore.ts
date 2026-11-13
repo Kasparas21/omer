@@ -10,12 +10,24 @@ export type BrandColor = { id: string; name: string; hex: string; role?: ColorRo
 export type BrandFont = { id: string; role: string; family: string; file?: BrandFile | null };
 export type BrandProduct = { id: string; name: string; price: string; image: BrandFile | null; image2?: BrandFile | null };
 /** A page on the store we keep an eye on, so emails never quote a stale price, stock level or code. */
-export type MonitoredPage = { id: string; path: string; addedAt: string; checkedAt?: string | null; change?: string | null };
+export type MonitoredPage = {
+  id: string;
+  path: string;
+  addedAt: string;
+  checkedAt?: string | null;
+  change?: string | null;
+  /** Content fingerprint from the last Firecrawl check. */
+  hash?: string | null;
+  /** Short markdown excerpt used for diffs (not shown in UI). */
+  lastMarkdown?: string | null;
+};
 export const MONITOR_LIMIT = 10;
 /** Something emails are allowed to say about the store: a price, an offer, a policy, an answer. */
 export type StoreFact = { id: string; group: string; name: string; value: string; review?: boolean };
 export type LogoSlot = 'primary' | 'mark' | 'dark';
 export type BrandDocs = { product: string; voice: string };
+/** Site change queued for Settings → Website changes (real stores). */
+export type BrandChange = { id: string; path: string; summary: string; at: string; seen?: boolean };
 export type Brand = {
   logos: Record<LogoSlot, BrandFile | null>;
   colors: BrandColor[];
@@ -26,9 +38,10 @@ export type Brand = {
   docs: BrandDocs;
   monitor: MonitoredPage[];
   facts: StoreFact[];
+  changes?: BrandChange[];
   importedAt?: string | null;
 };
-export type FolderId = 'identity' | 'products' | 'brand' | 'facts';
+export type FolderId = 'identity' | 'products' | 'brand' | 'docs' | 'facts';
 
 export const DEMO_BRAND_SPACE = 'demo';
 export const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
@@ -97,6 +110,7 @@ export const emptyBrand = (): Brand => ({
   docs: { product: '', voice: '' },
   monitor: [],
   facts: [],
+  changes: [],
   importedAt: null,
 });
 
@@ -255,12 +269,18 @@ export function fileFrom(file: File): BrandFile {
 
 /** How many things are in each folder, for its label. */
 export function folderCount(b: Brand, folder: FolderId) {
-  if (folder === 'identity') return Object.values(b.logos).filter(Boolean).length + b.colors.length + b.fonts.filter((f) => f.family || f.file).length;
+  if (folder === 'identity') {
+    return Object.values(b.logos).filter(Boolean).length
+      + b.colors.length
+      + b.fonts.filter((f) => f.family || f.file).length;
+  }
   if (folder === 'products') return b.products.length;
-  const docs = b.docs || { product: '', voice: '' };
-  // Product Information sits with the store facts; the Brand Voice Guide with photos & voice.
-  if (folder === 'facts') return (b.facts?.length ?? 0) + (docs.product.trim() ? 1 : 0);
-  return b.photos.length + (b.voice.tagline || b.voice.tone || b.voice.about ? 1 : 0) + (docs.voice.trim() ? 1 : 0);
+  if (folder === 'facts') return b.facts?.length ?? 0;
+  if (folder === 'docs') {
+    const docs = b.docs || { product: '', voice: '' };
+    return (docs.product.trim() ? 1 : 0) + (docs.voice.trim() ? 1 : 0);
+  }
+  return b.photos.length + (b.voice.tagline || b.voice.tone || b.voice.about ? 1 : 0);
 }
 
 /** Closed Identity folder caption: "3 logos · 5 colors · 2 fonts". */

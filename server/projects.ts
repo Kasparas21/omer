@@ -15,6 +15,15 @@ import {
 } from './replay-insight';
 import { brandImportReady, emptyStoredBrand, importBrandFromSite, loadBrand, saveBrand, type StoredBrand } from './brand-import';
 import { firecrawlConfigured } from './firecrawl';
+import {
+  listCampaignSuggestions,
+  listOpportunities,
+  patchCampaignSuggestion,
+  patchOpportunity,
+  refreshCampaignSuggestions,
+  upsertOpportunityFromInsight,
+} from './opportunities';
+import { loadEmailContext } from './email-context';
 import { dailyVisitors, dwell, emailEvents, identities, pageViews, pathViews, projects, purchases, referrerViews, replayChunks, replayInsights, replaySessions, visitorInsights, visits } from './schema';
 import { auth, pool, appURL } from './auth';
 
@@ -1386,6 +1395,19 @@ async function summarizeVisitor(request: Request, env: Env, projectId: string, v
           error: null,
         },
       }).returning();
+      try {
+        const hooks = Array.isArray(saved.emailHooksJson)
+          ? saved.emailHooksJson.filter((item): item is string => typeof item === 'string')
+          : [];
+        await upsertOpportunityFromInsight(db, projectId, visitorKey, {
+          emailReady: Boolean(saved.emailReady),
+          summaryText: saved.summaryText,
+          emailHooks: hooks,
+        });
+        await refreshCampaignSuggestions(db, projectId);
+      } catch (hookError) {
+        console.error('opportunity upsert failed', hookError);
+      }
       return json({ insight: publicVisitorInsight(saved) });
     } catch (error) {
       const message = error instanceof Error ? error.message.slice(0, 300) : 'Unable to generate visitor insight';
@@ -1522,6 +1544,82 @@ async function postBrandImport(request: Request, env: Env, projectId: string) {
   }
 }
 
+async function getOpportunities(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to view opportunities.' }, 401);
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    const opportunities = await listOpportunities(db, projectId);
+    return json({ opportunities });
+  });
+}
+
+async function patchOpportunityRoute(request: Request, env: Env, projectId: string, opportunityId: string) {
+  if (!uuid.test(projectId) || !uuid.test(opportunityId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to update opportunities.' }, 401);
+  const raw = await readText(request, 4_000);
+  if (raw === null) return json({ error: 'Payload too large.' }, 413);
+  let body: { status?: string } | null;
+  try { body = JSON.parse(raw); } catch { return json({ error: 'Invalid JSON.' }, 400); }
+  if (!body?.status) return json({ error: 'status required.' }, 400);
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    try {
+      const row = await patchOpportunity(db, projectId, opportunityId, body!.status!);
+      if (!row) return json({ error: 'Not found.' }, 404);
+      return json({ opportunity: row });
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : 'Invalid status' }, 400);
+    }
+  });
+}
+
+async function getCampaignSuggestions(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to view suggestions.' }, 401);
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    await refreshCampaignSuggestions(db, projectId);
+    const suggestions = await listCampaignSuggestions(db, projectId);
+    return json({ suggestions });
+  });
+}
+
+async function patchCampaignSuggestionRoute(request: Request, env: Env, projectId: string, suggestionId: string) {
+  if (!uuid.test(projectId) || !uuid.test(suggestionId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to update suggestions.' }, 401);
+  const raw = await readText(request, 4_000);
+  if (raw === null) return json({ error: 'Payload too large.' }, 413);
+  let body: { status?: string } | null;
+  try { body = JSON.parse(raw); } catch { return json({ error: 'Invalid JSON.' }, 400); }
+  if (!body?.status) return json({ error: 'status required.' }, 400);
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    try {
+      const row = await patchCampaignSuggestion(db, projectId, suggestionId, body!.status!);
+      if (!row) return json({ error: 'Not found.' }, 404);
+      return json({ suggestion: row });
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : 'Invalid status' }, 400);
+    }
+  });
+}
+
+async function getEmailContextRoute(request: Request, env: Env, projectId: string, visitorKey: string) {
+  if (!uuid.test(projectId) || !visitorId.test(visitorKey)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in.' }, 401);
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    const context = await loadEmailContext(db, projectId, visitorKey);
+    return json({ context });
+  });
+}
+
 // One app process serves the VPS. Signals only invalidate; the authenticated
 // snapshot remains the source of truth on reconnect or across app restarts.
 function openLiveStream(projectId: string) {
@@ -1599,6 +1697,31 @@ export default {
       if (brandMatch) {
         if (request.method === 'GET') return await getBrand(request, env, brandMatch[1]);
         if (request.method === 'PUT') return await putBrand(request, env, brandMatch[1]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const opportunityOne = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/opportunities\/([0-9a-f-]{36})$/i);
+      if (opportunityOne) {
+        if (request.method === 'PATCH') return await patchOpportunityRoute(request, env, opportunityOne[1], opportunityOne[2]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const opportunitiesMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/opportunities$/i);
+      if (opportunitiesMatch) {
+        if (request.method === 'GET') return await getOpportunities(request, env, opportunitiesMatch[1]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const suggestionOne = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/campaign-suggestions\/([0-9a-f-]{36})$/i);
+      if (suggestionOne) {
+        if (request.method === 'PATCH') return await patchCampaignSuggestionRoute(request, env, suggestionOne[1], suggestionOne[2]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const suggestionsMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/campaign-suggestions$/i);
+      if (suggestionsMatch) {
+        if (request.method === 'GET') return await getCampaignSuggestions(request, env, suggestionsMatch[1]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const emailContextMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/visitors\/([A-Za-z0-9_-]{8,80})\/email-context$/i);
+      if (emailContextMatch) {
+        if (request.method === 'GET') return await getEmailContextRoute(request, env, emailContextMatch[1], emailContextMatch[2]);
         return json({ error: 'Method not allowed.' }, 405);
       }
       const projectMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})$/i);

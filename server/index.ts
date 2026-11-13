@@ -4,7 +4,9 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { bodyLimit } from 'hono/body-limit';
 import { auth, googleAuthEnabled, pool } from './auth';
 import { objectStoreConfigured } from './object-store';
+import { drizzle } from 'drizzle-orm/node-postgres';
 import { brandImportReady } from './brand-import';
+import { runBrandMonitoring } from './brand-monitor';
 import { firecrawlConfigured } from './firecrawl';
 import { openaiConfigured } from './replay-insight';
 import projects from './projects';
@@ -43,8 +45,13 @@ app.get('/api/projects/:id/live/stream', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/live', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/brand', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/brand/*', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/opportunities', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/opportunities/:oid', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/campaign-suggestions', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/campaign-suggestions/:sid', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/visitors/:vid', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/visitors/:vid/insight', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/visitors/:vid/email-context', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/replays/:rid/summary', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/replays/:rid', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/replays/:rid/chunks/:seq', (c) => projects.fetch(c.req.raw, env));
@@ -88,8 +95,15 @@ const pruneReplays = () => void pool.query(`
   )
   select count(*) from marked
 `).catch(() => console.error('Unable to mark expired replays'));
-const retentionTimer = setInterval(() => { prune(); pruneReplays(); }, 60 * 60 * 1000);
+const runMonitor = () => {
+  if (!firecrawlConfigured()) return;
+  void runBrandMonitoring(drizzle(pool))
+    .catch((error) => console.error('brand monitoring failed', error));
+};
+const retentionTimer = setInterval(() => { prune(); pruneReplays(); runMonitor(); }, 60 * 60 * 1000);
 retentionTimer.unref();
 prune();
 pruneReplays();
+// First monitor pass a few minutes after boot so deploys are not blocked on Firecrawl.
+setTimeout(runMonitor, 3 * 60 * 1000).unref();
 process.on('SIGTERM', () => { server.close(async () => { await pool.end(); process.exit(0); }); });

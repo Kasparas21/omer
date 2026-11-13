@@ -1,7 +1,6 @@
-/* Brand knowledge: four folders (logo, colours & fonts; products; photos & voice; store facts). Hovering
-   tips a folder's frosted front open; clicking opens it in place: the other folders step back and the folder's
-   card slides out under its row. Click the folder again or anywhere outside to close it. A real store can fill
-   the folders by importing its website. Monitored pages live in their own Settings tab (MonitoringSection). */
+/* Brand knowledge: identity, products, photos & voice, documents, store facts. Hovering tips a folder's
+   frosted front open; clicking opens it in place. Documents holds Product Information and Brand Voice Guide
+   for follow-up emails. Monitored pages live in their own Settings tab (MonitoringSection). */
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Icon, type IconName } from './ui/Icon';
 import { Dropdown } from './ui/Dropdown';
@@ -18,6 +17,7 @@ const FOLDERS: { id: FolderId; name: string; icon: IconName; one: string; many: 
   { id: 'identity', name: 'Logo, colors & fonts', icon: 'star', one: 'item', many: 'items', empty: 'Empty' },
   { id: 'products', name: 'Products', icon: 'tag', one: 'product', many: 'products', empty: 'Empty' },
   { id: 'brand', name: 'Photos & voice', icon: 'image', one: 'item', many: 'items', empty: 'Empty' },
+  { id: 'docs', name: 'Documents', icon: 'file', one: 'doc', many: 'docs', empty: 'Import from your site' },
   { id: 'facts', name: 'Store facts', icon: 'book', one: 'fact', many: 'facts', empty: 'Empty' },
 ];
 
@@ -47,6 +47,7 @@ export function BrandKnowledge({ space, host, demo = false }: { space: string; h
   // Keep showing the last folder's contents while its card slides shut.
   const [shown, setShown] = useState<FolderId | null>(null);
   useEffect(() => { if (open) setShown(open); }, [open]);
+  useEffect(() => { if (open !== 'docs') setDocOpen(null); }, [open]);
   // Once the card has finished sliding open, let menus inside it (the font list) spill over its edges.
   const [settled, setSettled] = useState(false);
   useEffect(() => {
@@ -55,7 +56,8 @@ export function BrandKnowledge({ space, host, demo = false }: { space: string; h
     const t = window.setTimeout(() => setSettled(true), 520);
     return () => clearTimeout(t);
   }, [open]);
-  const [cols, setCols] = useState(4);
+  const [cols, setCols] = useState(5);
+  const [docOpen, setDocOpen] = useState<'product' | 'voice' | null>(null);
   const grid = useRef<HTMLDivElement>(null);
   const set = (next: (b: Brand) => Brand) => updateBrand(space, next);
 
@@ -91,7 +93,7 @@ export function BrandKnowledge({ space, host, demo = false }: { space: string; h
   const count = (id: FolderId) => {
     const f = FOLDERS.find((x) => x.id === id)!;
     if (id === 'identity') return identityLabel(brand, f.empty);
-    const n = id === 'facts' ? facts.list.length + (brand.docs?.product.trim() ? 1 : 0) : folderCount(brand, id);
+    const n = id === 'facts' ? facts.list.length : folderCount(brand, id);
     return n ? `${n} ${n === 1 ? f.one : f.many}` : f.empty;
   };
 
@@ -102,7 +104,7 @@ export function BrandKnowledge({ space, host, demo = false }: { space: string; h
     try {
       await importBrandFromSite(space);
       toast('Brand knowledge updated from your site');
-      setOpen('brand');
+      setOpen('docs');
     } catch (error) {
       toast(error instanceof Error ? error.message : 'Import failed', { kind: 'warn' });
     } finally {
@@ -139,8 +141,10 @@ export function BrandKnowledge({ space, host, demo = false }: { space: string; h
                   {shownFolder.id === 'identity' && <IdentityFolder brand={brand} set={set} />}
                   {shownFolder.id === 'products' && <ProductFolder brand={brand} set={set} />}
                   {shownFolder.id === 'brand' && <BrandFolder brand={brand} set={set} />}
-                  {shownFolder.id === 'facts' && <FactsFolder facts={facts} product={brand.docs?.product ?? ''}
-                    onProduct={(v) => set((b) => ({ ...b, docs: { ...(b.docs || { product: '', voice: '' }), product: v } }))} />}
+                  {shownFolder.id === 'docs' && (
+                    <DocsFolder brand={brand} set={set} open={docOpen} onOpen={setDocOpen} />
+                  )}
+                  {shownFolder.id === 'facts' && <FactsFolder facts={facts} />}
                 </div>
               </section>
             )}
@@ -166,6 +170,13 @@ function papersFor(b: Brand, id: FolderId): Paper[] {
     ].filter(Boolean) as Paper[];
   }
   if (id === 'products') return b.products.filter((p) => p.image).slice(0, 3).map((p) => ({ img: p.image!.src }));
+  if (id === 'docs') {
+    const docs = b.docs || { product: '', voice: '' };
+    return [
+      docs.product.trim() ? { text: 'Pi' } : null,
+      docs.voice.trim() ? { text: 'Vv' } : null,
+    ].filter(Boolean) as Paper[];
+  }
   if (id === 'facts') return (b.facts || []).slice(0, 3).map(() => ({}));
   return b.photos.slice(0, 3).map((p) => ({ img: p.src }));
 }
@@ -439,7 +450,6 @@ function BrandFolder({ brand, set }: FolderProps) {
     set((b) => ({ ...b, photos: [...b.photos, ...imgs.map(fileFrom)] }));
   };
   const voice = (k: keyof Brand['voice'], v: string) => set((b) => ({ ...b, voice: { ...b.voice, [k]: v } }));
-  const guide = (v: string) => set((b) => ({ ...b, docs: { ...(b.docs || { product: '', voice: '' }), voice: v } }));
   return (
     <div className="bk-brand">
       <Items className="bk-photos">
@@ -458,11 +468,53 @@ function BrandFolder({ brand, set }: FolderProps) {
             <PlainText value={brand.voice[r.id]} placeholder={r.placeholder} label={r.name} lines={r.lines} onChange={(v) => voice(r.id, v)} />
           </div>
         ))}
-        <div className="bk-row">
-          <div className="bk-row-k"><b>Voice guide</b></div>
-          <PlainText value={brand.docs?.voice ?? ''} placeholder="Empty" label="Voice guide" lines long onChange={guide} />
-        </div>
       </div>
+    </div>
+  );
+}
+
+const DOC_CARDS: { id: 'product' | 'voice'; title: string; hint: string }[] = [
+  { id: 'product', title: 'Product Information', hint: 'What emails can promise about what you sell' },
+  { id: 'voice', title: 'Brand Voice Guide', hint: 'How follow-up emails should sound' },
+];
+
+function DocsFolder({ brand, set, open, onOpen }: FolderProps & { open: 'product' | 'voice' | null; onOpen: (id: 'product' | 'voice' | null) => void }) {
+  const docs = brand.docs || { product: '', voice: '' };
+  const put = (key: 'product' | 'voice', value: string) => set((b) => ({ ...b, docs: { ...(b.docs || { product: '', voice: '' }), [key]: value } }));
+  if (open) {
+    const meta = DOC_CARDS.find((d) => d.id === open)!;
+    return (
+      <div className="bk-doc-edit">
+        <div className="bk-doc-edit-bar">
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => onOpen(null)}><Icon name="chevronLeft" />Documents</button>
+          <span>{meta.title}</span>
+        </div>
+        <textarea
+          className="bk-doc-md"
+          value={docs[open]}
+          aria-label={meta.title}
+          placeholder="Import your site to draft this, or write it yourself"
+          spellCheck
+          onChange={(e) => put(open, e.target.value)}
+        />
+      </div>
+    );
+  }
+  return (
+    <div className="bk-docs-list">
+      {DOC_CARDS.map((d, i) => {
+        const body = docs[d.id].trim();
+        return (
+          <button key={d.id} type="button" className="bk-doc-card" style={fanIn(i)} onClick={() => onOpen(d.id)}>
+            <span className="bk-doc-card-ic" aria-hidden="true"><Icon name="file" /></span>
+            <span className="bk-doc-card-copy">
+              <b>{d.title}</b>
+              <small>{body ? `${body.split(/\s+/).length} words · tap to edit` : d.hint}</small>
+            </span>
+            <Icon name="chevronRight" />
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -503,7 +555,7 @@ function useFacts(space: string, demo: boolean, brand: Brand): Facts {
     answer: () => undefined,
   };
 }
-function FactsFolder({ facts, product, onProduct }: { facts: Facts; product: string; onProduct: (v: string) => void }) {
+function FactsFolder({ facts }: { facts: Facts }) {
   const [answer, setAnswer] = useState('');
   const [name, setName] = useState('');
   const [value, setValue] = useState('');
@@ -556,12 +608,6 @@ function FactsFolder({ facts, product, onProduct }: { facts: Facts; product: str
         <input value={value} placeholder="What emails can say" aria-label="What emails can say" onChange={(e) => setValue(e.target.value)} />
         <button type="submit" className="btn btn-secondary btn-sm" disabled={!name.trim() || !value.trim()}><Icon name="plus" />Add fact</button>
       </form>
-      <div className="bk-rows bk-product-info">
-        <div className="bk-row">
-          <div className="bk-row-k"><b>Product information</b></div>
-          <PlainText value={product} placeholder="Empty" label="Product information" lines long onChange={onProduct} />
-        </div>
-      </div>
     </div>
   );
 }

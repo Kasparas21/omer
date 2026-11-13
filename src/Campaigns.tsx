@@ -4,19 +4,30 @@
    with Personal follow-ups on and the create card. */
 import { useEffect, useRef, useState } from 'react';
 import { Icon, type IconName } from './ui/Icon';
+import { toast } from './ui/toast';
 import { MailInbox, MailPeek } from './Mail';
 import { MailEditor } from './MailEditor';
 import { FLOWS, PICKS, PERSONAL_MAILS, campaignStats, type Flow } from './storeData';
 import { DEMO_SPACE, demo as store, pickValue, useDemo, type CampaignSettings, type CampaignState } from './demoState';
 
+type Suggestion = {
+  id: string;
+  title: string;
+  audienceSummary: string;
+  evidenceCount: number;
+  status: string;
+};
+
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 const num = new Intl.NumberFormat('en-US');
 const STARTS: [string, string][] = Object.entries(FLOWS).map(([id, f]) => [id, f.when((k) => PICKS[k]?.def ?? '')]);
 
-export function Campaigns({ space, storeName, openId, editing, onOpen, onEdit }: {
+export function Campaigns({ space, storeName, projectId, openId, editing, onOpen, onEdit }: {
   /** DEMO_SPACE for the demo store, otherwise the project id: each store keeps its own campaigns. */
   space: string;
   storeName: string;
+  /** Real project id for Ghost suggestions from shared hooks. */
+  projectId?: string;
   openId?: string;
   editing: boolean;
   onOpen: (id?: string) => void;
@@ -25,6 +36,19 @@ export function Campaigns({ space, storeName, openId, editing, onOpen, onEdit }:
 }) {
   const { campaigns, personal } = useDemo(space);
   const open = campaigns.find((c) => c.id === openId);
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    let gone = false;
+    void fetch(`/api/projects/${projectId}/campaign-suggestions`)
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({})) as { suggestions?: Suggestion[] };
+        if (!gone) setSuggestions((data.suggestions || []).filter((s) => s.status === 'suggested'));
+      })
+      .catch(() => { if (!gone) setSuggestions([]); });
+    return () => { gone = true; };
+  }, [projectId]);
 
   if (open && editing && open.published) {
     return (
@@ -36,6 +60,34 @@ export function Campaigns({ space, storeName, openId, editing, onOpen, onEdit }:
 
   const ordered = [...campaigns.filter((c) => c.suggested && !c.dismissed), ...campaigns.filter((c) => !c.suggested)];
   const create = () => onOpen(store.add(space, space === DEMO_SPACE ? undefined : storeName));
+  const dismissSuggestion = async (id: string) => {
+    if (!projectId) return;
+    try {
+      await fetch(`/api/projects/${projectId}/campaign-suggestions/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'dismissed' }),
+      });
+      setSuggestions((prev) => prev.filter((s) => s.id !== id));
+    } catch {
+      toast('Could not dismiss suggestion', { kind: 'warn' });
+    }
+  };
+  const acceptSuggestion = async (id: string, title: string) => {
+    if (!projectId) return;
+    try {
+      await fetch(`/api/projects/${projectId}/campaign-suggestions/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'accepted' }),
+      });
+      setSuggestions((prev) => prev.filter((s) => s.id !== id));
+      onOpen(store.add(space, title));
+      toast('Campaign shell created — email content comes next');
+    } catch {
+      toast('Could not accept suggestion', { kind: 'warn' });
+    }
+  };
   return (
     <div className="cp-screen">
       <h1 className="sr-only">Campaigns</h1>
@@ -52,6 +104,22 @@ export function Campaigns({ space, storeName, openId, editing, onOpen, onEdit }:
             {space === DEMO_SPACE ? null : <span className="cpx-first-chip"><Icon name="send" />Your first follow-ups show up here once they’re sent</span>}
           </div>
         </section>
+        {suggestions.map((s) => (
+          <article key={s.id} className="v2-card cpx-card is-suggested">
+            <header>
+              <Icon name="ghost" /><h3>{s.title}</h3>
+              <span className="cpx-ai-chip"><Icon name="ghost" />Suggested</span>
+            </header>
+            <div className="cpx-stage cpx-suggest-body">
+              <p>{s.audienceSummary}</p>
+              <small>{s.evidenceCount} people</small>
+              <div className="cpx-suggest-acts">
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => void acceptSuggestion(s.id, s.title)}>Use this</button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => void dismissSuggestion(s.id)}>Dismiss</button>
+              </div>
+            </div>
+          </article>
+        ))}
         {ordered.map((c) => <Card key={c.id} c={c} onOpen={() => onOpen(c.id)} />)}
         <NewCard onClick={create} />
       </div>

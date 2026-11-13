@@ -6,7 +6,7 @@ import type { Project } from './project';
 import { Icon } from './ui/Icon';
 import { useSlidingPill } from './ui/useSlidingPill';
 import { BrandKnowledge, MonitoringSection } from './BrandKnowledge';
-import { DEMO_BRAND_SPACE } from './brandStore';
+import { DEMO_BRAND_SPACE, updateBrand, useBrand } from './brandStore';
 import { DemoChanges, DemoPrivacy, DemoSending, useDemoSettingsCounts } from './DemoSettings';
 import type { Go } from './DashboardV2';
 
@@ -53,10 +53,12 @@ export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab
   const host = (() => { try { return new URL(project.origin).host; } catch { return project.origin; } })();
   const counts = useDemoSettingsCounts();
   const space = demo ? DEMO_BRAND_SPACE : project.id;
+  const brand = useBrand(space);
+  const changeRows = (brand.changes || []).filter((c) => !c.seen);
   const tabs: { id: Tab; title: string; badge?: number }[] = [
     { id: 'brand', title: 'Brand knowledge', badge: demo ? counts.company : 0 },
     { id: 'company', title: 'Store' },
-    { id: 'changes', title: 'Website changes', badge: demo ? counts.changes : 0 },
+    { id: 'changes', title: 'Website changes', badge: demo ? counts.changes : changeRows.length },
     { id: 'monitoring', title: 'Monitoring' },
     { id: 'sending', title: 'Sending' },
     { id: 'privacy', title: 'Privacy' },
@@ -108,10 +110,34 @@ export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab
           )}
           {!demo && tab === 'changes' && (
             <div className="set-main solo">
-              <div className="empty omer-set-empty">
-                <span className="empty-ico"><Icon name="checkCircle" /></span>
-                <h4>Nothing to review</h4>
-              </div>
+              {changeRows.length ? (
+                <ul className="set-change-list">
+                  {changeRows.map((c) => (
+                    <li key={c.id} className="set-change-row">
+                      <span className="set-change-copy">
+                        <b>{c.path}</b>
+                        <small>{c.summary}</small>
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => updateBrand(space, (b) => ({
+                          ...b,
+                          changes: (b.changes || []).map((x) => (x.id === c.id ? { ...x, seen: true } : x)),
+                        }))}
+                      >
+                        Mark seen
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="empty omer-set-empty">
+                  <span className="empty-ico"><Icon name="checkCircle" /></span>
+                  <h4>Nothing to review</h4>
+                  <p>When monitored pages change, they show up here.</p>
+                </div>
+              )}
             </div>
           )}
           {!demo && tab === 'sending' && (

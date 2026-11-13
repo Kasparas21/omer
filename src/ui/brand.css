@@ -12,8 +12,9 @@
 .bk-import .btn .ico { width: 15px; height: 15px; }
 
 /* ---------- the folders */
-.bk-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 10px; align-items: start; }
-@media (max-width: 900px) { .bk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.bk-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px 10px; align-items: start; }
+@media (max-width: 1080px) { .bk-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 720px) { .bk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .bk-item {
   display: grid; justify-items: center; gap: 2px; min-width: 0; padding: 18px 10px 14px;
   border: 0; border-radius: 20px; background: transparent; font: inherit; color: inherit; cursor: pointer; text-align: center;
@@ -116,9 +117,33 @@
 @keyframes bk-in { from { opacity: 0; transform: translateY(-10px) scale(0.97); } to { opacity: 1; transform: none; } }
 .bk-items { display: grid; gap: 12px; }
 .bk-items > * { animation: bk-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: calc(var(--i, 0) * 45ms + 80ms); }
-.bk-product-info { margin-top: 14px; }
 .bk-identity > .bk-sub:first-child { margin-top: 0; }
 .bk-identity > .bk-sub { margin-top: 24px; }
+.bk-docs-list { display: grid; gap: 10px; }
+.bk-doc-card {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px;
+  width: 100%; padding: 14px 14px 14px 12px; border: 1px solid var(--v2-line); border-radius: 16px;
+  background: var(--v2-card); box-shadow: var(--v2-lift); font: inherit; color: inherit; text-align: left; cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.bk-doc-card:hover { border-color: color-mix(in srgb, var(--ink) 18%, var(--v2-line)); background: color-mix(in srgb, var(--v2-shell) 55%, var(--v2-card)); }
+.bk-doc-card .ico { width: 16px; height: 16px; color: var(--ink-3); }
+.bk-doc-card-ic {
+  display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px;
+  background: var(--v2-shell); color: var(--ink-2);
+}
+.bk-doc-card-ic .ico { width: 18px; height: 18px; color: inherit; }
+.bk-doc-card-copy { display: grid; gap: 2px; min-width: 0; }
+.bk-doc-card-copy b { font-size: 14.5px; font-weight: 560; letter-spacing: -0.015em; color: var(--ink); }
+.bk-doc-card-copy small { font-size: 12.5px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bk-doc-edit { display: grid; gap: 12px; }
+.bk-doc-edit-bar { display: flex; align-items: center; gap: 10px; }
+.bk-doc-edit-bar > span { font-size: 14px; font-weight: 560; color: var(--ink); }
+.bk-doc-md {
+  width: 100%; min-height: 320px; padding: 16px 18px; border: 1px solid var(--v2-line); border-radius: 16px;
+  background: var(--v2-card); font: inherit; font-size: 14px; line-height: 1.55; color: var(--ink); resize: vertical;
+}
+.bk-doc-md:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .bk-sub { margin: 20px 0 10px; font-size: 13px; font-weight: 560; color: var(--ink-3); }
 
 .bk-card { display: flex; flex-direction: column; min-width: 0; overflow: hidden; border: 1px solid var(--v2-line); border-radius: 17px; background: var(--v2-card); box-shadow: var(--v2-lift); }

@@ -187,3 +187,37 @@ export const projectBrand = pgTable('project_brand', {
   data: jsonb('data').$type<Record<string, unknown>>().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
+
+/** Personal follow-up queue for real stores (no send yet). */
+export const projectOpportunities = pgTable('project_opportunities', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  visitorId: text('visitor_id').notNull(),
+  status: text('status').notNull().default('review'),
+  reason: text('reason'),
+  hooksJson: jsonb('hooks_json').$type<string[]>().default([]).notNull(),
+  insightSummary: text('insight_summary'),
+  email: text('email'),
+  name: text('name'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex('project_opportunities_project_visitor_idx').on(table.projectId, table.visitorId),
+  index('project_opportunities_project_status_idx').on(table.projectId, table.status),
+]);
+
+/** Suggested campaign groups from shared hooks (no send yet). */
+export const projectCampaignSuggestions = pgTable('project_campaign_suggestions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  patternKey: text('pattern_key').notNull(),
+  title: text('title').notNull(),
+  audienceSummary: text('audience_summary').notNull(),
+  evidenceCount: integer('evidence_count').default(0).notNull(),
+  status: text('status').notNull().default('suggested'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex('project_campaign_suggestions_project_pattern_idx').on(table.projectId, table.patternKey),
+  index('project_campaign_suggestions_project_status_idx').on(table.projectId, table.status),
+]);
