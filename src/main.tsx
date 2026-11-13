@@ -14,6 +14,7 @@ import { Opportunities, type OpTab } from './Opportunities';
 import { Campaigns } from './Campaigns';
 import { Results } from './Results';
 import { Toasts } from './ui/toast';
+import { useNewVersion } from './ui/useNewVersion';
 import { DEMO_SPACE, useDemo } from './demoState';
 import { Settings, type DockMode, type SettingsTab } from './Settings';
 import { useLive } from './live';
@@ -89,6 +90,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [campaignId, setCampaignId] = useState<string>();
   const [profileName, setProfileName] = useState('');
   const [editing, setEditing] = useState(false);
+  useNewVersion();
   // Where a Dashboard row sent you: the screen opens there (a tab, a person, a filter). The key remounts it.
   const [start, setStart] = useState<{ n: number; op?: { tab?: OpTab; id?: string }; people?: { source?: string; country?: string }; settings?: SettingsTab }>({ n: 0 });
   function go(to: Go) {

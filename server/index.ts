@@ -47,6 +47,19 @@ app.get('/tracker.js', async (c, next) => {
   c.header('Cloudflare-CDN-Cache-Control', 'no-store');
   await next();
 });
+// Built files carry a content hash in their name, so they never change: cache them for good. The page
+// itself must always be re-checked, or a tab opened before a deploy keeps loading the old build.
+app.get('/assets/*', async (c, next) => {
+  await next();
+  if (c.res.status === 200) c.header('Cache-Control', 'public, max-age=31536000, immutable');
+});
+app.get('*', async (c, next) => {
+  await next();
+  if ((c.res.headers.get('content-type') ?? '').includes('text/html')) {
+    c.header('Cache-Control', 'no-cache');
+    c.header('Cloudflare-CDN-Cache-Control', 'no-store');
+  }
+});
 app.get('*', serveStatic({ root: './dist' }));
 app.get('*', serveStatic({ path: './dist/index.html' }));
 app.onError((_error, c) => c.json({ error: 'Service unavailable. Try again.' }, 503));

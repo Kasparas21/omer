@@ -2,16 +2,17 @@
 import { useSyncExternalStore } from 'react';
 import { Icon } from './Icon';
 
-type Toast = { id: number; msg: string; kind: 'ok' | 'info' | 'warn'; undo?: () => void; out?: boolean };
+type Toast = { id: number; msg: string; kind: 'ok' | 'info' | 'warn'; undo?: () => void; action?: { label: string; run: () => void }; out?: boolean };
 let toasts: Toast[] = [];
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 let hovering = false;
 
-export function toast(msg: string, opts: { undo?: () => void; kind?: Toast['kind'] } = {}) {
-  const t: Toast = { id: Date.now() + Math.random(), msg, kind: opts.kind ?? 'ok', undo: opts.undo };
+export function toast(msg: string, opts: { undo?: () => void; kind?: Toast['kind']; action?: Toast['action']; sticky?: boolean } = {}) {
+  const t: Toast = { id: Date.now() + Math.random(), msg, kind: opts.kind ?? 'ok', undo: opts.undo, action: opts.action };
   toasts = [...toasts, t].slice(-6);
   emit();
+  if (opts.sticky) return;
   const close = () => {
     if (hovering) { window.setTimeout(close, 800); return; }
     dismiss(t.id);
@@ -36,6 +37,7 @@ export function Toasts() {
             <Icon name={t.kind === 'info' ? 'info' : t.kind === 'warn' ? 'alert' : 'check'} className={t.kind === 'ok' ? undefined : t.kind} />
             <span>{t.msg}</span>
             {t.undo ? <button className="toast-undo" type="button" onClick={() => { t.undo?.(); dismiss(t.id); }}>Undo</button> : null}
+            {t.action ? <button className="toast-undo" type="button" onClick={() => { t.action?.run(); dismiss(t.id); }}>{t.action.label}</button> : null}
           </div>
         );
       })}
