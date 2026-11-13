@@ -1,20 +1,21 @@
-/* Settings: sliding pill tabs on top, Brand knowledge first (glass folders with everything Ghost writes
-   emails with), then the other sections in their sheet with side notes. */
+/* Settings: sliding pill tabs on top. Brand knowledge first (folders with everything emails are written
+   with, store facts included), then the store's setup, website changes, monitored pages, sending and privacy.
+   The dock's behaviour lives in the account menu. */
 import { useState } from 'react';
 import type { Project } from './project';
 import { Icon } from './ui/Icon';
-import { useThumb } from './ui/useThumb';
 import { useSlidingPill } from './ui/useSlidingPill';
-import { BrandKnowledge } from './BrandKnowledge';
+import { BrandKnowledge, MonitoringSection } from './BrandKnowledge';
 import { DEMO_BRAND_SPACE } from './brandStore';
-import { DemoChanges, DemoCompany, DemoPrivacy, DemoSending, useDemoSettingsCounts } from './DemoSettings';
+import { DemoChanges, DemoPrivacy, DemoSending, useDemoSettingsCounts } from './DemoSettings';
 import type { Go } from './DashboardV2';
 
 export type DockMode = 'always' | 'scroll' | 'auto';
-export type SettingsTab = 'brand' | 'company' | 'changes' | 'sending' | 'privacy' | 'dock';
+/** 'company' is the Store tab (kept as the id so older links still land there). */
+export type SettingsTab = 'brand' | 'company' | 'changes' | 'monitoring' | 'sending' | 'privacy';
 type Tab = SettingsTab;
 
-const DOCK_MODES: { id: DockMode; label: string }[] = [
+export const DOCK_MODES: { id: DockMode; label: string }[] = [
   { id: 'always', label: 'Always show' },
   { id: 'scroll', label: 'Hide on scroll' },
   { id: 'auto', label: 'Always hidden' },
@@ -31,7 +32,7 @@ function Row({ title, hint, children, wide }: { title: string; hint?: string; ch
 
 const Soon = () => <span className="status-pill">Coming next</span>;
 
-export function Settings({ project, topPages, snippet, dockMode, onDockMode, onCopy, onGuide, onSetup, startTab, demo = false, onGo, onReplay, storageReady = false, replayBusy = false }: {
+export function Settings({ project, topPages, snippet, onCopy, onGuide, onSetup, startTab, demo = false, onGo, onReplay, storageReady = false, replayBusy = false }: {
   startTab?: Tab;
   /** The demo store shows the kit's full example Settings. */
   demo?: boolean;
@@ -40,8 +41,6 @@ export function Settings({ project, topPages, snippet, dockMode, onDockMode, onC
   /** The store's most-visited pages, offered as pages to monitor. */
   topPages?: { path: string; count: number }[];
   snippet: string;
-  dockMode: DockMode;
-  onDockMode: (mode: DockMode) => void;
   onCopy: (kind: 'script' | 'prompt') => void;
   onGuide: () => void;
   onSetup: () => void;
@@ -51,17 +50,17 @@ export function Settings({ project, topPages, snippet, dockMode, onDockMode, onC
 }) {
   const [tab, setTab] = useState<Tab>(startTab ?? 'brand');
   const tabPill = useSlidingPill<HTMLElement>(tab);
-  const seg = useThumb<HTMLDivElement>('button[aria-pressed="true"]', `${tab}:${dockMode}`, true);
   const host = (() => { try { return new URL(project.origin).host; } catch { return project.origin; } })();
   const counts = useDemoSettingsCounts();
+  const space = demo ? DEMO_BRAND_SPACE : project.id;
   const replayOn = Boolean(project.replayEnabled);
   const tabs: { id: Tab; title: string; badge?: number }[] = [
-    { id: 'brand', title: 'Brand knowledge' },
-    { id: 'company', title: 'Company', badge: demo ? counts.company : 0 },
+    { id: 'brand', title: 'Brand knowledge', badge: demo ? counts.company : 0 },
+    { id: 'company', title: 'Store' },
     { id: 'changes', title: 'Website changes', badge: demo ? counts.changes : 0 },
+    { id: 'monitoring', title: 'Monitoring' },
     { id: 'sending', title: 'Sending' },
     { id: 'privacy', title: 'Privacy' },
-    { id: 'dock', title: 'Dock' },
   ];
 
   return (
@@ -77,17 +76,18 @@ export function Settings({ project, topPages, snippet, dockMode, onDockMode, onC
         </nav>
       </header>
       {tab === 'brand' ? (
-        <BrandKnowledge key={project.id} space={demo ? DEMO_BRAND_SPACE : project.id} host={host} topPages={topPages ?? []} onChanges={() => setTab('changes')} />
+        <BrandKnowledge key={project.id} space={space} demo={demo} />
+      ) : tab === 'monitoring' ? (
+        <MonitoringSection key={project.id} space={space} host={host} topPages={topPages ?? []} onChanges={() => setTab('changes')} />
       ) : (
       <div className="st-body omer-rows-in" key={tab}>
         <div className="set-sheet">
-          {demo && tab === 'company' && <DemoCompany onGo={onGo} />}
           {demo && tab === 'changes' && <DemoChanges onGo={onGo} />}
           {demo && tab === 'sending' && <DemoSending />}
           {demo && tab === 'privacy' && <DemoPrivacy />}
-          {!demo && tab === 'company' && <>
+          {tab === 'company' && <>
             <div className="set-main">
-              <header className="set-head"><h2>Company</h2></header>
+              <header className="set-head"><h2>Store</h2></header>
               <Row title="Name" hint="Shown in the switcher at the top"><span className="omer-set-val">{project.name}</span></Row>
               <Row title="Website" hint="Events are accepted only from this exact address">
                 <a className="omer-set-link" href={project.origin} target="_blank" rel="noreferrer">{project.origin}<Icon name="arrowUpRight" /></a>
@@ -105,9 +105,9 @@ export function Settings({ project, topPages, snippet, dockMode, onDockMode, onC
               </Row>
             </div>
             <aside className="set-side"><div className="set-side-in">
-              <div className="set-side-k">Brand DNA</div>
-              <p className="su-side-p">Logo, colours, voice and products read from {host}, so drafts sound like you.</p>
-              <Soon />
+              <div className="set-side-k">Brand knowledge</div>
+              <p className="su-side-p">Your logo, colors, products, voice and the facts emails can use live in Brand knowledge.</p>
+              <button className="btn btn-ghost btn-sm" type="button" onClick={() => setTab('brand')}><Icon name="arrowRight" />Open Brand knowledge</button>
               <div className="set-side-k gap">Setup</div>
               <button className="btn btn-ghost btn-sm" type="button" onClick={onSetup}><Icon name="list" />First-time setup</button>
               <button className="btn btn-ghost btn-sm" type="button" onClick={onGuide}><Icon name="book" />Installation guide</button>
@@ -175,19 +175,6 @@ export function Settings({ project, topPages, snippet, dockMode, onDockMode, onC
               <ul className="set-list no"><li>IP addresses</li><li>Passwords or card numbers</li><li>Anything typed in a form</li>{!replayOn && <li>Session recordings while replay is off</li>}</ul>
             </div></aside>
           </>}
-          {tab === 'dock' && (
-            <div className="set-main solo">
-              <header className="set-head"><h2>Dock</h2></header>
-              <Row title="Bottom dock" hint="Hidden: move near it or tap it to bring it back" wide>
-                <div className="seg has-thumb" role="group" aria-label="Dock behavior" ref={seg.host}>
-                  <span className="seg-thumb" ref={seg.thumb} aria-hidden="true" />
-                  {DOCK_MODES.map((mode) => (
-                    <button key={mode.id} type="button" aria-pressed={dockMode === mode.id} onClick={() => onDockMode(mode.id)}>{mode.label}</button>
-                  ))}
-                </div>
-              </Row>
-            </div>
-          )}
         </div>
       </div>
       )}

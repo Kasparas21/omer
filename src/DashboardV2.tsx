@@ -13,7 +13,7 @@ export type Go =
   | { to: 'inbox'; tab?: 'review' | 'hold' | 'approved' | 'replies'; id?: string }
   | { to: 'campaigns'; id?: string }
   | { to: 'results' }
-  | { to: 'settings'; tab?: 'company' | 'changes' | 'sending' }
+  | { to: 'settings'; tab?: 'brand' | 'company' | 'changes' | 'monitoring' | 'sending' }
   | { to: 'visitors'; source?: string; country?: string };
 
 type Metric = 'people' | 'views' | 'dwell' | 'clicked' | 'sales';
@@ -353,7 +353,7 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
     { id: 'replies', label: 'Replies', go: 'Replies', rows: demoState.replies.filter((r) => r.state === 'open').map((r) => ({ seed: r.id, who: who(r), what: `“${r.text[0]}”`, when: r.time, icon: 'reply' as const })) },
     ...DEMO_NEEDS.filter((t) => t.id === 'facts' || t.id === 'changes').map((t) => ({ ...t, go: t.id === 'facts' ? 'Company' : 'Website changes' })),
   ];
-  const needGo = (id: string, seed?: string): Go => (id === 'facts' ? { to: 'settings', tab: 'company' }
+  const needGo = (id: string, seed?: string): Go => (id === 'facts' ? { to: 'settings', tab: 'brand' }
     : id === 'changes' ? { to: 'settings', tab: 'changes' }
     : { to: 'inbox', tab: id === 'replies' ? 'replies' : id === 'hold' ? 'hold' : 'review', id: seed });
   const data = useMemo(() => withDemo(demo, (() => {
@@ -643,7 +643,7 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
 
     <div className="v2-rest">
       <div className="v2-row v2-two">
-        <Card icon="ghost" title="Brand read" extra={<Link label="Brand DNA" onClick={() => onGo({ to: 'settings', tab: 'company' })} />}>
+        <Card icon="ghost" title="Brand read" extra={<Link label="Brand knowledge" onClick={() => onGo({ to: 'settings', tab: 'brand' })} />}>
           {demo && data.mail ? (
             <div className="v2-brand-read">
               <b className="v2-brand-word">Credible</b>

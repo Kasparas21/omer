@@ -1,7 +1,7 @@
-/* Brand knowledge: five glass folders (logo, colours, fonts, products, brand photos & voice), then the store
-   pages we monitor. Hovering tips a folder's frosted front open; clicking opens it in place: the other folders
-   step back and the folder's card slides out under its row. Click the folder again or anywhere outside to
-   close it. */
+/* Brand knowledge: six folders (logo, colours, fonts, products, brand photos & voice, store facts). Hovering
+   tips a folder's frosted front open; clicking opens it in place: the other folders step back and the folder's
+   card slides out under its row. Click the folder again or anywhere outside to close it. The store pages we
+   monitor are their own Settings tab (MonitoringSection, at the bottom). */
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Icon, type IconName } from './ui/Icon';
 import { Dropdown } from './ui/Dropdown';
@@ -9,9 +9,10 @@ import { Uploader } from './ui/Uploader';
 import { toast } from './ui/toast';
 import { FONTS } from './Mail';
 import {
-  MONITOR_LIMIT, fileFrom, folderCount, newId, updateBrand, useBrand,
+  DEMO_BRAND_SPACE, MONITOR_LIMIT, fileFrom, folderCount, newId, updateBrand, useBrand,
   type Brand, type BrandColor, type BrandFile, type ColorRole, type FolderId, type LogoSlot,
 } from './brandStore';
+import { demoFacts, useDemoFacts } from './DemoSettings';
 
 const FOLDERS: { id: FolderId; name: string; icon: IconName; one: string; many: string; empty: string }[] = [
   { id: 'logo', name: 'Logo', icon: 'star', one: 'file', many: 'files', empty: 'Add your logo' },
@@ -19,6 +20,7 @@ const FOLDERS: { id: FolderId; name: string; icon: IconName; one: string; many: 
   { id: 'fonts', name: 'Fonts', icon: 'fontsize', one: 'font', many: 'fonts', empty: 'Pick your fonts' },
   { id: 'products', name: 'Products', icon: 'tag', one: 'product', many: 'products', empty: 'Add products' },
   { id: 'brand', name: 'Brand photos & voice', icon: 'image', one: 'item', many: 'items', empty: 'Add photos and tone' },
+  { id: 'facts', name: 'Store facts', icon: 'book', one: 'fact', many: 'facts', empty: 'Add store facts' },
 ];
 
 const loadedFonts = new Set<string>();
@@ -39,13 +41,9 @@ function useFontFile(id: string, blob?: Blob) {
 const fontStack = (f: { id: string; family: string; file?: BrandFile | null }) =>
   f.file && loadedFonts.has(f.id) ? `"bk-${f.id}", ${f.family || 'system-ui'}` : f.family ? `"${f.family}", system-ui` : 'inherit';
 
-export function BrandKnowledge({ space, host, topPages, onChanges }: {
-  space: string;
-  host: string;
-  topPages: { path: string; count: number }[];
-  onChanges: () => void;
-}) {
+export function BrandKnowledge({ space, demo = false }: { space: string; demo?: boolean }) {
   const brand = useBrand(space);
+  const facts = useFacts(space, demo, brand);
   const [open, setOpen] = useState<FolderId | null>(null);
   // Keep showing the last folder's contents while its card slides shut.
   const [shown, setShown] = useState<FolderId | null>(null);
@@ -58,7 +56,7 @@ export function BrandKnowledge({ space, host, topPages, onChanges }: {
     const t = window.setTimeout(() => setSettled(true), 520);
     return () => clearTimeout(t);
   }, [open]);
-  const [cols, setCols] = useState(5);
+  const [cols, setCols] = useState(6);
   const grid = useRef<HTMLDivElement>(null);
   const set = (next: (b: Brand) => Brand) => updateBrand(space, next);
 
@@ -93,7 +91,7 @@ export function BrandKnowledge({ space, host, topPages, onChanges }: {
   const notch = openIndex < 0 ? 50 : ((openIndex % cols) + 0.5) * (100 / Math.min(cols, FOLDERS.length));
   const count = (id: FolderId) => {
     const f = FOLDERS.find((x) => x.id === id)!;
-    const n = folderCount(brand, id);
+    const n = id === 'facts' ? facts.list.length : folderCount(brand, id);
     return n ? `${n} ${n === 1 ? f.one : f.many}` : f.empty;
   };
 
@@ -103,7 +101,7 @@ export function BrandKnowledge({ space, host, topPages, onChanges }: {
         {FOLDERS.map((f, i) => (
           <button key={f.id} type="button" className={`bk-item${open === f.id ? ' is-open' : ''}`} style={{ order: i * 2 }}
             aria-expanded={open === f.id} aria-controls="bkDrawer" onClick={() => setOpen(open === f.id ? null : f.id)}>
-            <GlassFolder papers={papersFor(brand, f.id)} />
+            <GlassFolder icon={f.icon} papers={f.id === 'facts' ? facts.list.slice(0, 3).map(() => ({})) : papersFor(brand, f.id)} />
             <span className="bk-name">{f.name}</span>
             <span className="bk-count">{count(f.id)}</span>
           </button>
@@ -120,14 +118,13 @@ export function BrandKnowledge({ space, host, topPages, onChanges }: {
                   {shownFolder.id === 'fonts' && <FontFolder brand={brand} set={set} />}
                   {shownFolder.id === 'products' && <ProductFolder brand={brand} set={set} />}
                   {shownFolder.id === 'brand' && <BrandFolder brand={brand} set={set} />}
+                  {shownFolder.id === 'facts' && <FactsFolder facts={facts} />}
                 </div>
               </section>
             )}
           </div>
         </div>
       </div>
-
-      <Monitoring brand={brand} set={set} host={host} topPages={topPages} onChanges={onChanges} />
     </section>
   );
 }
@@ -139,10 +136,11 @@ function papersFor(b: Brand, id: FolderId): Paper[] {
   if (id === 'colors') return orderedColors(b.colors).slice(0, 3).map((c) => ({ color: c.hex }));
   if (id === 'fonts') return b.fonts.filter((f) => f.family || f.file).slice(0, 2).map((f) => ({ text: 'Aa', font: fontStack(f) }));
   if (id === 'products') return b.products.filter((p) => p.image).slice(0, 3).map((p) => ({ img: p.image!.src }));
+  if (id === 'facts') return b.facts.slice(0, 3).map(() => ({}));
   return b.photos.slice(0, 3).map((p) => ({ img: p.src }));
 }
 
-function GlassFolder({ papers }: { papers: Paper[] }) {
+function GlassFolder({ papers, icon }: { papers: Paper[]; icon: IconName }) {
   const shown = papers.length ? papers : [{}, {}];
   return (
     <span className="gf" aria-hidden="true">
@@ -156,7 +154,7 @@ function GlassFolder({ papers }: { papers: Paper[] }) {
           </span>
         ))}
       </span>
-      <span className="gf-front"><span className="gf-shine" /></span>
+      <span className="gf-front"><span className="gf-shine" /><Icon name={icon} /></span>
     </span>
   );
 }
@@ -361,12 +359,35 @@ function ProductFolder({ brand, set }: FolderProps) {
   return (
     <Items className="bk-products">
       {brand.products.map((p, i) => <ProductCard key={p.id} p={p} i={i} set={set} />)}
-      <Uploader accept="image/*" multiple title="Add products" hint="Drop photos · one product each" onFiles={add} className="bk-fill" />
+      <Uploader accept="image/*" multiple title="Add products" hint={false} onFiles={add} className="bk-fill" />
     </Items>
   );
 }
 
-// ---------- Brand photos & voice
+// ---------- Brand photos & voice: photos, then voice as settings rows (plain text you click to edit)
+/** Text that reads as text and grows as you type; no box, no resize handle. */
+function PlainText({ value, placeholder, label, onChange, lines = false }: { value: string; placeholder: string; label: string; onChange: (v: string) => void; lines?: boolean }) {
+  const el = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const t = el.current;
+    if (!t) return;
+    const fit = () => { t.style.height = '0px'; t.style.height = `${t.scrollHeight}px`; };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(t);
+    return () => ro.disconnect();
+  }, [value]);
+  return (
+    <textarea ref={el} className="bk-plain" rows={1} value={value} placeholder={placeholder} aria-label={label} spellCheck
+      onChange={(e) => onChange(lines ? e.target.value : e.target.value.replace(/\n/g, ' '))}
+      onKeyDown={(e) => { if (!lines && e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }} />
+  );
+}
+const VOICE_ROWS: { id: keyof Brand['voice']; name: string; hint: string; placeholder: string; lines?: boolean }[] = [
+  { id: 'tagline', name: 'Tagline', hint: 'One line about the store', placeholder: 'Add a tagline' },
+  { id: 'tone', name: 'Tone of voice', hint: 'How every email should sound', placeholder: 'e.g. warm, short sentences, never pushy', lines: true },
+  { id: 'about', name: 'About', hint: 'Who you are and what you sell', placeholder: 'Add a few lines in your own words', lines: true },
+];
 function BrandFolder({ brand, set }: FolderProps) {
   const add = (files: File[]) => {
     const imgs = images(files);
@@ -383,13 +404,109 @@ function BrandFolder({ brand, set }: FolderProps) {
             <button type="button" className="bk-icon-btn" aria-label={`Remove ${p.name}`} onClick={() => set((b) => ({ ...b, photos: b.photos.filter((x, j) => !(x.id === p.id && j === i)) }))}><Icon name="trash" /></button>
           </div>
         ))}
-        <Uploader accept="image/*" multiple title="Add photos" hint="Lifestyle and hero shots" onFiles={add} className="bk-fill" />
+        <Uploader accept="image/*" multiple title="Add photos" hint={false} onFiles={add} className="bk-fill" />
       </Items>
-      <div className="bk-voice">
-        <label><span>Tagline</span><input value={brand.voice.tagline} placeholder="One line about the store" onChange={(e) => voice('tagline', e.target.value)} /></label>
-        <label><span>Tone of voice</span><textarea rows={2} value={brand.voice.tone} placeholder="How emails should sound, e.g. warm, short sentences, never pushy" onChange={(e) => voice('tone', e.target.value)} /></label>
-        <label><span>About</span><textarea rows={3} value={brand.voice.about} placeholder="Who you are and what you sell, in your own words" onChange={(e) => voice('about', e.target.value)} /></label>
+      <div className="bk-rows" style={fanIn(brand.photos.length + 1)}>
+        {VOICE_ROWS.map((r) => (
+          <div key={r.id} className="bk-row">
+            <div className="bk-row-k"><b>{r.name}</b><small>{r.hint}</small></div>
+            <PlainText value={brand.voice[r.id]} placeholder={r.placeholder} label={r.name} lines={r.lines} onChange={(v) => voice(r.id, v)} />
+          </div>
+        ))}
       </div>
+    </div>
+  );
+}
+
+// ---------- Store facts: what emails are allowed to say (prices, offers, policies, answers)
+type FactView = { id: string; group: string; name: string; value: string; src?: string; review?: boolean; off?: boolean; own?: boolean };
+type Facts = {
+  list: FactView[];
+  /** A question a shopper asked that the site doesn't answer (demo store). */
+  ask: { q: string; who: string } | null;
+  approve: (id: string) => void;
+  edit: (id: string, value: string) => void;
+  rename: (id: string, name: string) => void;
+  remove: (id: string) => void;
+  add: (name: string, value: string, group: string) => void;
+  answer: (value: string) => void;
+};
+const FACT_GROUPS = ['Products', 'Offers', 'Policies', 'FAQs'];
+function useFacts(space: string, demo: boolean, brand: Brand): Facts {
+  const d = useDemoFacts();
+  if (demo || space === DEMO_BRAND_SPACE) {
+    return {
+      list: d.facts.filter((f) => f.group !== 'Visual'),
+      ask: d.ask ? { q: 'Do you ship to Australia?', who: 'Dana Okafor asked and your site doesn’t say.' } : null,
+      ...demoFacts,
+    };
+  }
+  const set = (next: (b: Brand) => Brand) => updateBrand(space, next);
+  const patch = (id: string, p: Partial<Brand['facts'][number]>) => set((b) => ({ ...b, facts: b.facts.map((f) => (f.id === id ? { ...f, ...p } : f)) }));
+  return {
+    list: brand.facts.map((f) => ({ ...f, own: true, src: 'Added by you' })),
+    ask: null,
+    approve: (id) => patch(id, { review: false }),
+    edit: (id, value) => patch(id, { value }),
+    rename: (id, name) => patch(id, { name }),
+    remove: (id) => set((b) => ({ ...b, facts: b.facts.filter((f) => f.id !== id) })),
+    add: (name, value, group) => set((b) => ({ ...b, facts: [...b.facts, { id: newId(), group, name, value }] })),
+    answer: () => undefined,
+  };
+}
+function FactsFolder({ facts }: { facts: Facts }) {
+  const [answer, setAnswer] = useState('');
+  const [name, setName] = useState('');
+  const [value, setValue] = useState('');
+  const [group, setGroup] = useState('FAQs');
+  const groups = [...FACT_GROUPS, ...new Set(facts.list.map((f) => f.group).filter((g) => !FACT_GROUPS.includes(g)))];
+  let n = 0;
+  return (
+    <div className="bk-facts">
+      {facts.ask ? (
+        <form className="bk-ask" onSubmit={(e) => { e.preventDefault(); if (!answer.trim()) return; facts.answer(answer.trim()); setAnswer(''); toast('Added to your store facts'); }}>
+          <span className="bk-ask-ic" aria-hidden="true"><Icon name="alert" /></span>
+          <span className="bk-ask-q"><b>{facts.ask.q}</b><small>{facts.ask.who}</small></span>
+          <span className="bk-ask-a">
+            <input value={answer} placeholder="e.g. Yes, 7–10 days, duty included" aria-label="Your answer" onChange={(e) => setAnswer(e.target.value)} />
+            <button type="submit" className="btn btn-primary btn-sm" disabled={!answer.trim()}>Save</button>
+          </span>
+        </form>
+      ) : null}
+      {groups.map((g) => {
+        const rows = facts.list.filter((f) => f.group === g);
+        if (!rows.length) return null;
+        return (
+          <section key={g} className="bk-fact-group">
+            <h4 className="bk-sub">{g}</h4>
+            <ul className="bk-fact-list">
+              {rows.map((f) => (
+                <li key={f.id} className={`bk-fact${f.off ? ' is-off' : ''}`} style={fanIn(n++)}>
+                  <span className="bk-fact-name">
+                    {f.own ? <input className="bk-inline bk-strong" value={f.name} placeholder="What it’s about" aria-label="What it’s about" onChange={(e) => facts.rename(f.id, e.target.value)} /> : <b>{f.name}</b>}
+                    <small>{f.own ? 'Added by you' : f.src}</small>
+                  </span>
+                  <input className="bk-inline bk-fact-val" value={f.value} placeholder="What emails can say" aria-label={`${f.name || 'Fact'} value`} disabled={f.off}
+                    onChange={(e) => facts.edit(f.id, e.target.value)} />
+                  <span className="bk-fact-state">
+                    {f.off ? <span className="bk-mon-state">Expired</span>
+                      : f.review ? <button type="button" className="bk-mon-state is-change" title="Approve for email" onClick={() => { facts.approve(f.id); toast('Approved for email'); }}><i />Needs review<Icon name="check" /></button>
+                      : <span className="bk-mon-state is-ok"><i />Approved</span>}
+                  </span>
+                  {f.own ? <button type="button" className="bk-icon-btn" aria-label={`Remove ${f.name || 'fact'}`} onClick={() => facts.remove(f.id)}><Icon name="trash" /></button> : <span className="bk-fact-gap" />}
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      })}
+      {!facts.list.length ? <p className="bk-mon-empty">Nothing yet. Add your shipping, returns and current offers so emails get them right.</p> : null}
+      <form className="bk-fact-add" onSubmit={(e) => { e.preventDefault(); if (!name.trim() || !value.trim()) return; facts.add(name.trim(), value.trim(), group); setName(''); setValue(''); }}>
+        <Dropdown label="Group" value={group} className="bk-fact-dd" options={FACT_GROUPS.map((g) => ({ value: g, label: g }))} onChange={setGroup} />
+        <input value={name} placeholder="What it’s about" aria-label="What the fact is about" onChange={(e) => setName(e.target.value)} />
+        <input value={value} placeholder="What emails can say" aria-label="What emails can say" onChange={(e) => setValue(e.target.value)} />
+        <button type="submit" className="btn btn-secondary btn-sm" disabled={!name.trim() || !value.trim()}><Icon name="plus" />Add fact</button>
+      </form>
     </div>
   );
 }
@@ -430,7 +547,7 @@ function Monitoring({ brand, set, host, topPages, onChanges }: FolderProps & { h
   };
   return (
     <section className="v2-card bk-monitor" aria-labelledby="bkMonT">
-      <header><Icon name="eye" /><h3 id="bkMonT">Monitoring</h3><span className="bk-panel-count">{pages.length} of {MONITOR_LIMIT} pages</span></header>
+      <header><Icon name="eye" /><h3 id="bkMonT">Pages we check</h3><span className="bk-panel-count">{pages.length} of {MONITOR_LIMIT} pages</span></header>
       <div className="v2-in bk-monitor-in">
         <p className="bk-monitor-lede">We check these pages on {host} for price, stock and code changes, so emails never quote stale facts.</p>
         <form className={`bk-mon-add${error ? ' has-error' : ''}`} onSubmit={(e) => { e.preventDefault(); add(value); }}>
@@ -469,6 +586,16 @@ function Monitoring({ brand, set, host, topPages, onChanges }: FolderProps & { h
           <p className="bk-mon-empty">No pages yet. Start with your best sellers and your shipping page.</p>
         )}
       </div>
+    </section>
+  );
+}
+
+/** The Monitoring tab: the same pages, stored with the rest of the store's brand knowledge. */
+export function MonitoringSection({ space, host, topPages, onChanges }: { space: string; host: string; topPages: { path: string; count: number }[]; onChanges: () => void }) {
+  const brand = useBrand(space);
+  return (
+    <section className="bk" aria-label="Monitoring">
+      <Monitoring brand={brand} set={(next) => updateBrand(space, next)} host={host} topPages={topPages} onChanges={onChanges} />
     </section>
   );
 }

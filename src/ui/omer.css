@@ -13,6 +13,8 @@
   transform-origin: top right; animation: omer-pop 160ms var(--ease) both;
 }
 @keyframes omer-pop { from { opacity: 0; transform: translateY(-4px) scale(0.98); } }
+/* the dock's three choices sit under a label, lined up with the actions' text */
+.omer-account-panel .omer-dock-opt { padding-left: 34px; }
 
 /* ---------- Text tabs, and the pill version used on People ---------- */
 .ib-tabs { display: flex; flex-wrap: wrap; gap: 4px 20px; }
