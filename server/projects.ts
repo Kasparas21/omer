@@ -1036,14 +1036,15 @@ async function getReplayChunk(request: Request, env: Env, projectId: string, rep
     if (!chunk) return json({ error: 'Not found.' }, 404);
     try {
       const body = await getObject(chunk.objectKey);
-      return new Response(body, {
+      return new Response(new Uint8Array(body), {
         status: 200,
         headers: {
           'Content-Type': 'application/json',
           'Cache-Control': 'private, no-store',
         },
       });
-    } catch {
+    } catch (error) {
+      console.error('replay chunk read failed', error);
       return json({ error: 'Chunk unavailable.' }, 502);
     }
   });
