@@ -243,7 +243,9 @@ async function runNarrative(evidence: ReplayEvidence, decisions: {
     body: JSON.stringify({
       model: MODEL,
       input: prompt,
-      max_output_tokens: 120,
+      // Luna spends tokens on hidden reasoning first; keep effort low and leave room for prose.
+      max_output_tokens: 220,
+      reasoning: { effort: 'low' },
     }),
   });
   const body = await res.json().catch(() => ({}));
@@ -260,6 +262,7 @@ async function runNarrative(evidence: ReplayEvidence, decisions: {
     const parts: string[] = [];
     for (const item of output) {
       if (!item || typeof item !== 'object') continue;
+      if ((item as { type?: string }).type && (item as { type?: string }).type !== 'message') continue;
       const content = (item as { content?: unknown[] }).content;
       if (!Array.isArray(content)) continue;
       for (const part of content) {
