@@ -210,6 +210,16 @@
 .set-head h2 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.015em; }
 .set-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); align-items: center; gap: 12px 24px; padding: 16px 0; border-top: 1px solid var(--v2-line); }
 .set-head + .set-row { border-top: 0; }
+/* Settings sheets are just rows: no heading, no forced height */
+.omer-settings .set-main { min-height: 0; padding: 6px 28px; }
+.omer-settings .set-main > .set-row:first-child { border-top: 0; }
+.omer-settings .set-main > .omer-set-empty { margin: 24px 0; }
+.omer-set-acts { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+@media (max-width: 760px) {
+  .omer-settings .set-main { padding: 4px 18px; }
+  .omer-settings .set-row:not(.wide) { grid-template-columns: auto minmax(0, 1fr); gap: 12px; }
+  .omer-settings .set-row:not(.wide) .set-v { justify-content: flex-end; text-align: right; }
+}
 .set-row.wide { grid-template-columns: minmax(0, 1fr); }
 .set-k b { display: block; font-size: var(--fs-md); font-weight: 500; }
 .set-k small { display: block; margin-top: 2px; font-size: var(--fs-sm); line-height: 1.35; color: var(--ink-3); }
