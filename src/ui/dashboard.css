@@ -57,8 +57,8 @@
 .app-shelf-brand {
   position: relative; isolation: isolate;
   display: flex; align-items: center; gap: 7px; max-width: min(100%, 13rem);
-  /* Soft rect, not a pill — a 999px wash crescents around the squircle mark. */
-  height: 32px; padding: 0 8px 0 5px; border-radius: 10px;
+  /* Pill wash + circular mark — same round language as the account avatar. */
+  height: 32px; padding: 0 8px 0 4px; border-radius: var(--r-btn);
   border: 0; background: transparent;
   font: inherit; font-size: 14px; font-weight: 500; line-height: 1;
   letter-spacing: -0.02em; color: var(--ink); cursor: pointer;
@@ -69,7 +69,6 @@
 .app-shelf-account[aria-expanded="true"] {
   background: color-mix(in srgb, var(--ink) 5%, transparent);
 }
-/* Hover wash inherits the brand’s soft rect so it frames the mark cleanly. */
 .app-shelf-brand::before {
   content: ""; position: absolute; z-index: -1; inset: 0;
   border-radius: inherit; pointer-events: none;
@@ -97,8 +96,7 @@
 .app-shelf-mark,
 .app-shelf-favicon {
   display: grid; place-items: center; flex: none;
-  /* Nested under the 10px brand: ~10 − 5 pad → 5–6px; keep a touch softer. */
-  width: 22px; height: 22px; border-radius: 6px;
+  width: 22px; height: 22px; border-radius: 50%;
   overflow: hidden;
 }
 .app-shelf-mark {
