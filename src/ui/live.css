@@ -72,8 +72,24 @@
   --lp-w: clamp(300px, 22cqw, 360px);
   --lp-inset: clamp(16px, 3cqw, 48px);
   --lp-stage-start: calc(var(--lp-inset) + var(--lp-w) + 24px);
+  /* First paint of Live: soft stage fade + panel glide — no bounce, no glow. */
+  animation: live-wrap-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
-.globe-wrap.has-panel .globe-stage { left: var(--lp-stage-start); }
+.globe-wrap.has-panel .globe-stage {
+  left: var(--lp-stage-start);
+  animation: live-stage-in 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.globe-wrap.has-panel .live-panel {
+  animation: live-panel-in 480ms cubic-bezier(0.22, 1, 0.36, 1) 40ms both;
+}
+@keyframes live-wrap-in { from { opacity: 0; } }
+@keyframes live-panel-in { from { opacity: 0; transform: translateX(-12px); } }
+@keyframes live-stage-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .globe-wrap.has-panel,
+  .globe-wrap.has-panel .live-panel,
+  .globe-wrap.has-panel .globe-stage { animation: none; }
+}
 /* Dots globe: the canvas spans the whole width and the panel's room is padding, so the globe can
    glide to the centre (and back) when the panel goes away in full screen. */
 .globe-wrap.has-panel[data-style="dots"] .globe-stage { left: 0; padding-left: var(--lp-stage-start); transition: padding-left 0.6s cubic-bezier(0.32, 0.72, 0, 1), opacity 420ms var(--ease); }

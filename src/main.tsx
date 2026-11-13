@@ -21,6 +21,7 @@ import { useLive } from './live';
 import { Icon, type IconName } from './ui/Icon';
 import { Dock } from './ui/Dock';
 import { ProjectMenu } from './ui/ProjectMenu';
+import { runViewTransition } from './ui/viewTransition';
 import { isDemo } from './demo';
 
 type ProjectError = { field?: 'name' | 'website'; error: string };
@@ -93,18 +94,45 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
   useNewVersion();
   // Where a Dashboard row sent you: the screen opens there (a tab, a person, a filter). The key remounts it.
   const [start, setStart] = useState<{ n: number; op?: { tab?: OpTab; id?: string }; people?: { source?: string; country?: string }; settings?: SettingsTab }>({ n: 0 });
+  function swapScreen(apply: () => void, next: AppScreen) {
+    // Live mount can stall the main thread — CSS enter handles polish; VT would freeze mid-morph.
+    if (next === 'globe') {
+      apply();
+      return;
+    }
+    const types = screen === 'globe' ? ['page', 'from-live'] : ['page'];
+    runViewTransition(apply, types);
+  }
+
   function go(to: Go) {
-    setProfile(undefined);
-    setEditing(false);
-    setCampaignId(to.to === 'campaigns' ? to.id : undefined);
-    setStart((s) => ({
-      n: s.n + 1,
-      op: to.to === 'inbox' ? { tab: to.tab, id: to.id } : undefined,
-      people: to.to === 'visitors' ? { source: to.source, country: to.country } : undefined,
-      settings: to.to === 'settings' ? to.tab : undefined,
-    }));
-    setScreen(to.to);
-    window.scrollTo({ top: 0 });
+    swapScreen(() => {
+      setProfile(undefined);
+      setEditing(false);
+      setCampaignId(to.to === 'campaigns' ? to.id : undefined);
+      setStart((s) => ({
+        n: s.n + 1,
+        op: to.to === 'inbox' ? { tab: to.tab, id: to.id } : undefined,
+        people: to.to === 'visitors' ? { source: to.source, country: to.country } : undefined,
+        settings: to.to === 'settings' ? to.tab : undefined,
+      }));
+      setScreen(to.to);
+      window.scrollTo({ top: 0 });
+    }, to.to);
+  }
+
+  function openScreen(id: AppScreen, opts?: { liveFocus?: string | undefined }) {
+    if (id === screen && opts?.liveFocus === undefined) return;
+    swapScreen(() => {
+      if (id === 'globe') setLiveFocus(opts?.liveFocus);
+      if (id !== 'visitors') setProfile(undefined);
+      setCampaignId(undefined);
+      setEditing(false);
+      setForceSetup(false);
+      setStart((s) => ({ n: s.n + 1 }));
+      setScreen(id);
+      if (dockMode !== 'auto') setCollapsed(false);
+      window.scrollTo({ top: 0 });
+    }, id);
   }
   const [replayStorage, setReplayStorage] = useState(false);
   const [replayBusy, setReplayBusy] = useState(false);
@@ -501,13 +529,12 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
       <header className="app-shelf">
         <div className="app-shelf-in">
           <div className="app-shelf-l">
-            <button type="button" className="app-shelf-logo" aria-label="Dashboard" onClick={() => { setScreen('home'); setForceSetup(false); }}><Icon name="ghost" /></button>
+            <button type="button" className="app-shelf-logo" aria-label="Dashboard" onClick={() => openScreen('home')}><Icon name="ghost" /></button>
             {projects.length > 0 && (
               <ProjectMenu projects={projects} current={project?.id} onAdd={openCreate} onPick={(id) => {
                 setSelection(id);
-                setForceSetup(false);
-                setScreen('home');
                 setNotice('');
+                openScreen('home');
               }} />
             )}
             {nested ? <button type="button" className="app-shelf-back" aria-label={`Back to ${nested.back}`} onClick={nested.go}><Icon name="arrowLeft" /><span>{nested.back}</span></button> : null}
@@ -524,7 +551,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
               <div className="omer-account-panel menu" role="menu">
                 <button className="menu-item" role="menuitem" type="button" onClick={(e) => { e.currentTarget.closest('details')!.open = false; openCreate(); }}><Icon name="plus" />New project</button>
                 <button className="menu-item" role="menuitem" type="button" onClick={(e) => { e.currentTarget.closest('details')!.open = false; openGuide(); }}><Icon name="book" />Installation guide</button>
-                <button className="menu-item" role="menuitem" type="button" onClick={(e) => { e.currentTarget.closest('details')!.open = false; setScreen('settings'); setForceSetup(false); }}><Icon name="settings" />Settings</button>
+                <button className="menu-item" role="menuitem" type="button" onClick={(e) => { e.currentTarget.closest('details')!.open = false; openScreen('settings'); }}><Icon name="settings" />Settings</button>
                 <button className="menu-item" role="menuitem" type="button" onClick={() => void onSignOut().catch(() => setNotice('Unable to sign out. Try again.'))}><Icon name="exit" />Sign out</button>
               </div>
             </details>
@@ -579,7 +606,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
         <main id="dashboard" className={`app-body ${screen === 'home' ? 'ho v2' : screen === 'globe' ? 'globe-body' : 'v2-screen'}`}>
           {screen === 'home' && project ? (
             <DashboardV2 key={project.id} project={analytics?.id === project.id ? analytics : project} headingRef={dashboardHeading} onGo={go}
-              onGlobe={() => { setLiveFocus(undefined); setScreen('globe'); }} onPeople={() => setScreen('visitors')} onInbox={() => setScreen('inbox')} onSetup={() => {
+              onGlobe={() => openScreen('globe')} onPeople={() => openScreen('visitors')} onInbox={() => openScreen('inbox')} onSetup={() => {
                 setForceSetup(true);
                 setStep('check');
                 setReached(stepIndex('check'));
@@ -590,9 +617,9 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
             <Profile key={profile.seed} projectId={project.id} seed={profile.seed}
               onName={setProfileName}
               onBack={() => setProfile(undefined)}
-              onLive={() => { setLiveFocus(profile.seed); setProfile(undefined); setScreen('globe'); }} />
+              onLive={() => openScreen('globe', { liveFocus: profile.seed })} />
           ) : screen === 'visitors' && project ? (
-            <People key={`${project.id}-${start.n}`} {...live} demo={isDemo(project)} start={start.people} onLive={() => { setLiveFocus(undefined); setScreen('globe'); }}
+            <People key={`${project.id}-${start.n}`} {...live} demo={isDemo(project)} start={start.people} onLive={() => openScreen('globe')}
               onOpen={(seed) => { setProfileName(''); setProfile({ projectId: project.id, seed }); window.scrollTo({ top: 0 }); }} />
           ) : screen === 'settings' && project ? (
             <Settings key={`settings-${start.n}`} startTab={start.settings} demo={isDemo(project)} onGo={go} project={project} snippet={snippet} dockMode={dockMode} onDockMode={setDockMode}
@@ -624,14 +651,14 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
               }} />
           ) : screen === 'inbox' && project ? (
             <Opportunities key={`${project.id}-${start.n}`} start={start.op} demo={isDemo(project)} editing={editing} onEdit={setEditing}
-              onPeople={() => setScreen('visitors')} onBack={() => setScreen('home')} />
+              onPeople={() => openScreen('visitors')} onBack={() => openScreen('home')} />
           ) : screen === 'campaigns' && project ? (
             <Campaigns key={project.id} space={campaignSpace} storeName={project.name} openId={campaignId} editing={editing}
-              onOpen={(id) => { setCampaignId(id); setEditing(false); window.scrollTo({ top: 0 }); }} onEdit={(on) => { setEditing(on); window.scrollTo({ top: 0 }); }} onBack={() => setScreen('home')} />
+              onOpen={(id) => { setCampaignId(id); setEditing(false); window.scrollTo({ top: 0 }); }} onEdit={(on) => { setEditing(on); window.scrollTo({ top: 0 }); }} onBack={() => openScreen('home')} />
           ) : screen === 'results' && project ? (
             <Results key={project.id} project={analytics?.id === project.id ? analytics : project} demo={isDemo(project)}
-              onCampaign={(id) => { setCampaignId(id); setEditing(false); setScreen('campaigns'); window.scrollTo({ top: 0 }); }}
-              onCampaigns={() => { setCampaignId(undefined); setEditing(false); setScreen('campaigns'); window.scrollTo({ top: 0 }); }} />
+              onCampaign={(id) => { setCampaignId(id); setEditing(false); openScreen('campaigns'); }}
+              onCampaigns={() => { setCampaignId(undefined); setEditing(false); openScreen('campaigns'); }} />
           ) : (
             <div className="v2-empty-screen">
               <h1 className="v2-title">{WHERE[screen] || 'Soon'}</h1>
@@ -641,7 +668,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
                     <span className="empty-ico"><Icon name={DOCK.find(({ id }) => id === screen)?.icon ?? 'inbox'} /></span>
                     <h4>Add your store first</h4>
                     <p>Connect a store and this page fills in with its visitors, follow-ups and sales.</p>
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setScreen('home')}>Go to Home</button>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => openScreen('home')}>Go to Home</button>
                   </div>
                 </div>
               </section>
@@ -659,16 +686,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
           collapsed={collapsed && dockMode !== 'always'}
           onReveal={() => setCollapsed(false)}
           onLeave={() => { if (dockMode === 'auto') setCollapsed(true); }}
-          onPick={(id) => {
-            if (id === 'globe') setLiveFocus(undefined);
-            if (id !== 'visitors') setProfile(undefined);
-            setCampaignId(undefined);
-            setEditing(false);
-            setStart((s) => ({ n: s.n + 1 }));
-            setScreen(id);
-            if (dockMode !== 'auto') setCollapsed(false);
-            window.scrollTo({ top: 0 });
-          }}
+          onPick={(id) => openScreen(id)}
         />
       )}
 

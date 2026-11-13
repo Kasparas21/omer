@@ -30,10 +30,10 @@ export function Dock<T extends string>({ items, current, onPick, collapsed, onRe
     setShown(id);
     clearTimeout(handoff.current);
     if (still()) { onPick(id); return; }
-    // The live globe takes a few hundred ms to start and freezes the page meanwhile, so let the pill land first.
-    if (items.find((item) => item.id === id)?.live) { handoff.current = window.setTimeout(() => onPick(id), 300); return; }
-    // Other screens are lighter; a short head start keeps the first part of the slide smooth.
-    handoff.current = window.setTimeout(() => onPick(id), 120);
+    // Live globe can stall the main thread on mount — let the dock thumb finish first.
+    if (items.find((item) => item.id === id)?.live) { handoff.current = window.setTimeout(() => onPick(id), 220); return; }
+    // Other screens: brief head start so the pill is already moving into the view transition.
+    handoff.current = window.setTimeout(() => onPick(id), 90);
   };
   const bar = useThumb<HTMLDivElement>('.dock-item[aria-current]', shown);
   const [revealed, setRevealed] = useState(!collapsed);
