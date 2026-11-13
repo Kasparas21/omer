@@ -1,38 +1,55 @@
 /* Campaigns: the follow-up recipes. The list shows each one by the email it sends; a campaign opens on its own
-   page (what it is, the journey, the email big enough to read), with Settings in a window and the email editor
-   one click away. Laid out like the UI kit. The demo store shows the kit’s example set; real stores start
-   with Personal follow-ups on and the create card. */
-import { useEffect, useRef, useState } from 'react';
+   page (what starts it, the email big enough to read), with Settings in a window and the email editor one
+   click away. A new campaign: pick what starts it (library, your words, or built from parts), then write the
+   email yourself in the editor. The demo store shows the kit's example set; a real store's campaigns are
+   saved on the server. */
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Icon, type IconName } from './ui/Icon';
-import { MailInbox, MailPeek } from './Mail';
+import { Dropdown } from './ui/Dropdown';
+import { toast } from './ui/toast';
+import { DEMO_MAIL_BRAND, MailBrandProvider, MailInbox, MailPeek } from './Mail';
 import { MailEditor } from './MailEditor';
-import { FLOWS, PICKS, PERSONAL_MAILS, campaignStats, type Flow } from './storeData';
+import { TriggerPicker } from './TriggerPicker';
+import { FLOWS, PAGE_STYLE, PICKS, PERSONAL_MAILS, campaignStats, type Flow } from './storeData';
 import { DEMO_SPACE, demo as store, pickValue, useDemo, type CampaignSettings, type CampaignState } from './demoState';
+import { useBrand } from './brandStore';
+import { starterMail, storeMailBrand, storePage } from './campaignMail';
+import { PARAMS, libraryTrigger, paramValue, triggerName, triggerSentence, type TriggerRef } from '../server/trigger-library';
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 const num = new Intl.NumberFormat('en-US');
-const STARTS: [string, string][] = Object.entries(FLOWS).map(([id, f]) => [id, f.when((k) => PICKS[k]?.def ?? '')]);
 
-export function Campaigns({ space, storeName, openId, editing, onOpen, onEdit }: {
+export function Campaigns({ space, storeName, host, openId, editing, onOpen, onEdit }: {
   /** DEMO_SPACE for the demo store, otherwise the project id: each store keeps its own campaigns. */
   space: string;
   storeName: string;
+  host?: string;
   openId?: string;
   editing: boolean;
   onOpen: (id?: string) => void;
   onEdit: (on: boolean) => void;
   onBack?: () => void;
 }) {
-  const { campaigns, personal } = useDemo(space);
+  const { campaigns, personal, ready } = useDemo(space);
+  const brand = useBrand(space);
+  const demo = space === DEMO_SPACE;
   const open = campaigns.find((c) => c.id === openId);
+  const mailBrand = (c?: CampaignState) => (demo ? DEMO_MAIL_BRAND : storeMailBrand(storeName, brand, c?.settings.from, host));
+  const wrap = (node: ReactNode, c?: CampaignState) => <MailBrandProvider value={mailBrand(c)}>{node}</MailBrandProvider>;
+  /** A new email starts blank, in the store's look. */
+  const write = (c: CampaignState) => {
+    if (!c.published) store.updateCampaign(c.id, { published: { doc: starterMail(), page: demo ? { ...PAGE_STYLE } : storePage(brand) } });
+    onEdit(true);
+  };
 
   if (open && editing && open.published) {
-    return (
-      <MailEditor key={open.id} published={open.published}
-        onPublish={(draft) => store.updateCampaign(open.id, { published: draft })} />
+    return wrap(
+      <MailEditor key={open.id} space={space} brand={brand} published={open.published}
+        onPublish={(draft) => store.updateCampaign(open.id, { published: draft })} />, open,
     );
   }
-  if (open) return <CampaignPage key={open.id} c={open} onEdit={() => onEdit(true)} onClose={() => onOpen(undefined)} />;
+  if (open) return wrap(<CampaignPage key={open.id} c={open} space={space} storeName={storeName} onWrite={() => write(open)} onClose={() => onOpen(undefined)} />, open);
+  if (!ready) return <div className="cp-screen" aria-busy="true" />;
 
   const ordered = [...campaigns.filter((c) => c.suggested && !c.dismissed), ...campaigns.filter((c) => !c.suggested)];
   const create = () => onOpen(store.add(space, space === DEMO_SPACE ? undefined : storeName));
@@ -52,7 +69,7 @@ export function Campaigns({ space, storeName, openId, editing, onOpen, onEdit }:
             {space === DEMO_SPACE ? null : <span className="cpx-first-chip"><Icon name="send" />Your first follow-ups show up here once they’re sent</span>}
           </div>
         </section>
-        {ordered.map((c) => <Card key={c.id} c={c} onOpen={() => onOpen(c.id)} />)}
+        {ordered.map((c) => <MailBrandProvider key={c.id} value={mailBrand(c)}><Card c={c} onOpen={() => onOpen(c.id)} /></MailBrandProvider>)}
         <NewCard onClick={create} />
       </div>
     </div>
@@ -74,7 +91,7 @@ function Card({ c, onOpen }: { c: CampaignState; onOpen: () => void }) {
             <label className="switch"><input type="checkbox" checked={c.on} aria-label={`${c.name} on or off`} onChange={(e) => store.updateCampaign(c.id, { on: e.target.checked })} /></label></>}
       </header>
       <div className="cpx-stage" aria-hidden="true">
-        {c.published ? <MailPeek doc={c.published.doc} page={c.published.page} /> : <div className="cpx-thumb-empty"><Icon name="mail" /><span>Pick what starts it to see the email</span></div>}
+        {c.published ? <MailPeek doc={c.published.doc} page={c.published.page} /> : <div className="cpx-thumb-empty"><Icon name="mail" /><span>No email yet</span></div>}
       </div>
     </article>
   );
@@ -108,23 +125,26 @@ function NewCard({ onClick }: { onClick: () => void }) {
       <div className="cpx-stage cpx-new-stage">
         <span className="cpx-new-ic" aria-hidden="true"><Icon name="plus" /></span>
         <b>Create a campaign</b>
-        <span>Pick what starts it and we’ll write the email.</span>
+        <span>Pick what starts it, then write the email.</span>
       </div>
     </button>
   );
 }
 
 /** A value inside a sentence that can be changed in place, styled as text. */
+function InlinePick({ value, opts, label, onChange }: { value: string; opts: readonly string[]; label: string; onChange: (v: string) => void }) {
+  return <Dropdown label={label} value={value} className="cpx-dd" options={opts.map((o) => ({ value: o, label: o }))} onChange={onChange} />;
+}
 function PickIn({ c, k }: { c: CampaignState; k: string }) {
-  const pick = PICKS[k];
-  return (
-    <span className="cpx-pick">
-      <select value={pickValue(c, k)} aria-label="Change" onChange={(e) => store.setPick(c.id, k, e.target.value)}>
-        {pick.opts.map((o) => <option key={o}>{o}</option>)}
-      </select>
-      <Icon name="chevronDown" />
-    </span>
-  );
+  return <InlinePick value={pickValue(c, k)} opts={PICKS[k].opts} label="Change" onChange={(v) => store.setPick(c.id, k, v)} />;
+}
+/** A library sentence with its values as in-place picks. */
+function triggerText(c: CampaignState, ref: TriggerRef, text: string) {
+  return text.split(/(\{\w+\})/).map((part, i) => {
+    const m = part.match(/^\{(\w+)\}$/);
+    const p = m ? (PARAMS as Record<string, { opts: readonly string[] }>)[m[1]] : null;
+    return m && p ? <InlinePick key={i} value={paramValue(ref, m[1])} opts={p.opts} label="Change" onChange={(v) => store.setTriggerParam(c.id, m[1], v)} /> : <span key={i}>{part}</span>;
+  });
 }
 function stepText(c: CampaignState, text: string) {
   return text.split(/(\{\w+\})/).map((part, i) => {
@@ -133,19 +153,30 @@ function stepText(c: CampaignState, text: string) {
   });
 }
 
-function FlowCard({ c, flow }: { c: CampaignState; flow: Flow | null }) {
+function FlowCard({ c, flow, onChange }: { c: CampaignState; flow: Flow | null; onChange: () => void }) {
+  const ref = c.trigger;
+  if (ref) {
+    const lib = libraryTrigger(ref.id);
+    return (
+      <>
+        <div className="cpx-lane"><span className="cpx-lane-k"><Icon name="user" />What they do</span>
+          <ol className="cpx-steps"><li className="cpx-step"><span className="cpx-ic"><Icon name={(lib?.icon ?? 'eye') as IconName} /></span>
+            <div><p>{lib ? triggerText(c, ref, lib.when) : triggerSentence(ref)}</p></div></li></ol>
+        </div>
+        <div className="cpx-lane is-us"><span className="cpx-lane-k"><Icon name="ghost" />What we do</span>
+          <ol className="cpx-steps">
+            <li className="cpx-step is-us"><span className="cpx-ic"><Icon name="send" /></span><div><p>We send your email <InlinePick value={paramValue(ref, 'wait')} opts={PARAMS.wait.opts} label="When we send it" onChange={(v) => store.setTriggerParam(c.id, 'wait', v)} /></p></div></li>
+          </ol>
+        </div>
+        <div className="cpx-flow-acts"><button type="button" className="btn btn-ghost btn-sm" onClick={onChange}><Icon name="rotate" />Change what starts it</button></div>
+      </>
+    );
+  }
   if (!flow) {
     return (
       <div className="cpx-flow-empty">
-        <p>What should start this campaign?</p>
-        <span className="cpx-pick is-blank">
-          <select value="" aria-label="What starts it" onChange={(e) => store.setFlow(c.id, e.target.value)}>
-            <option value="" disabled>Pick what starts this</option>
-            {STARTS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-          </select>
-          <Icon name="chevronDown" />
-        </span>
-        <small>Pick one and you’ll see the whole journey and an example email.</small>
+        <p>What starts this campaign?</p>
+        <button type="button" className="btn btn-primary btn-sm" onClick={onChange}><Icon name="plus" />Pick what starts it</button>
       </div>
     );
   }
@@ -167,8 +198,24 @@ function FlowCard({ c, flow }: { c: CampaignState; flow: Flow | null }) {
   );
 }
 
-function CampaignPage({ c, onEdit, onClose }: { c: CampaignState; onEdit: () => void; onClose: () => void }) {
+function CampaignPage({ c, space, storeName, onWrite, onClose }: { c: CampaignState; space: string; storeName: string; onWrite: () => void; onClose: () => void }) {
   const [settings, setSettings] = useState(false);
+  // A brand-new campaign opens straight on "what starts it".
+  const [picking, setPicking] = useState(!c.trigger && !c.flow && !c.published);
+  const onEdit = onWrite;
+  function pick(ref: TriggerRef) {
+    const fresh = !c.trigger && !c.flow;
+    const icon = (libraryTrigger(ref.id)?.icon ?? 'megaphone') as CampaignState['icon'];
+    store.setTrigger(c.id, ref, { icon, ...(c.name === 'New campaign' || (c.trigger && c.name === triggerName(c.trigger)) ? { name: triggerName(ref) } : {}) });
+    setPicking(false);
+    if (fresh && !c.published) onWrite();
+  }
+  function turnOn() {
+    if (!c.trigger && !c.flow) { setPicking(true); return; }
+    if (!c.published) { toast('Write the email first', { kind: 'warn' }); onWrite(); return; }
+    if (!c.published.doc.subject.trim()) { toast('Add a subject line first', { kind: 'warn' }); onWrite(); return; }
+    store.start(c.id);
+  }
   const [name, setName] = useState(c.name);
   const [saved, setSaved] = useState(false);
   const flow = c.flow ? FLOWS[c.flow] : null;
@@ -190,7 +237,7 @@ function CampaignPage({ c, onEdit, onClose }: { c: CampaignState; onEdit: () => 
             {c.suggested ? <span className="cpx-ai-chip"><Icon name="ghost" />Suggested by Ghost</span> : null}
             <span className={`set-saved${saved ? ' show' : ''}`}><Icon name="check" />Saved</span>
           </div>
-          <p className="cpx-about">{flow ? flow.about : 'A new campaign. Pick what starts it, and the journey and email fill in.'}</p>
+          <p className="cpx-about">{c.trigger ? triggerSentence(c.trigger) : flow ? flow.about : 'Pick what starts it, then write the email.'}</p>
         </div>
         <div className="cpx-head-r">
           {c.suggested ? <>
@@ -198,7 +245,7 @@ function CampaignPage({ c, onEdit, onClose }: { c: CampaignState; onEdit: () => 
             <button type="button" className="btn btn-primary btn-sm" onClick={() => store.start(c.id)}><Icon name="play" />Turn on</button>
           </> : c.draft || !c.on ? <>
             <span className={`cp-st ${c.draft ? 'cp-st-draft' : 'cp-st-inactive'}`}>{c.draft ? 'Draft' : 'Paused'}</span>
-            <button type="button" className="btn btn-primary btn-sm" disabled={!flow} onClick={() => store.start(c.id)}><Icon name="play" />{c.draft ? 'Turn on' : 'Turn back on'}</button>
+            <button type="button" className="btn btn-primary btn-sm" onClick={turnOn}><Icon name="play" />{c.draft ? 'Turn on' : 'Turn back on'}</button>
           </> : (
             <label className="switch cpx-onoff"><input type="checkbox" checked aria-label="Campaign on or off" onChange={() => store.updateCampaign(c.id, { on: false })} /><span className="cp-state">{status}</span></label>
           )}
@@ -224,7 +271,7 @@ function CampaignPage({ c, onEdit, onClose }: { c: CampaignState; onEdit: () => 
       <div className="cpx-main">
         <section className="v2-card cpx-flow">
           <header><Icon name="cursor" /><h3>How it works</h3></header>
-          <div className="v2-in"><FlowCard c={c} flow={flow} /></div>
+          <div className="v2-in"><FlowCard c={c} flow={flow} onChange={() => setPicking(true)} /></div>
         </section>
         <section className="v2-card cpx-email">
           <header><Icon name="mail" /><h3>The email</h3>
@@ -233,17 +280,18 @@ function CampaignPage({ c, onEdit, onClose }: { c: CampaignState; onEdit: () => 
           <div className="v2-in">
             {c.published
               ? <div className="cpx-mail" role="button" tabIndex={0} aria-label="Edit the email" onClick={onEdit} onKeyDown={(e) => { if (e.key === 'Enter') onEdit(); }}><MailInbox doc={c.published.doc} page={c.published.page} /></div>
-              : <div className="cpx-mail-empty"><Icon name="mail" /><p>The email shows up here once you pick what starts this campaign.</p></div>}
+              : <div className="cpx-mail-empty"><Icon name="mail" /><button type="button" className="btn btn-primary btn-sm" onClick={onWrite}><Icon name="edit" />Write the email</button></div>}
           </div>
         </section>
       </div>
 
-      {settings ? <SettingsDialog c={c} onClose={() => setSettings(false)} onDelete={() => { store.remove(c.id); onClose(); }} /> : null}
+      {settings ? <SettingsDialog c={c} storeName={space === DEMO_SPACE ? '' : storeName} onClose={() => setSettings(false)} onDelete={() => { store.remove(c.id); onClose(); }} /> : null}
+      {picking ? <TriggerPicker space={space} current={c.trigger} onPick={pick} onClose={() => setPicking(false)} /> : null}
     </div>
   );
 }
 
-function SettingsDialog({ c, onClose, onDelete }: { c: CampaignState; onClose: () => void; onDelete: () => void }) {
+function SettingsDialog({ c, storeName, onClose, onDelete }: { c: CampaignState; storeName: string; onClose: () => void; onDelete: () => void }) {
   const box = useRef<HTMLElement>(null);
   const [saved, setSaved] = useState(false);
   useEffect(() => {
@@ -256,7 +304,7 @@ function SettingsDialog({ c, onClose, onDelete }: { c: CampaignState; onClose: (
   const row = (title: string, hint: string, k: keyof CampaignSettings, opts: string[]) => (
     <div className="set-row">
       <div className="set-k"><b>{title}</b>{hint ? <small>{hint}</small> : null}</div>
-      <div className="set-v"><span className="cpe-select-wrap"><select className="select" value={c.settings[k]} aria-label={title} onChange={(e) => set(k, e.target.value)}>{opts.map((o) => <option key={o}>{o}</option>)}</select><Icon name="chevronDown" /></span></div>
+      <div className="set-v"><Dropdown label={title} value={c.settings[k]} className="cpx-set-dd" align="end" options={[...new Set([c.settings[k], ...opts])].map((o) => ({ value: o, label: o }))} onChange={(v) => set(k, v)} /></div>
     </div>
   );
   const auto = c.mode === 'auto';
@@ -290,7 +338,7 @@ function SettingsDialog({ c, onClose, onDelete }: { c: CampaignState; onClose: (
           </section>
           <section className="cpx-set">
             <h3>Sending</h3>
-            {row('From', '', 'from', ['Marc from Pawsome', 'Pawsome'])}
+            {row('From', '', 'from', storeName ? [storeName, `The ${storeName} team`] : ['Marc from Pawsome', 'Pawsome'])}
             {row('Goal', 'Reaching it ends the campaign for them', 'goal', ['They buy', 'They finish checkout', 'They buy this product'])}
           </section>
         </div>

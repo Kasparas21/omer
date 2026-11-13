@@ -16,7 +16,7 @@ export type PhotoKey = keyof typeof PHOTOS;
 export const STORE = { name: 'Pawsome', from: 'hello@pawsome.shop', address: 'Pawsome · 12 Harbor St, Portland, OR', color: '#C8471F' };
 
 // ---------------- Emails ----------------
-export type Product = { photo: PhotoKey; name: string; now: string; was?: string; note?: string; specs?: [string, string][]; flat?: boolean };
+export type Product = { photo?: PhotoKey; img?: string; url?: string; name: string; now: string; was?: string; note?: string; specs?: [string, string][]; flat?: boolean };
 export type BlockStyle = { align?: 'left' | 'center'; size?: 's' | 'm' | 'l'; width?: 'full' | 'fit'; layout?: 'side' | 'list' };
 export type MailDoc = {
   kind: 'brand' | 'personal';
@@ -28,8 +28,10 @@ export type MailDoc = {
   products?: Product[];
   code?: { c: string; n: string };
   cta: string;
+  /** Where the button goes. Empty means the store's home page. */
+  ctaUrl?: string;
   perks?: string[];
-  hero?: { photo: PhotoKey; tag?: string };
+  hero?: { photo?: PhotoKey; src?: string; tag?: string };
   cart?: { photo: PhotoKey; item: string; price: string; lines: [string, string][]; total: string };
   footer?: string;
   /** Block keys in order: headline, body.N, products, code, cta, perks, hero, cart, sig, div.N, footer. */

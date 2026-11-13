@@ -678,7 +678,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
             <Opportunities key={`${project.id}-${start.n}`} start={start.op} demo={isDemo(project)} editing={editing} onEdit={setEditing}
               onPeople={() => openScreen('visitors')} onBack={() => openScreen('home')} />
           ) : screen === 'campaigns' && project ? (
-            <Campaigns key={project.id} space={campaignSpace} storeName={project.name} openId={campaignId} editing={editing}
+            <Campaigns key={project.id} space={campaignSpace} storeName={project.name} host={(() => { try { return new URL(project.origin).host; } catch { return project.origin; } })()} openId={campaignId} editing={editing}
               onOpen={(id) => { setCampaignId(id); setEditing(false); window.scrollTo({ top: 0 }); }} onEdit={(on) => { setEditing(on); window.scrollTo({ top: 0 }); }} onBack={() => openScreen('home')} />
           ) : screen === 'results' && project ? (
             <Results key={project.id} project={analytics?.id === project.id ? analytics : project} demo={isDemo(project)}

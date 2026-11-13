@@ -78,6 +78,13 @@
       "when": 1794672000000,
       "tag": "0010_project_brand",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794676000000,
+      "tag": "0011_project_campaigns",
+      "breakpoints": true
     }
   ]
 }
