@@ -11,6 +11,10 @@ export function createDotGlobe(container: HTMLElement, options: {
   openOnFocus?: boolean;
   maxZoom?: number;
   radiusScale?: number;
+  startZoom?: number;
+  lookAt?: { lat: number; lng: number } | null;
+  offsetX?: number;
+  showFlags?: boolean;
   shiftY?: number;
   onInteract?: () => void;
   /** Clicking a pin: the globe flies in for `duration` ms; call `restore` to fly back out. */

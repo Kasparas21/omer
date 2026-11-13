@@ -32,7 +32,7 @@
 :root[data-dash="2"] .app {
   --v2-rail: min(100% - clamp(32px, 7%, 80px), 920px);
 }
-@container app (max-width: 620px) {
+@media (max-width: 620px) {
   :root[data-dash="2"] :is(.app-body, .app-shelf) { --v2-rail: calc(100% - 24px); }
 }
 /* Site/account chrome is Home-only in V2, and scrolls with the page (unless the fixed shelf is on). */

@@ -4,6 +4,8 @@ import { useState } from 'react';
 import type { Project } from './project';
 import { Icon } from './ui/Icon';
 import { useThumb } from './ui/useThumb';
+import { DemoChanges, DemoCompany, DemoPrivacy, DemoSending, useDemoSettingsCounts } from './DemoSettings';
+import type { Go } from './DashboardV2';
 
 export type DockMode = 'always' | 'scroll' | 'auto';
 export type SettingsTab = 'company' | 'changes' | 'sending' | 'privacy' | 'dock';
@@ -26,8 +28,11 @@ function Row({ title, hint, children, wide }: { title: string; hint?: string; ch
 
 const Soon = () => <span className="status-pill">Coming next</span>;
 
-export function Settings({ project, snippet, dockMode, onDockMode, onCopy, onGuide, onSetup, startTab }: {
+export function Settings({ project, snippet, dockMode, onDockMode, onCopy, onGuide, onSetup, startTab, demo = false, onGo }: {
   startTab?: Tab;
+  /** The demo store shows the kit's full example Settings. */
+  demo?: boolean;
+  onGo?: (go: Go) => void;
   project: Project;
   snippet: string;
   dockMode: DockMode;
@@ -39,9 +44,10 @@ export function Settings({ project, snippet, dockMode, onDockMode, onCopy, onGui
   const [tab, setTab] = useState<Tab>(startTab ?? 'company');
   const seg = useThumb<HTMLDivElement>('button[aria-pressed="true"]', `${tab}:${dockMode}`, true);
   const host = (() => { try { return new URL(project.origin).host; } catch { return project.origin; } })();
+  const counts = useDemoSettingsCounts();
   const tabs: { id: Tab; title: string; desc: string }[] = [
-    { id: 'company', title: 'Company', desc: project.firstEventAt ? host : 'Install needed' },
-    { id: 'changes', title: 'Website changes', desc: 'Nothing to review' },
+    { id: 'company', title: 'Company', desc: demo ? (counts.company ? `${counts.company} need you` : 'All checked') : project.firstEventAt ? host : 'Install needed' },
+    { id: 'changes', title: 'Website changes', desc: demo ? (counts.changes ? `${counts.changes} to review` : 'Nothing to review') : 'Nothing to review' },
     { id: 'sending', title: 'Sending', desc: 'Sender, limits and domain' },
     { id: 'privacy', title: 'Privacy', desc: 'What we keep and for how long' },
     { id: 'dock', title: 'Dock', desc: 'How the navigation behaves' },
@@ -61,7 +67,11 @@ export function Settings({ project, snippet, dockMode, onDockMode, onCopy, onGui
       </nav>
       <div className="ib-detail">
         <div className="set-sheet">
-          {tab === 'company' && <>
+          {demo && tab === 'company' && <DemoCompany onGo={onGo} />}
+          {demo && tab === 'changes' && <DemoChanges onGo={onGo} />}
+          {demo && tab === 'sending' && <DemoSending />}
+          {demo && tab === 'privacy' && <DemoPrivacy />}
+          {!demo && tab === 'company' && <>
             <div className="set-main">
               <header className="set-head"><h2>Company</h2></header>
               <Row title="Name" hint="Shown in the switcher at the top"><span className="omer-set-val">{project.name}</span></Row>
@@ -89,7 +99,7 @@ export function Settings({ project, snippet, dockMode, onDockMode, onCopy, onGui
               <button className="btn btn-ghost btn-sm" type="button" onClick={onGuide}><Icon name="book" />Installation guide</button>
             </div></aside>
           </>}
-          {tab === 'changes' && (
+          {!demo && tab === 'changes' && (
             <div className="set-main solo">
               <header className="set-head"><h2>Website changes</h2></header>
               <div className="empty omer-set-empty">
@@ -99,7 +109,7 @@ export function Settings({ project, snippet, dockMode, onDockMode, onCopy, onGui
               </div>
             </div>
           )}
-          {tab === 'sending' && <>
+          {!demo && tab === 'sending' && <>
             <div className="set-main">
               <header className="set-head"><h2>Sending</h2></header>
               <Row title="Sent by" hint="The name people see in their inbox"><Soon /></Row>
@@ -112,7 +122,7 @@ export function Settings({ project, snippet, dockMode, onDockMode, onCopy, onGui
               <p className="omer-set-note">No emails are sent until a sending domain is connected.</p>
             </div></aside>
           </>}
-          {tab === 'privacy' && <>
+          {!demo && tab === 'privacy' && <>
             <div className="set-main">
               <header className="set-head"><h2>Privacy</h2></header>
               <Row title="Analytics consent" hint="Nothing is recorded until the visitor allows analytics">

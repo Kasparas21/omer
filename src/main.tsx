@@ -87,6 +87,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [liveFocus, setLiveFocus] = useState<string>();
   const [profile, setProfile] = useState<ProfileFocus>();
   const [campaignId, setCampaignId] = useState<string>();
+  const [profileName, setProfileName] = useState('');
   const [editing, setEditing] = useState(false);
   // Where a Dashboard row sent you: the screen opens there (a tab, a person, a filter). The key remounts it.
   const [start, setStart] = useState<{ n: number; op?: { tab?: OpTab; id?: string }; people?: { source?: string; country?: string }; settings?: SettingsTab }>({ n: 0 });
@@ -476,7 +477,11 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
 
   // Inside a campaign the shelf trades the store switcher for the way back, as in the kit.
   const openCampaign = screen === 'campaigns' && project && isDemo(project) ? demoState.campaigns.find((c) => c.id === campaignId) : undefined;
-  const nested = !inSetup && openCampaign ? { back: 'Campaigns', title: openCampaign.name, go: () => { setCampaignId(undefined); setEditing(false); } } : undefined;
+  const onProfile = screen === 'visitors' && project && profile?.projectId === project.id;
+  const nested = inSetup ? undefined
+    : openCampaign ? { back: 'Campaigns', title: openCampaign.name, go: () => { setCampaignId(undefined); setEditing(false); } }
+    : onProfile ? { back: 'People', title: profileName || 'Profile', go: () => setProfile(undefined) }
+    : undefined;
 
   return (
     <div className={`app has-shelf${screen === 'globe' && !inSetup ? ' globe-mode' : ''}${nested ? ' shelf-nested' : ''}${editing && !inSetup ? ' is-editing' : ''}`} data-screen={inSetup ? 'setup' : screen}>
@@ -570,14 +575,15 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
           ) : screen === 'globe' && project ? (
             <LiveGlobe key={project.id} {...live} focusSeed={liveFocus} demo={isDemo(project)} />
           ) : screen === 'visitors' && project && profile?.projectId === project.id ? (
-            <Profile projectId={project.id} seed={profile.seed}
+            <Profile key={profile.seed} projectId={project.id} seed={profile.seed} demo={isDemo(project)} host={(() => { try { return new URL(project.origin).host; } catch { return project.origin; } })()}
+              onName={setProfileName}
               onBack={() => setProfile(undefined)}
               onLive={() => { setLiveFocus(profile.seed); setProfile(undefined); setScreen('globe'); }} />
           ) : screen === 'visitors' && project ? (
             <People key={`${project.id}-${start.n}`} {...live} demo={isDemo(project)} start={start.people} onLive={() => { setLiveFocus(undefined); setScreen('globe'); }}
-              onOpen={(seed) => setProfile({ projectId: project.id, seed })} />
+              onOpen={(seed) => { setProfileName(''); setProfile({ projectId: project.id, seed }); window.scrollTo({ top: 0 }); }} />
           ) : screen === 'settings' && project ? (
-            <Settings key={`settings-${start.n}`} startTab={start.settings} project={project} snippet={snippet} dockMode={dockMode} onDockMode={setDockMode}
+            <Settings key={`settings-${start.n}`} startTab={start.settings} demo={isDemo(project)} onGo={go} project={project} snippet={snippet} dockMode={dockMode} onDockMode={setDockMode}
               onCopy={(kind) => void copy(kind)} onGuide={openGuide} onSetup={() => {
                 setForceSetup(true);
                 setStep('install');

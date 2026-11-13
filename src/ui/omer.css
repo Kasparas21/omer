@@ -49,7 +49,7 @@
 .ho-need-ic { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: var(--surface-2); color: var(--ink-3); }
 .ho-need-ic .ico { width: 14px; height: 14px; }
 .ho-need-ic.bad { background: var(--danger-bg); color: var(--danger-ink); }
-@container app (max-width: 620px) {
+@media (max-width: 620px) {
   .ho-need { grid-template-columns: 26px minmax(0, 1fr) auto; gap: 0 10px; padding-block: 7px; }
   .ho-need > :first-child { grid-row: span 2; }
   .ho-need > span:not(.ho-need-ic) { grid-column: 2 / -1; }
@@ -128,12 +128,12 @@
 .people-empty > .ico { width: 24px; height: 24px; color: var(--accent-text); }
 .people-empty b { font-size: 16px; color: var(--ink); }
 .people-empty p { margin: 0 0 6px; }
-@container app (max-width: 760px) {
+@media (max-width: 760px) {
   .people-page { --v2-rail: min(100% - 32px, 1080px); }
   .people-row { grid-template-columns: minmax(145px, 1.3fr) minmax(100px, 1fr) minmax(85px, 0.7fr) 64px 72px 16px; }
   .people-sessions { display: none; }
 }
-@container app (max-width: 620px) {
+@media (max-width: 620px) {
   .people-page { --v2-rail: calc(100% - 24px); }
   .people-search { flex-basis: 100%; max-width: none; }
   .people-search input { font-size: 16px; }
@@ -155,7 +155,7 @@
 .omer-settings .set-navs { padding: 5px; border: 1px solid var(--v2-line); border-radius: 17px; background: var(--v2-card); box-shadow: var(--v2-lift); }
 .set-nav.omer-set-nav { display: block; }
 .set-nav.omer-set-nav small { display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); color: var(--ink-3); }
-.omer-settings .set-sheet { grid-template-columns: minmax(0, 1fr) clamp(220px, 30%, 270px); border-color: var(--v2-line); background: var(--v2-card); box-shadow: var(--v2-lift); }
+.omer-settings .set-sheet { grid-template-columns: minmax(0, 1fr) clamp(250px, 36%, 320px); border-color: var(--v2-line); background: var(--v2-card); box-shadow: var(--v2-lift); }
 .omer-settings .set-side { background: var(--v2-shell); border-left-color: var(--v2-line); }
 .set-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; }
 .set-head h2 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.015em; }
@@ -175,7 +175,7 @@
 .omer-set-pre { margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--v2-line); border-radius: 10px; background: var(--v2-card); font-family: var(--font-mono); font-size: 11.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .omer-set-note { margin: 0; font-size: var(--fs-md); color: var(--ink-3); }
 .omer-settings :is(.set-row, .set-side) .btn .ico { width: 15px; height: 15px; }
-@container app (max-width: 760px) {
+@media (max-width: 760px) {
   .omer-settings { grid-template-columns: minmax(0, 1fr); }
   .omer-settings .set-navs { display: flex; gap: 6px; overflow-x: auto; }
   .set-nav.omer-set-nav { flex: none; width: auto; padding: 8px 14px; border-radius: 99px; }
@@ -221,45 +221,18 @@
 .omer-thumb .ico { width: 18px; height: 18px; }
 .people-pos { font-weight: 600; color: var(--ink); }
 
-/* ---------- Visitor profile ---------- */
-.profile-page { width: var(--v2-rail); margin-inline: auto; padding-block: var(--page-start) 112px; box-sizing: border-box; display: grid; gap: 16px; }
+/* ---------- Visitor profile: see profile.css ---------- */
 .profile-back {
   justify-self: start; display: inline-flex; align-items: center; gap: 8px; border: 0; background: none;
   padding: 0; font: inherit; font-size: 14px; font-weight: 550; color: var(--ink-2); cursor: pointer;
 }
 .profile-back:hover { color: var(--ink); }
 .profile-back .ico { width: 16px; height: 16px; }
-.profile-hero-in { display: grid; gap: 18px; }
-.profile-id { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
-.profile-id h1 { margin: 0; font-size: 22px; letter-spacing: -0.02em; }
-.profile-id p { margin: 4px 0 0; color: var(--ink-2); font-size: 14px; }
-.profile-id .btn { margin-inline-start: auto; }
-.profile-stats, .profile-mail { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-.profile-mail { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.profile-stats > div, .profile-mail > div { display: grid; gap: 2px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
-.profile-stats b, .profile-mail b { font-size: 18px; font-variant-numeric: tabular-nums; }
-.profile-stats span, .profile-mail span { font-size: 12px; color: var(--ink-2); }
-.profile-story { margin: 0; color: var(--ink-2); font-size: 14px; line-height: 1.45; }
-.profile-story .brand-logo, .profile-story svg { width: 14px; height: 14px; vertical-align: -2px; margin-inline-end: 4px; }
-.profile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.profile-place { display: inline-flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; }
-.profile-journey, .profile-purchases { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-.profile-journey li, .profile-purchases li { display: grid; gap: 2px; padding-block: 8px; border-top: 1px solid var(--v2-line); }
-.profile-journey li:first-child, .profile-purchases li:first-child { border-top: 0; padding-top: 0; }
-.profile-journey b, .profile-purchases b { font-size: 14px; }
-.profile-journey small, .profile-purchases small, .profile-purchases span { color: var(--ink-2); font-size: 12.5px; }
-@container app (max-width: 720px) {
-  .profile-grid, .profile-stats, .profile-mail { grid-template-columns: 1fr 1fr; }
-  .profile-id .btn { margin-inline-start: 0; }
-}
-@container app (max-width: 520px) {
-  .profile-stats, .profile-mail, .profile-grid { grid-template-columns: 1fr; }
-}
-@container app (max-width: 620px) {
+@media (max-width: 620px) {
   .v2-legend button { gap: 8px; padding-inline: 6px; }
   .v2-legend b { min-width: 0; }
 }
-@container app (max-width: 620px) {
+@media (max-width: 620px) {
   .v2-card > header:has(.v2-side) { flex-wrap: wrap; row-gap: 0; padding-block: 8px; }
   .v2-card > header .v2-side { margin-left: 0; font-size: 12.5px; }
 }
@@ -270,3 +243,18 @@
 .app.globe-mode .globe-wrap.has-panel:not(.is-fs) { min-height: 0; height: 100%; }
 .app.globe-mode .globe-wrap.is-fs { height: 100dvh; }
 .app.has-shelf.globe-mode .globe-wrap:not(.is-fs) .live-region { top: calc(var(--app-shelf-h) + 10px); }
+
+/* Settings on phones and narrow windows (the container query above needs an `app` container this page doesn't have) */
+@media (max-width: 760px) {
+  .ib.set.omer-settings { grid-template-columns: minmax(0, 1fr); }
+  .omer-settings .set-navs { display: flex; gap: 6px; overflow-x: auto; }
+  .set-nav.omer-set-nav { flex: none; width: auto; padding: 8px 14px; border-radius: 99px; }
+  .set-nav.omer-set-nav small { display: none; }
+  .omer-settings .set-sheet { grid-template-columns: minmax(0, 1fr); }
+  .omer-settings .set-side { border-left: 0; border-top: 1px solid var(--v2-line); }
+  .omer-settings .set-row { grid-template-columns: minmax(0, 1fr); }
+  .omer-settings .set-v { justify-content: flex-start; }
+  .omer-settings .set-swatches, .omer-settings .set-logo { justify-content: flex-start; }
+  .omer-settings .set-main { padding: 20px 18px 12px; min-height: 0; }
+  .omer-settings .seg { max-width: 100%; overflow-x: auto; }
+}
