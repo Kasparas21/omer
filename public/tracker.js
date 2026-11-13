@@ -295,14 +295,9 @@
       }
     }
 
-    // Same host as the tracker so store CSPs that allow tryomer also allow rrweb.
-    const scriptEl = document.createElement('script');
-    scriptEl.src = new URL('/vendor/rrweb.min.js', base).href;
-    scriptEl.async = true;
-    scriptEl.onerror = () => { /* recorder unavailable */ };
-    scriptEl.onload = () => {
+    function begin() {
       const record = window.rrweb?.record;
-      if (stopped || typeof record !== 'function') return;
+      if (stopped || typeof record !== 'function' || stopReplay) return;
       const stop = record({
         emit(event) {
           if (stopped) return;
@@ -340,7 +335,24 @@
         end();
         stopReplay = null;
       };
-    };
+    }
+
+    // Same host as the tracker so store CSPs that allow tryomer also allow rrweb.
+    if (window.rrweb?.record) {
+      begin();
+      return;
+    }
+    const existing = document.querySelector('script[data-uw-rrweb]');
+    if (existing) {
+      existing.addEventListener('load', begin);
+      return;
+    }
+    const scriptEl = document.createElement('script');
+    scriptEl.src = new URL('/vendor/rrweb.min.js', base).href;
+    scriptEl.async = true;
+    scriptEl.dataset.uwRrweb = '1';
+    scriptEl.onerror = () => { /* recorder unavailable */ };
+    scriptEl.onload = begin;
     document.head.appendChild(scriptEl);
   }
 
