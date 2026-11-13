@@ -1,12 +1,13 @@
 /* Brand knowledge: identity, products, photos & voice, documents, store facts. Hovering tips a folder's
    frosted front open; clicking opens it in place. Documents holds Product Information and Brand Voice Guide
    for follow-up emails. Monitored pages live in their own Settings tab (MonitoringSection). */
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
 import { Icon, type IconName } from './ui/Icon';
 import { Dropdown } from './ui/Dropdown';
 import { Uploader } from './ui/Uploader';
 import { toast } from './ui/toast';
 import { FONTS } from './Mail';
+import { DocMarkdown } from './docMarkdown';
 import {
   DEMO_BRAND_SPACE, MONITOR_LIMIT, fileFrom, folderCount, identityLabel, importBrandFromSite, newId, updateBrand, useBrand,
   type Brand, type BrandColor, type BrandFile, type ColorRole, type FolderId, type LogoSlot,
@@ -47,7 +48,7 @@ export function BrandKnowledge({ space, host, demo = false }: { space: string; h
   // Keep showing the last folder's contents while its card slides shut.
   const [shown, setShown] = useState<FolderId | null>(null);
   useEffect(() => { if (open) setShown(open); }, [open]);
-  useEffect(() => { if (open !== 'docs') setDocOpen(null); }, [open]);
+  useEffect(() => { if (open !== 'docs') { setDocOpen(null); } }, [open]);
   // Once the card has finished sliding open, let menus inside it (the font list) spill over its edges.
   const [settled, setSettled] = useState(false);
   useEffect(() => {
@@ -78,7 +79,7 @@ export function BrandKnowledge({ space, host, demo = false }: { space: string; h
     const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(null); };
     const down = (e: PointerEvent) => {
       const t = e.target as Element | null;
-      if (!t?.isConnected || t.closest('.bk-drawer, .bk-item, .dd-list, .toasts')) return;
+      if (!t?.isConnected || t.closest('.bk-drawer, .bk-item, .dd-list, .bk-color-pop, .toasts')) return;
       setOpen(null);
     };
     window.addEventListener('keydown', key);
@@ -276,12 +277,161 @@ const ROLES: { id: ColorRole; name: string; def: string }[] = [
 function orderedColors(colors: BrandColor[]) {
   return [...ROLES.map((r) => colors.find((c) => c.role === r.id)).filter(Boolean) as BrandColor[], ...colors.filter((c) => !c.role)];
 }
-function Swatch({ color, label, onHex }: { color: BrandColor; label: string; onHex: (hex: string) => void }) {
+
+function clamp(n: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, n));
+}
+function hexToRgb(hex: string) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return { r: 0, g: 0, b: 0 };
+  const n = parseInt(m[1], 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+function rgbToHex(r: number, g: number, b: number) {
+  return `#${[r, g, b].map((v) => clamp(Math.round(v), 0, 255).toString(16).padStart(2, '0')).join('')}`.toUpperCase();
+}
+function rgbToHsv(r: number, g: number, b: number) {
+  const R = r / 255, G = g / 255, B = b / 255;
+  const max = Math.max(R, G, B), min = Math.min(R, G, B);
+  const d = max - min;
+  let h = 0;
+  if (d) {
+    if (max === R) h = ((G - B) / d + (G < B ? 6 : 0)) * 60;
+    else if (max === G) h = ((B - R) / d + 2) * 60;
+    else h = ((R - G) / d + 4) * 60;
+  }
+  return { h, s: max ? d / max : 0, v: max };
+}
+function hsvToRgb(h: number, s: number, v: number) {
+  const c = v * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = v - c;
+  let r = 0, g = 0, b = 0;
+  if (h < 60) [r, g, b] = [c, x, 0];
+  else if (h < 120) [r, g, b] = [x, c, 0];
+  else if (h < 180) [r, g, b] = [0, c, x];
+  else if (h < 240) [r, g, b] = [0, x, c];
+  else if (h < 300) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  return { r: (r + m) * 255, g: (g + m) * 255, b: (b + m) * 255 };
+}
+
+function ColorPicker({ hex, label, onHex, onClose, anchor }: { hex: string; label: string; onHex: (hex: string) => void; onClose: () => void; anchor: RefObject<HTMLElement | null> }) {
+  const root = useRef<HTMLDivElement>(null);
+  const valid = /^#[0-9a-f]{6}$/i.test(hex) ? hex.toUpperCase() : '#000000';
+  const { r, g, b } = hexToRgb(valid);
+  const initial = rgbToHsv(r, g, b);
+  const [h, setH] = useState(initial.h);
+  const [s, setS] = useState(initial.s);
+  const [v, setV] = useState(initial.v);
+  const [draft, setDraft] = useState(valid);
+  const sv = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const rgb = hexToRgb(valid);
+    const next = rgbToHsv(rgb.r, rgb.g, rgb.b);
+    setH(next.h); setS(next.s); setV(next.v); setDraft(valid);
+  }, [valid]);
+
+  useEffect(() => {
+    const close = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (root.current?.contains(t) || anchor.current?.contains(t)) return;
+      onClose();
+    };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
+    document.addEventListener('pointerdown', close);
+    window.addEventListener('keydown', key, true);
+    return () => { document.removeEventListener('pointerdown', close); window.removeEventListener('keydown', key, true); };
+  }, [onClose, anchor]);
+
+  const applyHsv = (nh: number, ns: number, nv: number) => {
+    setH(nh); setS(ns); setV(nv);
+    const rgb = hsvToRgb(nh, ns, nv);
+    const next = rgbToHex(rgb.r, rgb.g, rgb.b);
+    setDraft(next);
+    onHex(next);
+  };
+
+  const pickSv = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const el = sv.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const ns = clamp((e.clientX - rect.left) / rect.width, 0, 1);
+    const nv = 1 - clamp((e.clientY - rect.top) / rect.height, 0, 1);
+    applyHsv(h, ns, nv);
+  };
+
+  const hueRgb = hsvToRgb(h, 1, 1);
+  const liveRgb = hsvToRgb(h, s, v);
+  const hueColor = rgbToHex(hueRgb.r, hueRgb.g, hueRgb.b);
+  const live = rgbToHex(liveRgb.r, liveRgb.g, liveRgb.b);
+
   return (
-    <label className="bk-swatch" style={{ background: color.hex }}>
-      <input type="color" value={/^#[0-9a-f]{6}$/i.test(color.hex) ? color.hex : '#000000'} aria-label={`Change ${label}`} onChange={(e) => onHex(e.target.value.toUpperCase())} />
-      <span className="bk-swatch-hint"><Icon name="edit" />Change</span>
-    </label>
+    <div ref={root} className="bk-color-pop" role="dialog" aria-label={`Pick ${label}`}>
+      <div
+        ref={sv}
+        className="bk-color-sv"
+        style={{ background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, ${hueColor})` }}
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          pickSv(e);
+        }}
+        onPointerMove={(e) => { if (e.buttons) pickSv(e); }}
+      >
+        <i style={{ left: `${s * 100}%`, top: `${(1 - v) * 100}%`, background: live }} />
+      </div>
+      <input
+        className="bk-color-hue"
+        type="range" min={0} max={360} value={Math.round(h)} aria-label="Hue"
+        onChange={(e) => applyHsv(Number(e.target.value), s, v)}
+      />
+      <div className="bk-color-row">
+        <span className="bk-color-chip" style={{ background: live }} aria-hidden="true" />
+        <input
+          className="bk-color-hex"
+          value={draft}
+          aria-label="Hex code"
+          spellCheck={false}
+          onChange={(e) => {
+            const t = e.target.value.toUpperCase();
+            setDraft(t);
+            if (/^#[0-9A-F]{6}$/.test(t)) {
+              const rgb = hexToRgb(t);
+              const next = rgbToHsv(rgb.r, rgb.g, rgb.b);
+              setH(next.h); setS(next.s); setV(next.v);
+              onHex(t);
+            }
+          }}
+          onBlur={() => {
+            const t = draft.trim();
+            if (/^#[0-9A-F]{6}$/i.test(t)) onHex(t.toUpperCase());
+            else if (/^[0-9A-F]{6}$/i.test(t)) onHex(`#${t}`.toUpperCase());
+            else { setDraft(live); onHex(live); }
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function Swatch({ color, label, onHex }: { color: BrandColor; label: string; onHex: (hex: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  return (
+    <div ref={wrap} className={`bk-swatch-wrap${open ? ' is-open' : ''}`}>
+      <button
+        type="button"
+        className="bk-swatch"
+        style={{ background: color.hex }}
+        aria-label={`Change ${label}`}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="bk-swatch-hint"><Icon name="edit" />Change</span>
+      </button>
+      {open ? <ColorPicker hex={color.hex} label={label} onHex={onHex} onClose={() => setOpen(false)} anchor={wrap} /> : null}
+    </div>
   );
 }
 function HexInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
@@ -350,7 +500,7 @@ function FontCard({ font, onChange, i }: { font: Brand['fonts'][number]; onChang
       </div>
       <div className="bk-card-foot">
         <span><b>{font.role}</b></span>
-        <Dropdown label={`${font.role} font`} value={font.family} align="end" className="bk-font-dd"
+        <Dropdown label={`${font.role} font`} value={font.family} align="end" className="bk-font-dd" previewFont
           options={[...(font.family ? [] : [{ value: '', label: 'Choose a font' }]), ...families.map((f) => ({ value: f, label: f }))]}
           onChange={(v) => onChange({ family: v })} />
       </div>
@@ -360,7 +510,7 @@ function FontCard({ font, onChange, i }: { font: Brand['fonts'][number]; onChang
           <button type="button" className="bk-icon-btn" aria-label="Remove font file" onClick={() => onChange({ file: null })}><Icon name="trash" /></button>
         </div>
       ) : (
-        <Uploader compact accept=".woff2,.woff,.ttf,.otf" maxMb={5} title="Upload font"
+        <Uploader compact accept=".woff2,.woff,.ttf,.otf" maxMb={5} title="Your font file"
           onFiles={([file]) => onChange({ file: fileFrom(file), family: font.family || file.name.replace(/\.[^.]+$/, '') })} />
       )}
     </div>
@@ -480,23 +630,40 @@ const DOC_CARDS: { id: 'product' | 'voice'; title: string; hint: string }[] = [
 
 function DocsFolder({ brand, set, open, onOpen }: FolderProps & { open: 'product' | 'voice' | null; onOpen: (id: 'product' | 'voice' | null) => void }) {
   const docs = brand.docs || { product: '', voice: '' };
+  const [editing, setEditing] = useState(false);
+  useEffect(() => { setEditing(false); }, [open]);
   const put = (key: 'product' | 'voice', value: string) => set((b) => ({ ...b, docs: { ...(b.docs || { product: '', voice: '' }), [key]: value } }));
   if (open) {
     const meta = DOC_CARDS.find((d) => d.id === open)!;
+    const body = docs[open];
     return (
-      <div className="bk-doc-edit">
+      <div className="bk-doc-sheet">
         <div className="bk-doc-edit-bar">
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => onOpen(null)}><Icon name="chevronLeft" />Documents</button>
-          <span>{meta.title}</span>
+          <span className="bk-doc-edit-title">{meta.title}</span>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => setEditing((v) => !v)}
+          >
+            <Icon name={editing ? 'check' : 'edit'} />{editing ? 'Done' : 'Edit'}
+          </button>
         </div>
-        <textarea
-          className="bk-doc-md"
-          value={docs[open]}
-          aria-label={meta.title}
-          placeholder="Import your site to draft this, or write it yourself"
-          spellCheck
-          onChange={(e) => put(open, e.target.value)}
-        />
+        <p className="bk-doc-hint">{meta.hint}</p>
+        {editing ? (
+          <textarea
+            className="bk-doc-md"
+            value={body}
+            aria-label={meta.title}
+            placeholder="Import your site to draft this, or write it yourself"
+            spellCheck
+            onChange={(e) => put(open, e.target.value)}
+          />
+        ) : (
+          <article className="bk-doc-read">
+            <DocMarkdown text={body} empty="Import your site to draft this, or tap Edit to write it yourself." />
+          </article>
+        )}
       </div>
     );
   }
@@ -504,12 +671,13 @@ function DocsFolder({ brand, set, open, onOpen }: FolderProps & { open: 'product
     <div className="bk-docs-list">
       {DOC_CARDS.map((d, i) => {
         const body = docs[d.id].trim();
+        const words = body ? body.split(/\s+/).length : 0;
         return (
           <button key={d.id} type="button" className="bk-doc-card" style={fanIn(i)} onClick={() => onOpen(d.id)}>
             <span className="bk-doc-card-ic" aria-hidden="true"><Icon name="file" /></span>
             <span className="bk-doc-card-copy">
               <b>{d.title}</b>
-              <small>{body ? `${body.split(/\s+/).length} words · tap to edit` : d.hint}</small>
+              <small>{body ? `${words} words · open to read` : d.hint}</small>
             </span>
             <Icon name="chevronRight" />
           </button>
@@ -555,6 +723,28 @@ function useFacts(space: string, demo: boolean, brand: Brand): Facts {
     answer: () => undefined,
   };
 }
+function FactValue({ value, label, disabled, onChange }: { value: string; label: string; disabled?: boolean; onChange: (v: string) => void }) {
+  const el = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const t = el.current;
+    if (!t) return;
+    t.style.height = '0px';
+    t.style.height = `${Math.max(22, t.scrollHeight)}px`;
+  }, [value]);
+  return (
+    <textarea
+      ref={el}
+      className="bk-inline bk-fact-val"
+      rows={1}
+      value={value}
+      placeholder="What emails can say"
+      aria-label={label}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
+}
+
 function FactsFolder({ facts }: { facts: Facts }) {
   const [answer, setAnswer] = useState('');
   const [name, setName] = useState('');
@@ -585,16 +775,14 @@ function FactsFolder({ facts }: { facts: Facts }) {
                 <li key={f.id} className={`bk-fact${f.off ? ' is-off' : ''}`} style={fanIn(n++)}>
                   <span className="bk-fact-name">
                     {f.own ? <input className="bk-inline bk-strong" value={f.name} placeholder="What it’s about" aria-label="What it’s about" onChange={(e) => facts.rename(f.id, e.target.value)} /> : <b>{f.name}</b>}
-                    
                   </span>
-                  <input className="bk-inline bk-fact-val" value={f.value} placeholder="What emails can say" aria-label={`${f.name || 'Fact'} value`} disabled={f.off}
-                    onChange={(e) => facts.edit(f.id, e.target.value)} />
                   <span className="bk-fact-state">
                     {f.off ? <span className="bk-mon-state">Expired</span>
                       : f.review ? <button type="button" className="bk-mon-state is-change" title="Approve for email" onClick={() => { facts.approve(f.id); toast('Approved for email'); }}><i />Needs review<Icon name="check" /></button>
                       : <span className="bk-mon-state is-ok"><i />Approved</span>}
                   </span>
                   {f.own ? <button type="button" className="bk-icon-btn" aria-label={`Remove ${f.name || 'fact'}`} onClick={() => facts.remove(f.id)}><Icon name="trash" /></button> : <span className="bk-fact-gap" />}
+                  <FactValue value={f.value} label={`${f.name || 'Fact'} value`} disabled={f.off} onChange={(v) => facts.edit(f.id, v)} />
                 </li>
               ))}
             </ul>
@@ -603,9 +791,12 @@ function FactsFolder({ facts }: { facts: Facts }) {
       })}
       {!facts.list.length ? <p className="bk-mon-empty">No facts yet</p> : null}
       <form className="bk-fact-add" onSubmit={(e) => { e.preventDefault(); if (!name.trim() || !value.trim()) return; facts.add(name.trim(), value.trim(), group); setName(''); setValue(''); }}>
-        <Dropdown label="Group" value={group} className="bk-fact-dd" options={FACT_GROUPS.map((g) => ({ value: g, label: g }))} onChange={setGroup} />
+        <div className="bk-fact-add-head">
+          <b>Add a store fact</b>
+          <Dropdown label="Group" value={group} className="bk-fact-dd" options={FACT_GROUPS.map((g) => ({ value: g, label: g }))} onChange={setGroup} />
+        </div>
         <input value={name} placeholder="What it’s about" aria-label="What the fact is about" onChange={(e) => setName(e.target.value)} />
-        <input value={value} placeholder="What emails can say" aria-label="What emails can say" onChange={(e) => setValue(e.target.value)} />
+        <textarea value={value} rows={2} placeholder="What emails can say" aria-label="What emails can say" onChange={(e) => setValue(e.target.value)} />
         <button type="submit" className="btn btn-secondary btn-sm" disabled={!name.trim() || !value.trim()}><Icon name="plus" />Add fact</button>
       </form>
     </div>
