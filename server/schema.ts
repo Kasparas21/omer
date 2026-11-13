@@ -188,7 +188,7 @@ export const projectBrand = pgTable('project_brand', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
-/** Personal follow-up queue for real stores (no send yet). */
+/** Personal follow-up queue for real stores. */
 export const projectOpportunities = pgTable('project_opportunities', {
   id: uuid('id').defaultRandom().primaryKey(),
   projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
@@ -199,11 +199,32 @@ export const projectOpportunities = pgTable('project_opportunities', {
   insightSummary: text('insight_summary'),
   email: text('email'),
   name: text('name'),
+  draftJson: jsonb('draft_json').$type<Record<string, unknown>>(),
+  pageJson: jsonb('page_json').$type<Record<string, unknown>>(),
+  suppressed: boolean('suppressed').default(false).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   uniqueIndex('project_opportunities_project_visitor_idx').on(table.projectId, table.visitorId),
   index('project_opportunities_project_status_idx').on(table.projectId, table.status),
+]);
+
+/** Sent personal / campaign emails (SES). */
+export const projectEmailMessages = pgTable('project_email_messages', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  opportunityId: uuid('opportunity_id').references(() => projectOpportunities.id, { onDelete: 'set null' }),
+  visitorId: text('visitor_id').notNull(),
+  toEmail: text('to_email').notNull(),
+  subject: text('subject').notNull(),
+  sesMessageId: text('ses_message_id'),
+  status: text('status').notNull().default('queued'),
+  error: text('error'),
+  sentAt: timestamp('sent_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index('project_email_messages_project_idx').on(table.projectId, table.createdAt),
+  index('project_email_messages_opportunity_idx').on(table.opportunityId),
 ]);
 
 /** Suggested campaign groups from shared hooks (no send yet). */

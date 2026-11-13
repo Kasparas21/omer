@@ -13,6 +13,11 @@
 .op-campaign { width: 220px; max-width: 100%; }
 .op-none { padding: 26px 0; }
 .op-real-lede { margin: 8px 0 22px; font-size: 14.5px; color: var(--ink-3); }
+.op-real-editor-bar {
+  display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+  border-bottom: 1px solid var(--v2-line); background: var(--v2-card);
+}
+.op-real-editor-bar > span { flex: 1; min-width: 0; font-size: 14px; font-weight: 560; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .op-real-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
 .op-real-card {
   display: grid; gap: 10px; padding: 16px 18px; border: 1px solid var(--v2-line); border-radius: 18px;

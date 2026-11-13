@@ -11,6 +11,8 @@ import { firecrawlConfigured } from './firecrawl';
 import { openaiConfigured } from './replay-insight';
 import projects from './projects';
 import { loadImage } from './campaigns';
+import { PIXEL_GIF, recordEmailEvent, suppressVisitor, verifyTrackingToken } from './email-tracking';
+import { sesConfigured } from './ses';
 
 // Single-server demo limits; bounded memory, no visitor IP persisted in project data.
 function limiter(max: number) {
@@ -42,6 +44,7 @@ app.get('/api/config', (c) => c.json({
   replayInsights: openaiConfigured(),
   firecrawl: firecrawlConfigured(),
   brandImport: brandImportReady(),
+  ses: sesConfigured(),
 }));
 app.all('/api/projects', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id', (c) => projects.fetch(c.req.raw, env));
@@ -51,6 +54,8 @@ app.all('/api/projects/:id/brand', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/brand/*', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/opportunities', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/opportunities/:oid', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/opportunities/:oid/draft', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/opportunities/:oid/send', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/campaign-suggestions', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/campaign-suggestions/:sid', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/campaigns', (c) => projects.fetch(c.req.raw, env));
@@ -71,6 +76,63 @@ app.get('/i/:project/:file', async (c) => {
   const image = await loadImage(`${c.req.param('project')}/${c.req.param('file')}`);
   if (!image) return c.text('Not found', 404);
   return c.body(new Uint8Array(image.body), 200, { 'Content-Type': image.type, 'Cache-Control': 'public, max-age=31536000, immutable' });
+});
+// Email open pixel, click redirect, unsubscribe (signed tokens, no auth).
+app.get('/t/o/:token', async (c) => {
+  const raw = c.req.param('token');
+  const parsed = verifyTrackingToken(raw);
+  if (parsed?.purpose === 'open') {
+    try {
+      await recordEmailEvent(drizzle(pool), parsed.projectId, parsed.visitorId, 'email_open', parsed.messageId);
+    } catch (error) {
+      console.error('email open track failed', error);
+    }
+  }
+  return c.body(new Uint8Array(PIXEL_GIF), 200, {
+    'Content-Type': 'image/gif',
+    'Cache-Control': 'no-store, no-cache, must-revalidate',
+  });
+});
+app.get('/t/c/:token', async (c) => {
+  const parsed = verifyTrackingToken(c.req.param('token'));
+  const fallback = '/';
+  if (parsed?.purpose === 'click') {
+    try {
+      await recordEmailEvent(drizzle(pool), parsed.projectId, parsed.visitorId, 'email_click', parsed.messageId);
+    } catch (error) {
+      console.error('email click track failed', error);
+    }
+    const dest = parsed.url && /^https?:\/\//i.test(parsed.url) ? parsed.url : fallback;
+    return c.redirect(dest, 302);
+  }
+  return c.redirect(fallback, 302);
+});
+app.get('/t/u/:token', async (c) => {
+  const parsed = verifyTrackingToken(c.req.param('token'));
+  if (!parsed || parsed.purpose !== 'unsub') {
+    return c.html('<!doctype html><title>Unsubscribe</title><p>This unsubscribe link is invalid or expired.</p>', 400);
+  }
+  const confirm = c.req.query('confirm');
+  if (confirm === '1' || c.req.header('List-Unsubscribe') === 'One-Click' || c.req.method === 'POST') {
+    try {
+      await suppressVisitor(drizzle(pool), parsed.projectId, parsed.visitorId);
+    } catch (error) {
+      console.error('unsubscribe failed', error);
+    }
+    return c.html('<!doctype html><title>Unsubscribed</title><p style="font:16px system-ui;padding:40px">You’re unsubscribed. You won’t get another follow-up from this store via Omer.</p>');
+  }
+  const href = `?confirm=1`;
+  return c.html(`<!doctype html><title>Unsubscribe</title><main style="font:16px system-ui;padding:40px;max-width:420px"><p>Stop follow-up emails from this store?</p><p><a href="${href}">Yes, unsubscribe</a></p></main>`);
+});
+app.post('/t/u/:token', async (c) => {
+  const parsed = verifyTrackingToken(c.req.param('token'));
+  if (!parsed || parsed.purpose !== 'unsub') return c.text('Invalid', 400);
+  try {
+    await suppressVisitor(drizzle(pool), parsed.projectId, parsed.visitorId);
+  } catch (error) {
+    console.error('unsubscribe post failed', error);
+  }
+  return c.text('OK');
 });
 app.get('/health', async (c) => { await pool.query('select 1'); return c.json({ status: 'ready' }); });
 app.all('/api/*', (c) => c.json({ error: 'Not found' }, 404));

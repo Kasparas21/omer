@@ -3,7 +3,7 @@ import { and, desc, eq, inArray } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { identities, projectCampaignSuggestions, projectOpportunities, visitorInsights } from './schema';
 
-const ACTIVE = ['review', 'hold', 'ready_for_draft'] as const;
+const ACTIVE = ['review', 'hold', 'ready_for_draft', 'drafted', 'sent'] as const;
 
 export async function upsertOpportunityFromInsight(
   db: NodePgDatabase,
@@ -25,7 +25,8 @@ export async function upsertOpportunityFromInsight(
     .limit(1);
 
   if (existing) {
-    if (existing.status === 'dismissed') return existing;
+    if (existing.status === 'dismissed' || existing.suppressed) return existing;
+    const keep = new Set(['hold', 'ready_for_draft', 'drafted', 'sent']);
     const [row] = await db.update(projectOpportunities).set({
       reason,
       hooksJson: hooks,
@@ -33,7 +34,7 @@ export async function upsertOpportunityFromInsight(
       email: identity.email,
       name: identity.name,
       updatedAt: now,
-      status: existing.status === 'hold' || existing.status === 'ready_for_draft' ? existing.status : 'review',
+      status: keep.has(existing.status) ? existing.status : 'review',
     }).where(eq(projectOpportunities.id, existing.id)).returning();
     return row;
   }
@@ -70,6 +71,10 @@ export async function listOpportunities(db: NodePgDatabase, projectId: string) {
     insightSummary: row.insightSummary,
     email: row.email,
     name: row.name,
+    suppressed: row.suppressed,
+    hasDraft: Boolean(row.draftJson),
+    draft: row.draftJson || null,
+    page: row.pageJson || null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }));
@@ -81,7 +86,7 @@ export async function patchOpportunity(
   opportunityId: string,
   status: string,
 ) {
-  const allowed = new Set(['review', 'hold', 'dismissed', 'ready_for_draft']);
+  const allowed = new Set(['review', 'hold', 'dismissed', 'ready_for_draft', 'drafted', 'sent']);
   if (!allowed.has(status)) throw new Error('Invalid status');
   const [row] = await db.update(projectOpportunities).set({
     status,
@@ -90,6 +95,13 @@ export async function patchOpportunity(
     eq(projectOpportunities.id, opportunityId),
     eq(projectOpportunities.projectId, projectId),
   )).returning();
+  return row || null;
+}
+
+export async function getOpportunity(db: NodePgDatabase, projectId: string, opportunityId: string) {
+  const [row] = await db.select().from(projectOpportunities)
+    .where(and(eq(projectOpportunities.id, opportunityId), eq(projectOpportunities.projectId, projectId)))
+    .limit(1);
   return row || null;
 }
 
