@@ -431,28 +431,36 @@
     }
 
     // Same host as the tracker so store CSPs that allow tryomer also allow rrweb.
+    // Do not set crossOrigin — without ACAO on the static file the browser downloads
+    // the script but will not execute it (common mobile miss → "No replay").
     if (window.rrweb?.record) {
       begin();
       return;
     }
     const existing = document.querySelector('script[data-uw-rrweb]');
     if (existing) {
-      // Cached/already-loaded script will not fire "load" again — don't miss begin() on mobile.
-      if (existing.dataset.loaded === '1' || window.rrweb?.record) begin();
-      else {
+      if (window.rrweb?.record) {
+        begin();
+        return;
+      }
+      if (existing.dataset.loaded === '1') {
+        // Tag finished but global missing (failed/tainted load) — replace it.
+        existing.remove();
+      } else {
         existing.addEventListener('load', () => {
           existing.dataset.loaded = '1';
-          begin();
+          if (window.rrweb?.record) begin();
         }, { once: true });
-        existing.addEventListener('error', () => { /* recorder unavailable */ }, { once: true });
+        existing.addEventListener('error', () => {
+          existing.remove();
+        }, { once: true });
+        return;
       }
-      return;
     }
     const scriptEl = document.createElement('script');
     scriptEl.src = new URL('/vendor/rrweb.min.js', base).href;
     scriptEl.async = true;
     scriptEl.dataset.uwRrweb = '1';
-    scriptEl.crossOrigin = 'anonymous';
     scriptEl.onerror = () => { /* recorder unavailable */ };
     scriptEl.onload = () => {
       scriptEl.dataset.loaded = '1';
