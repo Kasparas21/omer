@@ -153,6 +153,20 @@ async function listProjects(request: Request, env: Env) {
         limit 8
       ) q
     ), '[]'::json)`,
+    // Hourly pageviews and people for yesterday and today (UTC), so Today draws a real curve.
+    hours: sql<{ hour: string; views: number; people: number }[]>`coalesce((
+      select json_agg(json_build_object('hour', hour, 'views', views, 'people', people) order by hour)
+      from (
+        select to_char(date_trunc('hour', ${visits.seenAt} at time zone 'UTC'), 'YYYY-MM-DD"T"HH24') as hour,
+          count(*)::float8 as views,
+          count(distinct ${visits.visitorId})::float8 as people
+        from ${visits}
+        -- project_visits has its own "id", so name the outer project's id explicitly.
+        where ${visits.projectId} = "onboarding_projects"."id"
+          and ${visits.seenAt} >= (date_trunc('day', now() at time zone 'UTC') - interval '1 day') at time zone 'UTC'
+        group by 1
+      ) q
+    ), '[]'::json)`,
     pages: sql<{ path: string; count: number }[]>`coalesce((
       select json_agg(json_build_object('path', path, 'count', count) order by count desc)
       from (

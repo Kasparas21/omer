@@ -1,71 +1,163 @@
-import { useEffect, useState } from 'react';
-import { Search } from 'lucide-react';
+/* People: the kit's visitor directory, written for real visits from the last day.
+   Sessions are counted from those visits (a 30-minute gap starts a new one). Email and revenue are
+   not connected yet, so those tabs and the Revenue column stay at zero until they are. */
+import { useEffect, useMemo, useState } from 'react';
 import { isOnline, type LivePayload, type LiveVisit } from './live';
+import { Icon } from './ui/Icon';
+import { Orb } from './ui/Orb';
+import { Dropdown } from './ui/Dropdown';
+import { SourceMark, sourceKey, sourceKind, sourceLabel } from './ui/sources';
+
+const ADJ = ['Quiet', 'Bold', 'Swift', 'Calm', 'Bright', 'Gentle', 'Lucky', 'Clever', 'Brave', 'Sunny', 'Misty', 'Happy', 'Witty', 'Mellow', 'Rapid', 'Keen'];
+const ANIMAL = ['Heron', 'Otter', 'Fox', 'Lynx', 'Robin', 'Panda', 'Koala', 'Falcon', 'Badger', 'Finch', 'Hare', 'Wren', 'Seal', 'Owl', 'Moth', 'Crane'];
+const SESSION_GAP = 30 * 60_000;
+const money = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+
+type Tab = 'all' | 'live' | 'email' | 'customers';
+type Sort = 'recent' | 'revenue' | 'sessions';
+type Person = { seed: string; latest: LiveVisit; first: LiveVisit; sessions: number; online: boolean };
+
+// Anonymous visitors get a stable, friendly handle: the same browser always reads the same.
+function handle(seed: string) {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
+  const n = h >>> 0;
+  return `${ADJ[n % ADJ.length]} ${ANIMAL[(n >>> 8) % ANIMAL.length]}`;
+}
 
 function ago(iso: string, now: number) {
-  const seconds = Math.max(0, Math.floor((now - Date.parse(iso)) / 1000));
-  if (seconds < 5) return 'Just now';
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
+  const minutes = Math.floor(Math.max(0, now - Date.parse(iso)) / 60_000);
+  if (minutes < 1) return 'just now';
   return minutes < 60 ? `${minutes}m ago` : `${Math.floor(minutes / 60)}h ago`;
 }
 
-export function People({ data, loading, failed }: { data: LivePayload; loading: boolean; failed: boolean }) {
-  const [search, setSearch] = useState('');
-  const [onlineOnly, setOnlineOnly] = useState(false);
-  const [source, setSource] = useState('');
-  const [country, setCountry] = useState('');
+export function People({ data, loading, failed, onLive, onOpen }: {
+  data: LivePayload;
+  loading: boolean;
+  failed: boolean;
+  onLive: () => void;
+  onOpen: (seed: string) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [tab, setTab] = useState<Tab>('all');
+  const [source, setSource] = useState('all');
+  const [country, setCountry] = useState('all');
+  const [sort, setSort] = useState<Sort>('recent');
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
-    const tick = window.setInterval(() => setNow(Date.now()), 1000);
+    const tick = window.setInterval(() => setNow(Date.now()), 5000);
     return () => clearInterval(tick);
   }, []);
-  const unique = new Map<string, LiveVisit>();
-  for (const visit of data.visits) if (!unique.has(visit.seed)) unique.set(visit.seed, visit);
-  const visits = [...unique.values()];
-  const sources = [...new Set(visits.map((v) => v.referrer))].sort();
-  const countries = [...new Set(visits.flatMap((v) => v.cc ? [v.cc] : []))].sort();
-  const names = new Intl.DisplayNames(['en'], { type: 'region' });
-  const results = visits.filter((v) => (!onlineOnly || isOnline(v, now)) && (!source || v.referrer === source) && (!country || v.cc === country)
-    && [v.path, v.referrer, v.place].some((value) => value?.toLowerCase().includes(search.trim().toLowerCase())));
+
+  const regions = useMemo(() => new Intl.DisplayNames(undefined, { type: 'region' }), []);
+
+  const people = useMemo(() => {
+    const byVisitor = new Map<string, LiveVisit[]>();
+    for (const visit of data.visits) byVisitor.set(visit.seed, [...(byVisitor.get(visit.seed) ?? []), visit]);
+    return [...byVisitor.entries()].map(([seed, visits]): Person => {
+      const times = visits.map((v) => Date.parse(v.seenAt)).sort((a, b) => a - b);
+      const sessions = times.reduce((count, t, i) => count + (i === 0 || t - times[i - 1] > SESSION_GAP ? 1 : 0), 0);
+      return { seed, latest: visits[0], first: visits[visits.length - 1], sessions, online: visits.some((v) => isOnline(v, now)) };
+    });
+  }, [data.visits, now]);
+
+  const term = query.trim().toLowerCase();
+  const picked = people.filter((p) => (source === 'all' || sourceKey(p.first.referrer) === source)
+    && (country === 'all' || p.latest.cc === country)
+    && (!term || [handle(p.seed), p.latest.path, p.latest.place, sourceLabel(p.first.referrer)].some((v) => v?.toLowerCase().includes(term))));
+  const inTab = (p: Person, t: Tab) => (t === 'live' ? p.online : t === 'all');
+  const rows = picked.filter((p) => inTab(p, tab)).sort((a, b) => (sort === 'sessions'
+    ? b.sessions - a.sessions
+    : Date.parse(b.latest.seenAt) - Date.parse(a.latest.seenAt)));
+
+  const tabs: { id: Tab; label: string }[] = [
+    { id: 'all', label: 'Everyone' }, { id: 'live', label: 'Online now' }, { id: 'email', label: 'With email' }, { id: 'customers', label: 'Customers' },
+  ];
+  const sourceOptions = [{ value: 'all', label: 'All sources' }, ...[...new Map(people.map((p) => [sourceKey(p.first.referrer), sourceLabel(p.first.referrer)])).entries()]
+    .map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label))];
+  const countryOptions = [{ value: 'all', label: 'All countries' }, ...[...new Set(people.flatMap((p) => (p.latest.cc ? [p.latest.cc] : [])))]
+    .map((cc) => ({ value: cc, label: regions.of(cc.toUpperCase()) ?? cc.toUpperCase() })).sort((a, b) => a.label.localeCompare(b.label))];
+  const reset = () => { setQuery(''); setSource('all'); setCountry('all'); setTab('all'); };
 
   return (
-    <div className="v2-empty-screen omer-people">
-      <h1>People</h1>
-      <p>See recent visitors, what they viewed, and where they came from.</p>
-      <section className="v2-card">
-        <div className="omer-people-controls">
-          <div className="omer-people-switch" role="group" aria-label="Visitor activity">
-            <button type="button" aria-pressed={!onlineOnly} onClick={() => setOnlineOnly(false)}>Everyone <span>{visits.length}</span></button>
-            <button type="button" aria-pressed={onlineOnly} onClick={() => setOnlineOnly(true)}>Online now <span>{visits.filter((v) => isOnline(v, now)).length}</span></button>
-          </div>
-          <label className="omer-people-search"><Search size={16} aria-hidden="true" /><input type="search" aria-label="Search by page, source, or location" placeholder="Search people" value={search} onChange={(e) => setSearch(e.target.value)} /></label>
-          <label><span className="sr-only">Source</span><select value={source} onChange={(e) => setSource(e.target.value)}><option value="">All sources</option>{sources.map((value) => <option key={value} value={value}>{value === '(direct)' ? 'Direct' : value}</option>)}</select></label>
-          <label><span className="sr-only">Country</span><select value={country} onChange={(e) => setCountry(e.target.value)}><option value="">All countries</option>{countries.map((value) => <option key={value} value={value}>{names.of(value.toUpperCase())}</option>)}</select></label>
+    <div className="people-page">
+      <header className="people-intro">
+        <div>
+          <h1 className="v2-title" tabIndex={-1}>People</h1>
+          <p>See who visited, what they did, and what brought them back.</p>
         </div>
-        <div className="v2-in">
-          {failed && <p className="omer-empty-note" role="status">Live connection interrupted. Reconnecting…</p>}
-          {loading ? <p className="omer-empty-note">Loading visitors…</p> : null}
-          {!failed && !loading && results.length === 0 ? <p className="omer-empty-note">{visits.length ? 'No visitors match your filters.' : 'No visitors in the last day yet.'}</p> : null}
-          {results.length > 0 && (
-            <table className="v2-stat-table">
-              <thead><tr><th scope="col">Person</th><th scope="col">Latest page</th><th scope="col">Source</th><th scope="col">Last seen</th></tr></thead>
-              <tbody>
-                {results.map((visit) => (
-                  <tr key={visit.seed}>
-                    <th scope="row">
-                      <span className="v2-stat-src">
-                        <span className="omer-person-avatar" aria-hidden="true">{visit.cc && <img className="flag" src={`/assets/flags/${visit.cc}.svg`} alt="" width={16} height={16} />}</span>
-                        <span>Anonymous visitor<small>{visit.place || 'Location unavailable'}</small></span>
-                      </span>
-                    </th>
-                    <td>{visit.path}</td><td>{visit.referrer === '(direct)' ? 'Direct' : visit.referrer}</td>
-                    <td>{isOnline(visit, now) ? <span className="omer-person-online">Online</span> : <time dateTime={visit.seenAt}>{ago(visit.seenAt, now)}</time>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+        <button type="button" className="btn btn-secondary people-cta" onClick={onLive}>Watch them live<Icon name="arrowUpRight" /></button>
+      </header>
+
+      <section className="people-dir" aria-label="Visitor directory">
+        <div className="people-bar">
+          <nav className="pill-tabs" aria-label="Filter by visitor type">
+            {tabs.map((t) => (
+              <button key={t.id} type="button" className="ib-tab" aria-pressed={tab === t.id} onClick={() => setTab(t.id)}>
+                {t.label}<span>{picked.filter((p) => inTab(p, t.id)).length}</span>
+              </button>
+            ))}
+          </nav>
+          <label className="people-search">
+            <Icon name="search" />
+            <input type="search" placeholder="Search people" aria-label="Search people by page, source, or place" value={query} onChange={(e) => setQuery(e.target.value)} />
+          </label>
+        </div>
+        <div className="people-refine">
+          <div className="people-tools">
+            <Dropdown label="Filter by source" value={source} options={sourceOptions} onChange={setSource} />
+            <Dropdown label="Filter by country" value={country} options={countryOptions} onChange={setCountry} align="end" />
+          </div>
+          <div className="people-tools">
+            <span role="status">{rows.length} {rows.length === 1 ? 'person' : 'people'}</span>
+            <Dropdown label="Sort people" align="end" value={sort} onChange={(v) => setSort(v as Sort)}
+              options={[{ value: 'recent', label: 'Last seen' }, { value: 'revenue', label: 'Highest revenue' }, { value: 'sessions', label: 'Most sessions' }]} />
+          </div>
+        </div>
+
+        <div className="people-table" role="table" aria-label="People">
+          <div className="people-row people-head" role="row">
+            <span role="columnheader">Person</span><span role="columnheader">Latest activity</span><span role="columnheader">First source</span>
+            <span role="columnheader" className="r people-sessions">Sessions</span><span role="columnheader" className="r">Revenue</span>
+            <span role="columnheader" className="r">Last seen</span><span aria-hidden="true" />
+          </div>
+          <div className="people-rows" role="rowgroup">
+            {(failed || loading || rows.length === 0) && (
+              <div role="row"><div role="cell" className="people-empty">
+                {failed ? <p role="status">Live connection interrupted. Reconnecting…</p>
+                  : loading ? <p role="status">Loading people…</p>
+                  : <>
+                    <Icon name="search" />
+                    <b>{people.length ? 'No matching people' : 'Nobody yet today'}</b>
+                    <p>{people.length ? 'No visitors match your filters. Try another page, source, or place.' : 'Visitors from the last day show up here once they arrive.'}</p>
+                    {people.length > 0 && <button type="button" className="btn btn-secondary btn-sm" onClick={reset}>Clear filters</button>}
+                  </>}
+              </div></div>
+            )}
+            {!failed && !loading && rows.map((p) => (
+              <div key={p.seed} className="people-row" role="row" tabIndex={0}
+                aria-label={`${handle(p.seed)}, open on the Live globe`}
+                onClick={() => onOpen(p.seed)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(p.seed); } }}>
+                <span className="people-who" role="rowheader">
+                  <span className="people-avatar">
+                    <Orb seed={p.seed} size={42} />
+                    {p.latest.cc && <span className="flag people-flag" title={regions.of(p.latest.cc.toUpperCase())}><img src={`/assets/flags/${p.latest.cc}.svg`} alt="" draggable={false} /></span>}
+                  </span>
+                  <span className="people-names"><b>{handle(p.seed)}</b><small>{p.latest.place ?? 'Anonymous'}</small></span>
+                </span>
+                <span className="people-did" role="cell">{p.online ? <>On your site now, viewing <b>{p.latest.path}</b></> : <>Last viewed <b>{p.latest.path}</b></>}</span>
+                <span className="people-from" role="cell">
+                  <span className="people-source"><span className="people-mark" aria-hidden="true"><SourceMark referrer={p.first.referrer} /></span><span>{sourceLabel(p.first.referrer)}</span></span>
+                  <small>{sourceKind(p.first.referrer)}</small>
+                </span>
+                <span className="people-n people-sessions" role="cell">{p.sessions}<span className="sr-only"> sessions</span></span>
+                <span className="people-n people-none" role="cell"><span className="sr-only">Revenue </span>{money.format(0)}</span>
+                <span className="people-seen" role="cell">{p.online ? <span className="people-live">Online</span> : <><span className="sr-only">Last seen </span>{ago(p.latest.seenAt, now)}</>}</span>
+                <Icon name="chevronRight" className="people-arrow" />
+              </div>
+            ))}
+          </div>
         </div>
       </section>
     </div>
