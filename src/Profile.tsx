@@ -4,7 +4,7 @@ import { Icon } from './ui/Icon';
 import { Orb } from './ui/Orb';
 import { SourceMark, sourceKind, sourceLabel } from './ui/sources';
 import { ActivityHeatmap } from './ui/Activity';
-import { ReplayPlayer } from './ReplayPlayer';
+import { prefetchReplayPlayer, ReplayPlayer } from './ReplayPlayer';
 import { useSlidingPill } from './ui/useSlidingPill';
 
 const money = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
@@ -66,7 +66,19 @@ type JourneySession = {
   live: boolean;
   events: { id: string; path: string; seenAt: string; durationMs?: number }[];
   purchases: { id: string; amount: number; path: string | null; products: { name: string; price?: number; qty?: number }[] | null; seenAt: string }[];
-  replay: { id: string; status: string; hasFullSnapshot: boolean } | null;
+  replay: {
+    id: string;
+    status: string;
+    hasFullSnapshot: boolean;
+    insight?: {
+      status: string;
+      summary: string | null;
+      outcome: string | null;
+      friction: number | null;
+      worthWatching: boolean | null;
+      primaryInterest: string | null;
+    } | null;
+  } | null;
 };
 
 type ProfileData = {
@@ -86,6 +98,7 @@ type ProfileData = {
   activity: Record<string, number>;
   journey: JourneySession[];
   replayEnabled: boolean;
+  replayInsights?: boolean;
 };
 
 export function Profile({ projectId, seed, onLive, onName }: {
@@ -117,7 +130,7 @@ export function Profile({ projectId, seed, onLive, onName }: {
       }
     }
     void load();
-    // Refresh quickly while someone looks live so Online/Recording clears without a manual reload.
+    // Poll faster while someone looks live so Online/Recording flips off without a manual refresh.
     const timer = window.setInterval(() => void load(), 4_000);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [projectId, seed]);
@@ -360,9 +373,24 @@ function JourneyCard({ session, date, replayEnabled, onReplay }: {
             {replay?.status === 'expired' ? (
               <span className="profile-replay-gone">Replay expired</span>
             ) : replay?.hasFullSnapshot && replayEnabled ? (
-              <button type="button" className="btn btn-ghost btn-sm profile-play" aria-label={`Watch replay for ${title.toLowerCase()}`} onClick={() => onReplay(replay.id)}>
-                <Icon name="play" />Watch replay
-              </button>
+              <span className="profile-replay-actions">
+                {replay.insight?.status === 'ready' && replay.insight.outcome && (
+                  <span className="profile-insight-chip">
+                    {replay.insight.outcome}
+                    {replay.insight.worthWatching ? ' · watch' : ''}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm profile-play"
+                  aria-label={`Watch replay for ${title.toLowerCase()}`}
+                  onMouseEnter={() => prefetchReplayPlayer()}
+                  onFocus={() => prefetchReplayPlayer()}
+                  onClick={() => onReplay(replay.id)}
+                >
+                  <Icon name="play" />Watch replay
+                </button>
+              </span>
             ) : !replayEnabled ? (
               <span className="profile-replay-gone">Replay off</span>
             ) : session.live ? (

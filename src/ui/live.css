@@ -137,6 +137,8 @@
 .lvp-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--v2-up); }
 .lvp-big .lvp-dot { box-shadow: 0 0 8px color-mix(in srgb, var(--v2-up) 60%, transparent); }
 .lvp-feed .lvp-dot { width: 6px; height: 6px; opacity: 0.85; }
+.lvp-feed .lvp-dot.is-gone { background: color-mix(in srgb, var(--ink-3) 55%, transparent); opacity: 0.55; box-shadow: none; }
+.lvp-feed .lvp-dot.is-live { opacity: 1; }
 .lvp-big { display: grid; gap: 6px; }
 .lvp-big b { font-size: 40px; font-weight: 600; line-height: 0.95; letter-spacing: -0.045em; }
 .lvp-big span { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ink-2); }

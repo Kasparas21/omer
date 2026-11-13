@@ -263,7 +263,7 @@ export function LiveGlobe({ data: live, loading, failed: connectionFailed, focus
                 {data.visits.slice(0, 24).map((visit) => (
                   <li key={visit.id}>
                     <button type="button" data-livego={visit.seed} aria-current={focus === visit.seed ? 'true' : undefined} disabled={!isOnline(visit, now) || visit.lat == null || visit.lng == null} onClick={() => focusVisit(visit)}>
-                      <i className="lvp-dot" aria-hidden="true" />
+                      <i className={`lvp-dot${isOnline(visit, now) ? ' is-live' : ' is-gone'}`} aria-hidden="true" />
                       {visit.cc
                         ? <img className="flag" src={`/assets/flags/${visit.cc}.svg`} alt="" width={16} height={16} draggable={false} />
                         : <span className="flag" aria-hidden="true" />}

@@ -4,6 +4,7 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { bodyLimit } from 'hono/body-limit';
 import { auth, googleAuthEnabled, pool } from './auth';
 import { objectStoreConfigured } from './object-store';
+import { openaiConfigured } from './replay-insight';
 import projects from './projects';
 
 // Single-server demo limits; bounded memory, no visitor IP persisted in project data.
@@ -20,19 +21,24 @@ function limiter(max: number) {
     return { success: ++entry.count <= max };
   } };
 }
-const env = { ALLOW_LOCAL_SITES: process.env.ALLOW_LOCAL_SITES, CREATE_LIMIT: limiter(10), COLLECT_LIMIT: limiter(120) };
+const env = { ALLOW_LOCAL_SITES: process.env.ALLOW_LOCAL_SITES, CREATE_LIMIT: limiter(10), COLLECT_LIMIT: limiter(600) };
 const app = new Hono();
 app.use('/api/*', bodyLimit({ maxSize: 16384 }));
-app.use('/v1/collect/replay-chunks', bodyLimit({ maxSize: 900_000 }));
+app.use('/v1/collect/replay-chunks', bodyLimit({ maxSize: 4_000_000 }));
 app.use('/v1/collect/event', bodyLimit({ maxSize: 16384 }));
 app.use('/api/*', async (c, next) => { c.header('Cache-Control', 'no-store'); await next(); });
 app.all('/api/auth/*', (c) => auth.handler(c.req.raw));
-app.get('/api/config', (c) => c.json({ googleAuth: googleAuthEnabled, replayStorage: objectStoreConfigured() }));
+app.get('/api/config', (c) => c.json({
+  googleAuth: googleAuthEnabled,
+  replayStorage: objectStoreConfigured(),
+  replayInsights: openaiConfigured(),
+}));
 app.all('/api/projects', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id', (c) => projects.fetch(c.req.raw, env));
 app.get('/api/projects/:id/live/stream', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/live', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/visitors/:vid', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/replays/:rid/summary', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/replays/:rid', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/replays/:rid/chunks/:seq', (c) => projects.fetch(c.req.raw, env));
 app.all('/v1/collect/install', (c) => projects.fetch(c.req.raw, env));

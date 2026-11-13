@@ -4,7 +4,14 @@ import { createHash } from 'node:crypto';
 import { amountCents, cleanCampaign, cleanCurrency, cleanEmail, cleanName, cleanOrderId, cleanProducts } from './commerce';
 import { localDemoPlace, placeFromRequest } from './geo';
 import { deleteObject, getObject, objectKeyFor, objectStoreConfigured, putObject } from './object-store';
-import { dailyVisitors, dwell, emailEvents, identities, pageViews, pathViews, projects, purchases, referrerViews, replayChunks, replaySessions, visits } from './schema';
+import {
+  buildEvidence,
+  generateReplayInsight,
+  loadChunkEvents,
+  openaiConfigured,
+  publicInsight,
+} from './replay-insight';
+import { dailyVisitors, dwell, emailEvents, identities, pageViews, pathViews, projects, purchases, referrerViews, replayChunks, replayInsights, replaySessions, visits } from './schema';
 import { auth, pool, appURL } from './auth';
 
 type RateLimit = { limit(input: { key: string }): Promise<{ success: boolean }> };
@@ -49,6 +56,24 @@ function json(data: unknown, status = 200, headers?: HeadersInit) {
 
 function cors(origin: string) {
   return { 'Access-Control-Allow-Origin': origin, Vary: 'Origin', 'Cache-Control': 'no-store' };
+}
+
+/** Prefer Origin; fall back to Referer for sendBeacon leave uploads (some mobile browsers omit Origin). */
+function requestOrigin(request: Request) {
+  const origin = request.headers.get('Origin');
+  if (origin && origin !== 'null') return origin;
+  const referer = request.headers.get('Referer') || request.headers.get('Referrer');
+  if (!referer) return null;
+  try {
+    return new URL(referer).origin;
+  } catch {
+    return null;
+  }
+}
+
+/** Collect endpoints must always include CORS, including errors — otherwise browsers report Failed to fetch. */
+function collectReply(origin: string, status: number) {
+  return new Response(null, { status, headers: cors(origin) });
 }
 
 async function readText(request: Request, limit: number) {
@@ -99,9 +124,10 @@ function cleanPath(value: unknown) {
 
 function cleanReferrer(value: unknown) {
   if (typeof value !== 'string' || value.length > 120) return '(direct)';
-  const trimmed = value.trim().toLowerCase() || '(direct)';
-  if (trimmed === '(direct)') return trimmed;
-  if (!/^[a-z0-9.-]+$/.test(trimmed)) return '(direct)';
+  // Accept hostnames and short UTM slugs (linkedin, reddit, google, …).
+  const trimmed = value.trim().toLowerCase().replace(/^www\./, '') || '(direct)';
+  if (trimmed === '(direct)' || trimmed === 'direct') return '(direct)';
+  if (!/^[a-z0-9][a-z0-9.-]{0,118}$/.test(trimmed)) return '(direct)';
   return trimmed;
 }
 
@@ -356,7 +382,7 @@ async function receiveEvent(request: Request, env: Env) {
   const origin = request.headers.get('Origin');
   if (!origin || origin === 'null') return new Response(null, { status: 403 });
   const ip = request.headers.get('CF-Connecting-IP') ?? 'local';
-  if (!(await env.COLLECT_LIMIT.limit({ key: `${ip}:event` })).success) return new Response(null, { status: 429 });
+  if (!(await env.COLLECT_LIMIT.limit({ key: `${ip}:event` })).success) return collectReply(origin, 429);
 
   const raw = await readText(request, 4096);
   let body: Record<string, unknown> | null;
@@ -367,7 +393,7 @@ async function receiveEvent(request: Request, env: Env) {
     || body?.type === 'email_open' || body?.type === 'email_click' ? body.type : null;
   const vid = typeof body?.vid === 'string' && visitorId.test(body.vid) ? body.vid : null;
   const path = cleanPath(body?.path) ?? '/';
-  if (!uuid.test(writeKey) || !type || !vid) return new Response(null, { status: 400 });
+  if (!uuid.test(writeKey) || !type || !vid) return collectReply(origin, 400);
 
   const accepted = await withDatabase(env, (db) => db.transaction(async (tx) => {
     const [project] = await tx.select({ id: projects.id, firstEventAt: projects.firstEventAt }).from(projects)
@@ -786,6 +812,22 @@ async function visitorProfile(request: Request, env: Env, projectId: string, vis
       .orderBy(desc(replaySessions.startedAt))
       .limit(40);
 
+    const insightRows = replayRows.length
+      ? await db.select({
+        sessionPk: replayInsights.sessionPk,
+        status: replayInsights.status,
+        summaryText: replayInsights.summaryText,
+        outcome: replayInsights.outcome,
+        friction: replayInsights.friction,
+        worthWatching: replayInsights.worthWatching,
+        primaryInterest: replayInsights.primaryInterest,
+        generatedAt: replayInsights.generatedAt,
+      })
+        .from(replayInsights)
+        .where(inArray(replayInsights.sessionPk, replayRows.map((row) => row.id)))
+      : [];
+    const insightByReplay = new Map(insightRows.map((row) => [row.sessionPk, publicInsight(row)]));
+
     const revenue = orderRows.reduce((sum, row) => sum + row.amountCents, 0) / 100;
     const opens = mail.filter((row) => row.type === 'email_open').length;
     const clicks = mail.filter((row) => row.type === 'email_click').length;
@@ -817,6 +859,7 @@ async function visitorProfile(request: Request, env: Env, projectId: string, vis
           : playable ? row.status : 'incomplete',
         hasFullSnapshot: playable,
         startedAt: row.startedAt,
+        insight: insightByReplay.get(row.id) ?? null,
       }];
     }));
     const journey = sessions.map((session) => ({
@@ -885,6 +928,7 @@ async function visitorProfile(request: Request, env: Env, projectId: string, vis
       })),
       emailEvents: mail,
       replayEnabled: project.replayEnabled && objectStoreConfigured(),
+      replayInsights: openaiConfigured(),
     });
   });
 }
@@ -901,16 +945,16 @@ async function collectConfig(request: Request, env: Env) {
 }
 
 async function receiveReplayChunk(request: Request, env: Env) {
-  const origin = request.headers.get('Origin');
-  if (!origin || origin === 'null') return new Response(null, { status: 403 });
-  if (!objectStoreConfigured()) return new Response(null, { status: 503 });
+  const origin = requestOrigin(request);
+  if (!origin) return new Response(null, { status: 403 });
+  if (!objectStoreConfigured()) return collectReply(origin, 503);
   const ip = request.headers.get('CF-Connecting-IP') ?? 'local';
-  if (!(await env.COLLECT_LIMIT.limit({ key: `${ip}:replay` })).success) return new Response(null, { status: 429 });
+  if (!(await env.COLLECT_LIMIT.limit({ key: `${ip}:replay` })).success) return collectReply(origin, 429);
 
-  const raw = await readText(request, 900_000);
-  if (raw == null) return new Response(null, { status: 413 });
+  const raw = await readText(request, 4_000_000);
+  if (raw == null) return collectReply(origin, 413);
   let body: Record<string, unknown> | null;
-  try { body = JSON.parse(raw); } catch { return new Response(null, { status: 400 }); }
+  try { body = JSON.parse(raw); } catch { return collectReply(origin, 400); }
   const writeKey = typeof body?.key === 'string' ? body.key : '';
   const vid = typeof body?.vid === 'string' && visitorId.test(body.vid) ? body.vid : null;
   const sid = cleanSessionId(body?.sid);
@@ -918,17 +962,17 @@ async function receiveReplayChunk(request: Request, env: Env) {
   const clientBatchId = typeof body?.clientBatchId === 'string' ? body.clientBatchId.slice(0, 80) : '';
   const seq = typeof body?.seq === 'number' && Number.isFinite(body.seq) ? Math.max(0, Math.round(body.seq)) : -1;
   const events = Array.isArray(body?.events) ? body.events : null;
-  if (!uuid.test(writeKey) || !vid || !sid || !clientBatchId || seq < 0 || !events || !events.length || events.length > 400) {
-    return new Response(null, { status: 400 });
+  if (!uuid.test(writeKey) || !vid || !sid || !clientBatchId || seq < 0 || !events || !events.length || events.length > 2_000) {
+    return collectReply(origin, 400);
   }
 
   const [project] = await withDatabase(env, (db) => db.select({
     id: projects.id, replayEnabled: projects.replayEnabled,
   }).from(projects).where(and(eq(projects.writeKey, writeKey), eq(projects.origin, origin))).limit(1));
-  if (!project?.replayEnabled) return new Response(null, { status: 403 });
+  if (!project?.replayEnabled) return collectReply(origin, 403);
 
   const payload = Buffer.from(JSON.stringify(events));
-  if (payload.length > 700_000) return new Response(null, { status: 413 });
+  if (payload.length > 3_500_000) return collectReply(origin, 413);
   const checksum = createHash('sha256').update(payload).digest('hex');
   const hasFull = Boolean(body?.hasFullSnapshot) || events.some((e) => (e as { type?: number })?.type === 2);
 
@@ -1016,13 +1060,142 @@ async function getReplay(request: Request, env: Env, projectId: string, replayId
     const seqs = urls.map((c) => c.seq);
     const playable = Boolean(session.hasFullSnapshot) && Number(session.bytes) >= 1_000 && urls.length > 0;
     const gaps = seqs.length > 0 && (Math.max(...seqs) - Math.min(...seqs) + 1 !== seqs.length || !playable);
+    const [insight] = await db.select().from(replayInsights)
+      .where(eq(replayInsights.sessionPk, session.id)).limit(1);
     return json({
       id: session.id,
       status: playable ? 'ready' : 'incomplete',
       hasFullSnapshot: playable,
       chunks: urls,
       gaps,
+      insight: insight ? publicInsight(insight) : null,
+      insightsEnabled: openaiConfigured(),
     });
+  });
+}
+
+async function summarizeReplay(request: Request, env: Env, projectId: string, replayId: string) {
+  if (!uuid.test(projectId) || !uuid.test(replayId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to summarize replays.' }, 401);
+  if (!openaiConfigured()) return json({ error: 'OpenAI is not configured.' }, 503);
+
+  return withDatabase(env, async (db) => {
+    const [project] = await db.select({ id: projects.id })
+      .from(projects).where(and(eq(projects.id, projectId), eq(projects.owner, owner))).limit(1);
+    if (!project) return json({ error: 'Not found.' }, 404);
+    const [session] = await db.select().from(replaySessions)
+      .where(and(eq(replaySessions.id, replayId), eq(replaySessions.projectId, projectId))).limit(1);
+    if (!session) return json({ error: 'Not found.' }, 404);
+    if (Date.parse(String(session.expiresAt)) < Date.now()) return json({ error: 'Replay expired.' }, 410);
+
+    const [existing] = await db.select().from(replayInsights)
+      .where(eq(replayInsights.sessionPk, session.id)).limit(1);
+    if (existing?.status === 'ready' && existing.summaryText) {
+      return json({ insight: publicInsight(existing) });
+    }
+
+    const chunks = await db.select({
+      seq: replayChunks.seq,
+      objectKey: replayChunks.objectKey,
+      byteSize: replayChunks.byteSize,
+    })
+      .from(replayChunks)
+      .where(eq(replayChunks.sessionPk, session.id))
+      .orderBy(asc(replayChunks.seq));
+    const usable = chunks.filter((chunk) => Number(chunk.byteSize) >= 8);
+    if (!usable.length || !session.hasFullSnapshot || Number(session.bytes) < 1_000) {
+      return json({ error: 'Replay is not ready to summarize.' }, 409);
+    }
+
+    const visitRows = await db.select({
+      path: visits.path,
+      referrer: visits.referrer,
+      device: visits.device,
+      dwellMs: visits.dwellMs,
+      seenAt: visits.seenAt,
+    })
+      .from(visits)
+      .where(and(
+        eq(visits.projectId, projectId),
+        eq(visits.visitorId, session.visitorId),
+        eq(visits.sessionId, session.sessionId),
+      ))
+      .orderBy(asc(visits.seenAt))
+      .limit(50);
+
+    await db.insert(replayInsights).values({
+      sessionPk: session.id,
+      status: 'pending',
+      error: null,
+    }).onConflictDoUpdate({
+      target: replayInsights.sessionPk,
+      set: { status: 'pending', error: null },
+    });
+
+    try {
+      const events = await loadChunkEvents(usable.map((chunk) => chunk.objectKey));
+      const evidence = buildEvidence({
+        device: visitRows.find((row) => row.device === 'phone')?.device
+          || visitRows.find((row) => row.device === 'monitor')?.device
+          || 'monitor',
+        referrer: visitRows[0]?.referrer || '(direct)',
+        paths: visitRows.length ? visitRows.map((row) => row.path) : ['/'],
+        dwellMs: visitRows.reduce((sum, row) => sum + (Number(row.dwellMs) || 0), 0),
+        chunkCount: usable.length,
+        events,
+      });
+
+      const generated = await generateReplayInsight(evidence);
+      const [saved] = await db.insert(replayInsights).values({
+        sessionPk: session.id,
+        status: 'ready',
+        summaryText: generated.summaryText,
+        outcome: generated.outcome,
+        friction: generated.friction,
+        worthWatching: generated.worthWatching,
+        primaryInterest: generated.primaryInterest,
+        decisionsJson: generated.decisionsJson,
+        model: generated.model,
+        generatedAt: new Date(),
+        error: null,
+      }).onConflictDoUpdate({
+        target: replayInsights.sessionPk,
+        set: {
+          status: 'ready',
+          summaryText: generated.summaryText,
+          outcome: generated.outcome,
+          friction: generated.friction,
+          worthWatching: generated.worthWatching,
+          primaryInterest: generated.primaryInterest,
+          decisionsJson: generated.decisionsJson,
+          model: generated.model,
+          generatedAt: new Date(),
+          error: null,
+        },
+      }).returning();
+      return json({ insight: publicInsight(saved) });
+    } catch (error) {
+      const message = error instanceof Error ? error.message.slice(0, 300) : 'Unable to generate summary';
+      console.error('replay summarize failed', error);
+      await db.insert(replayInsights).values({
+        sessionPk: session.id,
+        status: 'failed',
+        error: message,
+      }).onConflictDoUpdate({
+        target: replayInsights.sessionPk,
+        set: { status: 'failed', error: message },
+      });
+      return json({ error: message, insight: publicInsight({
+        status: 'failed',
+        summaryText: null,
+        outcome: null,
+        friction: null,
+        worthWatching: null,
+        primaryInterest: null,
+        error: message,
+      }) }, 502);
+    }
   });
 }
 
@@ -1045,14 +1218,15 @@ async function getReplayChunk(request: Request, env: Env, projectId: string, rep
     if (!chunk) return json({ error: 'Not found.' }, 404);
     try {
       const body = await getObject(chunk.objectKey);
-      return new Response(body, {
+      return new Response(new Uint8Array(body), {
         status: 200,
         headers: {
           'Content-Type': 'application/json',
           'Cache-Control': 'private, no-store',
         },
       });
-    } catch {
+    } catch (error) {
+      console.error('replay chunk read failed', error);
       return json({ error: 'Chunk unavailable.' }, 502);
     }
   });
@@ -1120,6 +1294,13 @@ export default {
       if (replayChunkMatch) {
         if (request.method === 'GET') {
           return await getReplayChunk(request, env, replayChunkMatch[1], replayChunkMatch[2], replayChunkMatch[3]);
+        }
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const replaySummaryMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/replays\/([0-9a-f-]{36})\/summary$/i);
+      if (replaySummaryMatch) {
+        if (request.method === 'POST') {
+          return await summarizeReplay(request, env, replaySummaryMatch[1], replaySummaryMatch[2]);
         }
         return json({ error: 'Method not allowed.' }, 405);
       }

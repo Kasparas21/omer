@@ -19,17 +19,21 @@
   let cachedId;
   let replayOn = false;
   let stopReplay = null;
+  let lastIdentifiedEmail = '';
+  let emailCaptureBound = false;
 
   function visitorId() {
-    if (cachedId) return cachedId;
     try {
       let id = localStorage.getItem(storeKey);
       if (!id) {
-        id = (crypto.randomUUID && crypto.randomUUID()) || `v_${Math.random().toString(36).slice(2)}_${Date.now()}`;
+        id = (cachedId && /^[A-Za-z0-9_-]{8,80}$/.test(cachedId))
+          ? cachedId
+          : ((crypto.randomUUID && crypto.randomUUID()) || `v_${Math.random().toString(36).slice(2)}_${Date.now()}`);
         localStorage.setItem(storeKey, id);
       }
       return (cachedId = id);
     } catch {
+      if (cachedId) return cachedId;
       return (cachedId = `session_${Math.random().toString(36).slice(2)}_${Date.now()}`);
     }
   }
@@ -65,11 +69,29 @@
     return value.length > 300 ? value.slice(0, 300) : value;
   }
 
-  function referrerHost() {
+  function slugSource(value) {
+    const slug = String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9.-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80);
+    return slug || '';
+  }
+
+  // Prefer UTMs / click ids — many social apps strip document.referrer.
+  function trafficSource() {
     try {
+      const params = new URLSearchParams(location.search);
+      const utm = slugSource(params.get('utm_source'));
+      if (utm) return utm;
+      if (params.get('gclid') || params.get('gbraid') || params.get('wbraid')) return 'google';
+      if (params.get('fbclid')) return 'facebook.com';
+      if (params.get('ttclid')) return 'tiktok.com';
+      if (params.get('msclkid')) return 'bing.com';
       if (!document.referrer) return '(direct)';
-      const host = new URL(document.referrer).hostname.toLowerCase();
-      if (!host || host === location.hostname) return '(direct)';
+      const host = new URL(document.referrer).hostname.toLowerCase().replace(/^www\./, '');
+      if (!host || host === location.hostname.replace(/^www\./, '')) return '(direct)';
       return host.slice(0, 120);
     } catch {
       return '(direct)';
@@ -87,23 +109,31 @@
     };
   }
 
-  function post(body) {
+  function post(body, { unload = false } = {}) {
+    const raw = JSON.stringify(body);
+    if (unload) {
+      // text/plain avoids CORS preflight; fetch keepalive is the reliable backup.
+      // Never trust sendBeacon alone cross-origin — it can return true and still drop.
+      try {
+        navigator.sendBeacon?.(eventURL, new Blob([raw], { type: 'text/plain;charset=UTF-8' }));
+      } catch { /* ignore */ }
+    }
     return fetch(eventURL, {
       method: 'POST',
-      body: JSON.stringify(body),
+      body: raw,
       credentials: 'omit',
       keepalive: true,
       headers: { 'Content-Type': 'application/json' },
     }).catch(() => undefined);
   }
 
-  function sendDwell() {
+  function sendDwell(fromUnload = false) {
     if (!consented || !pageAt) return;
     const ms = Math.min(1_800_000, Math.max(0, Date.now() - pageAt));
     pageAt = 0;
     const payload = { ...basePayload('dwell'), path, ms };
     if (visitId) payload.visitId = visitId;
-    void post(payload);
+    void post(payload, { unload: fromUnload });
   }
 
   function sendPresence() {
@@ -120,7 +150,7 @@
     void post({
       ...basePayload('pageview'),
       path,
-      ref: referrerHost(),
+      ref: trafficSource(),
     });
   }
 
@@ -143,6 +173,7 @@
         cachedId = undefined;
         stopReplay?.();
         stopReplay = null;
+        lastIdentifiedEmail = '';
         try {
           localStorage.removeItem(storeKey);
           localStorage.removeItem(sessionKey);
@@ -153,6 +184,9 @@
     }
     if (consented) return;
     consented = true;
+    // Ensure ids exist in storage before the first pageview / replay flush.
+    visitorId();
+    sessionId();
     if (!installSent) {
       installSent = true;
       void fetch(installURL, {
@@ -163,16 +197,48 @@
       }).catch(() => undefined);
     }
     trackPage();
+    bindEmailCapture();
     void refreshConfig().then(() => { if (replayOn) startReplay(); });
   }
 
   function identify(input) {
     if (!consented || !input || typeof input !== 'object') return;
     const email = typeof input.email === 'string' ? input.email.trim() : '';
-    if (!email) return;
-    const payload = { ...basePayload('identify'), email };
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
+    if (email.toLowerCase() === lastIdentifiedEmail) return;
+    lastIdentifiedEmail = email.toLowerCase();
+    const payload = { ...basePayload('identify'), email: lastIdentifiedEmail };
     if (typeof input.name === 'string' && input.name.trim()) payload.name = input.name.trim().slice(0, 80);
     void post(payload);
+  }
+
+  function looksLikeEmailField(el) {
+    if (!el || el.disabled || el.readOnly) return false;
+    const tag = (el.tagName || '').toUpperCase();
+    if (tag !== 'INPUT' && tag !== 'TEXTAREA') return false;
+    const type = String(el.type || 'text').toLowerCase();
+    if (type === 'password' || type === 'hidden' || type === 'tel' || type === 'number' || type === 'card') return false;
+    const hint = `${el.name || ''} ${el.id || ''} ${el.autocomplete || ''} ${el.placeholder || ''} ${el.getAttribute?.('aria-label') || ''}`.toLowerCase();
+    if (/pass(word)?|card|cvv|cvc|ssn|secret|otp|pin/.test(hint)) return false;
+    if (type === 'email' || el.autocomplete === 'email') return true;
+    return /e-?mail|user(name)?/.test(hint) && !/user(name)?.*(pass|id\b)/.test(hint);
+  }
+
+  function captureEmailFromEvent(event) {
+    if (!consented) return;
+    const el = event.target;
+    if (!looksLikeEmailField(el)) return;
+    const email = String(el.value || '').trim();
+    if (!email) return;
+    identify({ email });
+  }
+
+  function bindEmailCapture() {
+    if (emailCaptureBound) return;
+    emailCaptureBound = true;
+    // Blur/change only — never scrape keystrokes, passwords, or payment fields.
+    document.addEventListener('focusout', captureEmailFromEvent, true);
+    document.addEventListener('change', captureEmailFromEvent, true);
   }
 
   function purchase(input) {
@@ -181,7 +247,7 @@
     if (!Number.isFinite(amount) || amount < 0 || amount > 1_000_000) return;
     const payload = {
       ...basePayload('purchase'),
-      ref: referrerHost(),
+      ref: trafficSource(),
       amount,
       currency: typeof input.currency === 'string' ? input.currency : 'usd',
     };
@@ -218,111 +284,254 @@
     let bytes = 0;
     let started = Date.now();
     let hasFull = false;
-    const tabId = sessionStorage.getItem(`uw_tab_${key}`) || (() => {
-      const id = newId().slice(0, 16);
-      try { sessionStorage.setItem(`uw_tab_${key}`, id); } catch { /* ignore */ }
-      return id;
+    const phone = deviceClass() === 'phone';
+    const tabId = (() => {
+      try {
+        const existing = sessionStorage.getItem(`uw_tab_${key}`);
+        if (existing) return existing;
+        const id = newId().slice(0, 16);
+        sessionStorage.setItem(`uw_tab_${key}`, id);
+        return id;
+      } catch {
+        return newId().slice(0, 16);
+      }
     })();
     const MAX_MS = 5 * 60_000;
     const MAX_BYTES = 5 * 1024 * 1024;
-    const FLUSH_BYTES = 180_000;
-
+    const FLUSH_BYTES = phone ? 100_000 : 180_000;
+    const BATCH_EVENTS = 300;
+    // Phones background tabs aggressively — upload the snapshot ASAP and flush often.
+    const FLUSH_EVERY_MS = phone ? 1200 : 2000;
+    const FIRST_FLUSH_DELAY_MS = phone ? 120 : 800;
+    const KEEPALIVE_MAX = 60_000;
     let flushing = false;
-    async function flush(force) {
-      if (flushing || !events.length) return;
-      if (!force && JSON.stringify(events).length < FLUSH_BYTES && Date.now() - started < MAX_MS) return;
-      flushing = true;
-      const batch = events;
-      events = [];
-      const body = JSON.stringify(batch);
-      if (!batch.length || bytes + body.length > MAX_BYTES) {
-        flushing = false;
-        return;
-      }
+    let firstFlushTimer = 0;
+    let retries = 0;
+
+    async function sendBatch(batch, { unload = false } = {}) {
+      if (!batch.length) return 'ok';
+      const eventsJson = JSON.stringify(batch);
+      if (bytes + eventsJson.length > MAX_BYTES) return 'drop';
       const batchId = newId();
-      const checksum = String(batchId.length + body.length + seq);
+      const checksum = String(batchId.length + eventsJson.length + seq);
+      const payload = JSON.stringify({
+        key,
+        vid: visitorId(),
+        sid: sessionId(),
+        tabId,
+        seq,
+        clientBatchId: batchId,
+        checksum,
+        hasFullSnapshot: hasFull || batch.some((e) => e?.type === 2),
+        events: batch,
+      });
+      // Chromium caps keepalive at 64KiB. Use it only for small unload flushes (mobile leave).
+      const useKeepalive = unload && payload.length <= KEEPALIVE_MAX;
       try {
+        if (unload && !useKeepalive && typeof navigator.sendBeacon === 'function') {
+          // Best-effort leave path when the snapshot is too big for keepalive.
+          const ok = navigator.sendBeacon(replayURL, new Blob([payload], { type: 'text/plain;charset=UTF-8' }));
+          if (ok) {
+            seq += 1;
+            bytes += eventsJson.length;
+            hasFull = hasFull || batch.some((e) => e?.type === 2);
+            return 'ok';
+          }
+        }
         const res = await fetch(replayURL, {
           method: 'POST',
           credentials: 'omit',
-          keepalive: true,
+          keepalive: useKeepalive,
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            key,
-            vid: visitorId(),
-            sid: sessionId(),
-            tabId,
-            seq,
-            clientBatchId: batchId,
-            checksum,
-            hasFullSnapshot: hasFull || batch.some((e) => e?.type === 2),
-            events: batch,
-          }),
+          body: payload,
         });
-        if (res.ok) {
-          seq += 1;
-          bytes += body.length;
-          hasFull = hasFull || batch.some((e) => e?.type === 2);
-        } else {
-          events = batch.concat(events);
-        }
+        if (res.status === 400 || res.status === 413) return 'drop';
+        if (!res.ok) return 'retry';
+        seq += 1;
+        bytes += eventsJson.length;
+        hasFull = hasFull || batch.some((e) => e?.type === 2);
+        retries = 0;
+        return 'ok';
       } catch {
-        events = batch.concat(events);
+        return 'retry';
+      }
+    }
+
+    async function flush(force, unload = false) {
+      if (flushing || !events.length) return;
+      const size = JSON.stringify(events).length;
+      if (!force && !unload && events.length < BATCH_EVENTS && size < FLUSH_BYTES && Date.now() - started < MAX_MS) return;
+      flushing = true;
+      try {
+        while (events.length) {
+          // Take a fixed count up front. Never slice by BATCH_EVENTS after await —
+          // events pushed during upload would be wiped (that produced 00:00 stills).
+          const take = Math.min(events.length, BATCH_EVENTS);
+          const batch = events.slice(0, take);
+          const result = await sendBatch(batch, { unload });
+          if (result === 'ok') {
+            events.splice(0, take);
+            continue;
+          }
+          if (result === 'drop') {
+            events.splice(0, take);
+            continue;
+          }
+          retries += 1;
+          if (retries > 8) {
+            // Avoid wedging forever on a poison/network failure — drop this batch and keep going.
+            events.splice(0, take);
+            retries = 0;
+            continue;
+          }
+          break;
+        }
       } finally {
         flushing = false;
       }
     }
 
-    const scriptEl = document.createElement('script');
-    scriptEl.src = 'https://cdn.jsdelivr.net/npm/rrweb@2.0.0-alpha.4/dist/rrweb.min.js';
-    scriptEl.async = true;
-    scriptEl.onload = () => {
-      if (stopped || !window.rrweb?.record) return;
-      const stop = window.rrweb.record({
-        emit(event) {
-          if (stopped) return;
-          events.push(event);
-          if (event?.type === 2) hasFull = true;
-          if (JSON.stringify(events).length >= FLUSH_BYTES || Date.now() - started >= MAX_MS) void flush(true);
-        },
-        maskAllInputs: true,
-        maskTextSelector: 'input, textarea, [data-uw-mask]',
-        blockClass: 'uw-block',
-        blockSelector: 'input[type=password], [data-uw-block], .checkout, #checkout',
-        recordCanvas: false,
-        inlineStylesheet: true,
-        checkoutEveryNms: 30_000,
-      });
-      // Force flush once we have a full snapshot so Watch replay works mid-session.
-      const timer = window.setInterval(() => void flush(hasFull), 4000);
-      const end = () => {
+    function begin(light = false) {
+      const record = window.rrweb?.record;
+      if (stopped || typeof record !== 'function' || stopReplay) return;
+      let stop;
+      try {
+        stop = record({
+          emit(event) {
+            if (stopped) return;
+            events.push(event);
+            if (event?.type === 2) {
+              hasFull = true;
+              // Upload snapshot quickly so a phone backgrounding the tab still leaves a replay.
+              if (!firstFlushTimer) {
+                firstFlushTimer = window.setTimeout(() => {
+                  firstFlushTimer = 0;
+                  void flush(true);
+                }, FIRST_FLUSH_DELAY_MS);
+              }
+              return;
+            }
+            if (events.length >= BATCH_EVENTS || JSON.stringify(events).length >= FLUSH_BYTES) void flush(true);
+          },
+          // Mask values in replay (asterisks) but record every keystroke so typing feels live.
+          maskAllInputs: true,
+          maskInputOptions: {
+            password: true,
+            email: true,
+            text: true,
+            textarea: true,
+            tel: true,
+            number: true,
+            search: true,
+            url: true,
+            color: false,
+            date: false,
+            'datetime-local': false,
+            month: false,
+            range: false,
+            time: false,
+            week: false,
+          },
+          maskTextSelector: 'input, textarea, [data-uw-mask]',
+          blockClass: 'uw-block',
+          blockSelector: 'input[type=password], [data-uw-block], .checkout, #checkout',
+          recordCanvas: false,
+          // Inlining stylesheets blows up mobile payloads and often fails to upload on cellular.
+          inlineStylesheet: !(phone || light),
+          checkoutEveryNms: 30_000,
+          sampling: {
+            mousemove: phone ? 100 : 50,
+            mouseInteraction: true,
+            scroll: phone ? 200 : 150,
+            input: 'all',
+          },
+        });
+      } catch {
+        if (!light) {
+          begin(true);
+          return;
+        }
+        return;
+      }
+      const timer = window.setInterval(() => void flush(true), FLUSH_EVERY_MS);
+      const onHidden = () => { void flush(true); };
+      const onPageHide = () => end(true);
+      const onVisibility = () => {
+        if (document.visibilityState === 'hidden') onHidden();
+      };
+      function end(unload = false) {
         if (stopped) return;
         stopped = true;
         window.clearInterval(timer);
+        if (firstFlushTimer) {
+          window.clearTimeout(firstFlushTimer);
+          firstFlushTimer = 0;
+        }
         try { stop?.(); } catch { /* ignore */ }
-        void flush(true);
-      };
-      window.addEventListener('pagehide', end);
-      window.setTimeout(end, MAX_MS);
+        void flush(true, unload);
+      }
+      window.addEventListener('pagehide', onPageHide);
+      window.addEventListener('freeze', onHidden);
+      document.addEventListener('visibilitychange', onVisibility);
+      window.setTimeout(() => end(false), MAX_MS);
       stopReplay = () => {
-        window.removeEventListener('pagehide', end);
-        end();
+        window.removeEventListener('pagehide', onPageHide);
+        window.removeEventListener('freeze', onHidden);
+        document.removeEventListener('visibilitychange', onVisibility);
+        end(false);
         stopReplay = null;
       };
+    }
+
+    // Same host as the tracker so store CSPs that allow tryomer also allow rrweb.
+    // Do not set crossOrigin — without ACAO on the static file the browser downloads
+    // the script but will not execute it (common mobile miss → "No replay").
+    if (window.rrweb?.record) {
+      begin();
+      return;
+    }
+    const existing = document.querySelector('script[data-uw-rrweb]');
+    if (existing) {
+      if (window.rrweb?.record) {
+        begin();
+        return;
+      }
+      if (existing.dataset.loaded === '1') {
+        // Tag finished but global missing (failed/tainted load) — replace it.
+        existing.remove();
+      } else {
+        existing.addEventListener('load', () => {
+          existing.dataset.loaded = '1';
+          if (window.rrweb?.record) begin();
+        }, { once: true });
+        existing.addEventListener('error', () => {
+          existing.remove();
+        }, { once: true });
+        return;
+      }
+    }
+    const scriptEl = document.createElement('script');
+    scriptEl.src = new URL('/vendor/rrweb.min.js', base).href;
+    scriptEl.async = true;
+    scriptEl.dataset.uwRrweb = '1';
+    scriptEl.onerror = () => { /* recorder unavailable */ };
+    scriptEl.onload = () => {
+      scriptEl.dataset.loaded = '1';
+      begin();
     };
     document.head.appendChild(scriptEl);
   }
 
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') sendDwell();
+    if (document.visibilityState === 'hidden') sendDwell(true);
     else if (consented && !pageAt) {
       pageAt = Date.now();
       sendPresence();
     }
   });
-  window.addEventListener('pagehide', sendDwell);
+  window.addEventListener('pagehide', () => sendDwell(true));
   window.addEventListener('pageshow', (event) => { if (event.persisted) sendPresence(); });
-  window.setInterval(sendPresence, 45000);
+  window.setInterval(sendPresence, 15000);
 
   const push = history.pushState;
   const replace = history.replaceState;
