@@ -302,7 +302,13 @@ export async function extractReplayEvidence(input: {
           const id = Number(event.data?.id);
           const labeled = labelForNode(nodeMap, id);
           if (labeled?.label) {
-            bumpClick(clickMap, labeled.label, labeled.tag || 'node');
+            const interactive = labeled.tag === 'button' || labeled.tag === 'a' || labeled.tag === 'input' || labeled.tag === 'label';
+            // Prefer short CTA-like labels in click stats; long copy goes to "noticed".
+            if (interactive || labeled.label.length <= 48) {
+              bumpClick(clickMap, labeled.label, labeled.tag || 'node');
+            } else {
+              pushUnique(noticed, labeled.label, 16);
+            }
             if (labeled.tag === 'button' || labeled.tag === 'a') pushUnique(ctas, labeled.label, 16);
             else if (labeled.label.length >= 12) pushUnique(noticed, labeled.label, 16);
           }
