@@ -209,7 +209,21 @@ export const projectOpportunities = pgTable('project_opportunities', {
   index('project_opportunities_project_status_idx').on(table.projectId, table.status),
 ]);
 
-/** Sent personal / campaign emails (SES). */
+/** Per-store From / domain verification (SES or Resend). */
+export const projectSending = pgTable('project_sending', {
+  projectId: uuid('project_id').primaryKey().references(() => projects.id, { onDelete: 'cascade' }),
+  fromName: text('from_name'),
+  fromEmail: text('from_email'),
+  domain: text('domain'),
+  provider: text('provider').notNull().default('ses'),
+  status: text('status').notNull().default('none'),
+  dnsRecords: jsonb('dns_records').$type<Array<{ host: string; type: string; value: string }>>(),
+  providerRef: text('provider_ref'),
+  verifiedAt: timestamp('verified_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+/** Sent personal / campaign emails (SES or Resend). */
 export const projectEmailMessages = pgTable('project_email_messages', {
   id: uuid('id').defaultRandom().primaryKey(),
   projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
@@ -218,6 +232,8 @@ export const projectEmailMessages = pgTable('project_email_messages', {
   toEmail: text('to_email').notNull(),
   subject: text('subject').notNull(),
   sesMessageId: text('ses_message_id'),
+  provider: text('provider'),
+  fromEmail: text('from_email'),
   status: text('status').notNull().default('queued'),
   error: text('error'),
   sentAt: timestamp('sent_at', { withTimezone: true }),

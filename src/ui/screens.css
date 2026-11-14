@@ -417,6 +417,10 @@
 .set-paused .ico { width: 14px; height: 14px; }
 .set-v .input { width: 100%; }
 .set-v .cpe-select-wrap { width: 100%; }
+.set-dns { overflow: auto; }
+.set-dns-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.set-dns-table th, .set-dns-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid color-mix(in srgb, var(--ink) 8%, transparent); vertical-align: top; }
+.set-dns-table code { font-size: 12px; word-break: break-all; }
 @container (max-width: 560px) {
   .kn-row { grid-template-columns: minmax(0, 1fr) auto; }
   .kn-val, .kn-age { display: none; }
