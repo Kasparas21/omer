@@ -582,3 +582,55 @@
   .ai-list li { grid-template-columns: auto 1fr auto; }
   .ai-list-pill { display: none; }
 }
+
+/* Settings → API (developer keys + curl recipes) */
+.api-dev { gap: 14px; padding-bottom: 32px; }
+.api-dev .set-int-section-head a {
+  color: var(--accent-text, var(--accent)); text-underline-offset: 2px;
+}
+.api-base {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  padding: 10px 12px; border: 1px solid var(--v2-line, var(--line));
+  border-radius: 12px; background: var(--v2-shell, var(--surface-2));
+  font-size: 13px; color: var(--ink-3);
+}
+.api-base code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 13px; color: var(--ink); }
+.api-hint {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px;
+  margin: 0; font-size: 13px; color: var(--ink-3);
+}
+.api-hint code { font-size: 12.5px; color: var(--ink-2); }
+.api-keys-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin-top: 6px; padding-top: 14px; border-top: 1px solid var(--v2-line, var(--line));
+}
+.api-keys-bar h4, .api-recipes h4 {
+  margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--ink);
+}
+.api-empty { margin: 0; font-size: 14px; line-height: 1.45; color: var(--ink-3); }
+.api-empty code { font-size: 12.5px; }
+.api-key-list { margin-top: -4px; }
+.api-key-list li { grid-template-columns: auto 1fr auto; }
+.api-fresh { margin-top: 4px; }
+.api-recipes {
+  display: grid; gap: 10px; margin-top: 8px; padding-top: 14px;
+  border-top: 1px solid var(--v2-line, var(--line));
+}
+.api-recipes header p {
+  margin: 4px 0 0; max-width: 56ch; font-size: 13.5px; line-height: 1.45; color: var(--ink-3);
+}
+.api-recipes header code { font-size: 12.5px; }
+.api-recipe {
+  border: 1px solid var(--v2-line, var(--line)); border-radius: 12px;
+  background: var(--v2-card, var(--surface)); overflow: hidden;
+}
+.api-recipe-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 10px 8px 12px; border-bottom: 1px solid var(--v2-line, var(--line));
+  font-size: 13px; font-weight: 500; color: var(--ink-2);
+}
+.api-recipe pre {
+  margin: 0; padding: 12px 14px; overflow-x: auto;
+  background: var(--v2-shell, var(--surface-2));
+}
+.api-recipe code { font-size: 12px; line-height: 1.5; white-space: pre; color: var(--ink); }

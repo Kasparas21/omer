@@ -165,6 +165,7 @@ export function ConnectAI() {
   };
 
   const linked = (id: Assistant) => Boolean(access?.some((r) => matchesAssistant(r, id)));
+  const apps = access?.filter((r) => r.type === 'app') ?? [];
 
   if (!access) {
     return (
@@ -196,14 +197,14 @@ export function ConnectAI() {
         ))}
       </div>
 
-      {access.length > 0 ? (
-        <section className="ai-keys" aria-label="Connected access">
+      {apps.length > 0 ? (
+        <section className="ai-keys" aria-label="Connected apps">
           <header>
-            <h3>Connected</h3>
-            <p>Apps and keys that can act as you.</p>
+            <h3>Connected apps</h3>
+            <p>OAuth apps that can act as you. Personal API keys live under API below.</p>
           </header>
           <ul className="ai-list">
-            {access.map((row) => {
+            {apps.map((row) => {
               const logo = logoForAccess(row);
               return (
                 <li key={row.id}>
@@ -212,15 +213,11 @@ export function ConnectAI() {
                   </span>
                   <span className="ai-list-copy">
                     <b>{row.name}</b>
-                    <small>
-                      {row.type === 'key' ? `API key · ${row.prefix}…` : 'Connected app'}
-                      {' · '}
-                      {ago(row.lastUsedAt)}
-                    </small>
+                    <small>Connected app · {ago(row.lastUsedAt)}</small>
                   </span>
                   <span className="status-pill received ai-list-pill"><Icon name="checkCircle" />Live</span>
                   <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => void revoke(row)}>
-                    {row.type === 'key' ? 'Delete' : 'Disconnect'}
+                    Disconnect
                   </button>
                 </li>
               );
