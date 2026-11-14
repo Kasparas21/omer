@@ -1630,7 +1630,9 @@ async function sendOpportunityRoute(request: Request, env: Env, projectId: strin
   const owner = await ownerID(request);
   if (!owner) return json({ error: 'Sign in to send.' }, 401);
   const providers = mailProvidersAvailable();
-  if (!providers.ses && !providers.resend) return json({ error: 'Email sending is not configured yet.' }, 503);
+  if (!providers.ses && !providers.resend && !providers.postmark) {
+    return json({ error: 'Email sending is not configured yet.' }, 503);
+  }
   return withDatabase(env, async (db) => {
     if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
     try {
@@ -1664,7 +1666,9 @@ async function putSendingRoute(request: Request, env: Env, projectId: string) {
     fromName?: string;
     fromEmail?: string;
     domain?: string;
-    provider?: 'ses' | 'resend';
+    provider?: 'ses' | 'resend' | 'postmark';
+    providerApiKey?: string;
+    clearProviderKey?: boolean;
     startVerify?: boolean;
   } | null;
   try { body = JSON.parse(raw); } catch { return json({ error: 'Invalid JSON.' }, 400); }

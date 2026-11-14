@@ -1,19 +1,22 @@
-/* Real-project Settings → Sending: From name/email, domain DNS verify (SES or Resend). */
+/* Settings → Sending: Omer SES (our service) or BYO Resend / Postmark. */
 import { useCallback, useEffect, useState } from 'react';
 import { Icon } from './ui/Icon';
 import { toast } from './ui/toast';
 
 type DnsRecord = { host: string; type: string; value: string };
+type Provider = 'ses' | 'resend' | 'postmark';
 type Sending = {
   fromName: string;
   fromEmail: string;
   domain: string;
-  provider: 'ses' | 'resend';
+  provider: Provider;
   status: 'none' | 'pending' | 'verified' | 'failed';
   dnsRecords: DnsRecord[];
   verifiedAt: string | null;
   platformFrom: string;
-  providers: { ses: boolean; resend: boolean };
+  hasProviderKey: boolean;
+  providers: { ses: boolean; resend: boolean; postmark: boolean };
+  hint: string;
 };
 
 function Row({ title, children, wide }: { title: string; children: React.ReactNode; wide?: boolean }) {
@@ -26,10 +29,10 @@ function Row({ title, children, wide }: { title: string; children: React.ReactNo
 }
 
 function statusLabel(status: Sending['status']) {
-  if (status === 'verified') return { text: 'Verified', className: 'status-pill received' };
+  if (status === 'verified') return { text: 'Verified — sends from your domain', className: 'status-pill received' };
   if (status === 'pending') return { text: 'Waiting on DNS', className: 'status-pill' };
   if (status === 'failed') return { text: 'Failed', className: 'status-pill' };
-  return { text: 'Not set', className: 'status-pill' };
+  return { text: 'Using Omer From until verified', className: 'status-pill' };
 }
 
 export function ProjectSending({ projectId }: { projectId: string }) {
@@ -37,18 +40,23 @@ export function ProjectSending({ projectId }: { projectId: string }) {
   const [fromName, setFromName] = useState('');
   const [fromEmail, setFromEmail] = useState('');
   const [domain, setDomain] = useState('');
-  const [provider, setProvider] = useState<'ses' | 'resend'>('ses');
+  const [provider, setProvider] = useState<Provider>('ses');
+  const [apiKey, setApiKey] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const apply = (next: Sending) => {
+    setSending(next);
+    setFromName(next.fromName || '');
+    setFromEmail(next.fromEmail || '');
+    setDomain(next.domain || '');
+    setProvider(next.provider || 'ses');
+  };
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/projects/${projectId}/sending`);
     const data = await res.json().catch(() => ({})) as { sending?: Sending; error?: string };
     if (!res.ok || !data.sending) throw new Error(data.error || 'Could not load sending');
-    setSending(data.sending);
-    setFromName(data.sending.fromName || '');
-    setFromEmail(data.sending.fromEmail || '');
-    setDomain(data.sending.domain || '');
-    setProvider(data.sending.provider || 'ses');
+    apply(data.sending);
   }, [projectId]);
 
   useEffect(() => {
@@ -67,17 +75,15 @@ export function ProjectSending({ projectId }: { projectId: string }) {
           fromEmail,
           domain: domain || fromEmail.split('@')[1] || '',
           provider,
+          providerApiKey: apiKey.trim() || undefined,
           startVerify: Boolean(opts?.startVerify),
         }),
       });
       const data = await res.json().catch(() => ({})) as { sending?: Sending; error?: string };
       if (!res.ok || !data.sending) throw new Error(data.error || 'Save failed');
-      setSending(data.sending);
-      setFromName(data.sending.fromName || '');
-      setFromEmail(data.sending.fromEmail || '');
-      setDomain(data.sending.domain || '');
-      setProvider(data.sending.provider || 'ses');
-      toast(opts?.startVerify ? 'Domain added — add the DNS records' : 'Saved');
+      apply(data.sending);
+      if (apiKey.trim()) setApiKey('');
+      toast(opts?.startVerify ? (provider === 'ses' || provider === 'resend' ? 'Add the DNS records below' : 'Saved — verify in Postmark, then Check DNS') : 'Saved');
     } catch (error) {
       toast(error instanceof Error ? error.message : 'Save failed', { kind: 'warn' });
     } finally {
@@ -92,8 +98,8 @@ export function ProjectSending({ projectId }: { projectId: string }) {
       const res = await fetch(`/api/projects/${projectId}/sending/check`, { method: 'POST' });
       const data = await res.json().catch(() => ({})) as { sending?: Sending; error?: string };
       if (!res.ok || !data.sending) throw new Error(data.error || 'Check failed');
-      setSending(data.sending);
-      toast(data.sending.status === 'verified' ? 'Domain verified' : 'Still waiting on DNS', { kind: data.sending.status === 'verified' ? undefined : 'warn' });
+      apply(data.sending);
+      toast(data.sending.status === 'verified' ? 'Domain verified — sends use your From' : 'Still waiting on DNS', { kind: data.sending.status === 'verified' ? undefined : 'warn' });
     } catch (error) {
       toast(error instanceof Error ? error.message : 'Check failed', { kind: 'warn' });
     } finally {
@@ -118,42 +124,59 @@ export function ProjectSending({ projectId }: { projectId: string }) {
     );
   }
 
-  const both = sending.providers.ses && sending.providers.resend;
   const pill = statusLabel(sending.status);
   const records = sending.dnsRecords || [];
+  const needsKey = provider === 'resend' || provider === 'postmark';
 
   return (
     <div className="set-main solo">
+      <Row title="How you send" wide>
+        <span className="omer-set-acts" style={{ flexWrap: 'wrap' }}>
+          <button type="button" className={`btn btn-sm ${provider === 'ses' ? 'btn-primary' : 'btn-secondary'}`} disabled={busy || !sending.providers.ses} onClick={() => setProvider('ses')}>
+            Omer (Amazon SES)
+          </button>
+          <button type="button" className={`btn btn-sm ${provider === 'resend' ? 'btn-primary' : 'btn-secondary'}`} disabled={busy} onClick={() => setProvider('resend')}>
+            Your Resend
+          </button>
+          <button type="button" className={`btn btn-sm ${provider === 'postmark' ? 'btn-primary' : 'btn-secondary'}`} disabled={busy} onClick={() => setProvider('postmark')}>
+            Your Postmark
+          </button>
+        </span>
+      </Row>
+      <Row title="About" wide>
+        <span className="omer-set-val">{sending.hint || (provider === 'ses'
+          ? 'We send on Amazon SES. After DNS verifies, mail is From your domain.'
+          : 'Connect your own provider key. We never send through Omer’s SES for this project.')}</span>
+      </Row>
       <Row title="From name">
         <input className="input" value={fromName} placeholder="Store name" onChange={(e) => setFromName(e.target.value)} onBlur={() => void save()} disabled={busy} />
       </Row>
       <Row title="From email">
         <input className="input" value={fromEmail} placeholder="hello@yourstore.com" onChange={(e) => setFromEmail(e.target.value)} onBlur={() => void save()} disabled={busy} />
       </Row>
-      {both ? (
-        <Row title="Provider">
-          <span className="omer-set-acts">
-            <button type="button" className={`btn btn-sm ${provider === 'ses' ? 'btn-primary' : 'btn-secondary'}`} disabled={busy} onClick={() => setProvider('ses')}>SES</button>
-            <button type="button" className={`btn btn-sm ${provider === 'resend' ? 'btn-primary' : 'btn-secondary'}`} disabled={busy} onClick={() => setProvider('resend')}>Resend</button>
-          </span>
+      <Row title="Domain">
+        <input className="input" value={domain} placeholder={fromEmail.includes('@') ? fromEmail.split('@')[1] : 'yourstore.com'} onChange={(e) => setDomain(e.target.value)} disabled={busy} />
+      </Row>
+      {needsKey ? (
+        <Row title={provider === 'resend' ? 'Resend API key' : 'Postmark server token'} wide>
+          <input
+            className="input"
+            type="password"
+            autoComplete="off"
+            value={apiKey}
+            placeholder={sending.hasProviderKey ? '••••••••  (saved — paste to replace)' : 'Paste key'}
+            onChange={(e) => setApiKey(e.target.value)}
+            disabled={busy}
+          />
         </Row>
       ) : null}
-      <Row title="Domain">
-        <input
-          className="input"
-          value={domain}
-          placeholder={fromEmail.includes('@') ? fromEmail.split('@')[1] : 'yourstore.com'}
-          onChange={(e) => setDomain(e.target.value)}
-          disabled={busy}
-        />
-      </Row>
       <Row title="Status">
         <span className={pill.className}>{pill.text}</span>
       </Row>
       <Row title="Actions">
         <span className="omer-set-acts">
           <button type="button" className="btn btn-primary btn-sm" disabled={busy || (!domain && !fromEmail)} onClick={() => void save({ startVerify: true })}>
-            {sending.domain ? 'Refresh domain' : 'Add domain'}
+            {provider === 'postmark' ? 'Save & check' : 'Add domain'}
           </button>
           <button type="button" className="btn btn-secondary btn-sm" disabled={busy || !sending.domain} onClick={() => void check()}>
             Check DNS
@@ -185,7 +208,7 @@ export function ProjectSending({ projectId }: { projectId: string }) {
       ) : null}
       <Row title="Until verified" wide>
         <span className="omer-set-val">
-          Sends use {sending.platformFrom || 'the platform From'} with your From name. After DNS verifies, mail goes out as your domain.
+          Opportunity sends still go out from {sending.platformFrom || 'Omer’s platform address'} with your From name. After verify, From is your domain.
         </span>
       </Row>
       <Row title="Daily limit"><span className="status-pill">Soon</span></Row>

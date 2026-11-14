@@ -1,21 +1,30 @@
-/* Project sending settings: From + domain verify (SES / Resend). */
+/* Project sending: Omer SES (our keys + their domain) or BYO Resend / Postmark. */
 import { eq } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { mailProvidersAvailable } from './mail-transport';
+import { postmarkCheckFrom } from './postmark';
 import { resendConfigured, resendEnsureDomain, resendGetDomain } from './resend';
 import { projectSending } from './schema';
-import { sesEnsureDomainIdentity, sesGetDomainIdentity, sesIdentityConfigured } from './ses';
+import { openSecret, sealSecret } from './secret-box';
+import { sesConfigured, sesEnsureDomainIdentity, sesGetDomainIdentity, sesIdentityConfigured } from './ses';
+
+function mailProvidersAvailable() {
+  return { ses: sesConfigured(), resend: true, postmark: true };
+}
+
+export type SendingProvider = 'ses' | 'resend' | 'postmark';
 
 export type PublicSending = {
   fromName: string;
   fromEmail: string;
   domain: string;
-  provider: 'ses' | 'resend';
+  provider: SendingProvider;
   status: 'none' | 'pending' | 'verified' | 'failed';
   dnsRecords: Array<{ host: string; type: string; value: string }>;
   verifiedAt: string | null;
   platformFrom: string;
-  providers: { ses: boolean; resend: boolean };
+  hasProviderKey: boolean;
+  providers: { ses: boolean; resend: boolean; postmark: boolean };
+  hint: string;
 };
 
 function emptyPublic(): PublicSending {
@@ -24,12 +33,15 @@ function emptyPublic(): PublicSending {
     fromName: '',
     fromEmail: '',
     domain: '',
-    provider: providers.ses ? 'ses' : providers.resend ? 'resend' : 'ses',
+    provider: 'ses',
     status: 'none',
     dnsRecords: [],
     verifiedAt: null,
-    platformFrom: process.env.SES_FROM_EMAIL?.trim() || (process.env.SES_FROM_DOMAIN ? `noreply@${process.env.SES_FROM_DOMAIN.trim()}` : ''),
-    providers,
+    platformFrom: process.env.SES_FROM_EMAIL?.trim()
+      || (process.env.SES_FROM_DOMAIN ? `noreply@${process.env.SES_FROM_DOMAIN.trim()}` : ''),
+    hasProviderKey: false,
+    providers: { ...providers, postmark: true },
+    hint: '',
   };
 }
 
@@ -49,20 +61,38 @@ function normalizeDomain(raw: string) {
   return raw.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/\.$/, '');
 }
 
+function asProvider(v: string | null | undefined): SendingProvider {
+  if (v === 'resend' || v === 'postmark') return v;
+  return 'ses';
+}
+
 export async function getProjectSending(db: NodePgDatabase, projectId: string): Promise<PublicSending> {
   const base = emptyPublic();
   const [row] = await db.select().from(projectSending).where(eq(projectSending.projectId, projectId)).limit(1);
   if (!row) return base;
+  const provider = asProvider(row.provider);
+  const hint = provider === 'ses'
+    ? 'Uses Omer’s Amazon SES. Add DNS so we can send as your domain.'
+    : provider === 'resend'
+      ? 'Uses your Resend account. Paste your Resend API key, then add the DNS Resend shows.'
+      : 'Uses your Postmark server token. Verify the sender/domain in Postmark, then Check DNS.';
   return {
     ...base,
     fromName: row.fromName || '',
     fromEmail: row.fromEmail || '',
     domain: row.domain || '',
-    provider: row.provider === 'resend' ? 'resend' : 'ses',
+    provider,
     status: (['none', 'pending', 'verified', 'failed'].includes(row.status) ? row.status : 'none') as PublicSending['status'],
     dnsRecords: Array.isArray(row.dnsRecords) ? row.dnsRecords : [],
     verifiedAt: row.verifiedAt ? row.verifiedAt.toISOString() : null,
+    hasProviderKey: Boolean(row.providerApiKeySealed),
+    hint,
   };
+}
+
+function readSealedKey(sealed: string | null | undefined): string | null {
+  if (!sealed) return null;
+  try { return openSecret(sealed); } catch { return null; }
 }
 
 export async function upsertProjectSending(
@@ -72,18 +102,19 @@ export async function upsertProjectSending(
     fromName?: string;
     fromEmail?: string;
     domain?: string;
-    provider?: 'ses' | 'resend';
+    provider?: SendingProvider;
+    providerApiKey?: string;
+    clearProviderKey?: boolean;
     startVerify?: boolean;
   },
 ): Promise<PublicSending> {
   const current = await getProjectSending(db, projectId);
+  const [existing] = await db.select().from(projectSending).where(eq(projectSending.projectId, projectId)).limit(1);
+
   const fromName = input.fromName !== undefined ? input.fromName.trim().slice(0, 80) : current.fromName;
   const fromEmail = input.fromEmail !== undefined ? input.fromEmail.trim().toLowerCase().slice(0, 160) : current.fromEmail;
   let domain = input.domain !== undefined ? normalizeDomain(input.domain) : current.domain;
-  const providers = mailProvidersAvailable();
-  let provider: 'ses' | 'resend' = input.provider || current.provider;
-  if (provider === 'resend' && !providers.resend) provider = 'ses';
-  if (provider === 'ses' && !providers.ses && providers.resend) provider = 'resend';
+  const provider = input.provider || current.provider;
 
   if (fromEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fromEmail)) throw new Error('Invalid from email');
   if (fromEmail && !domain) domain = emailDomain(fromEmail);
@@ -91,33 +122,63 @@ export async function upsertProjectSending(
     throw new Error('From email must be on the sending domain');
   }
 
+  let sealed = existing?.providerApiKeySealed || null;
+  if (input.clearProviderKey) sealed = null;
+  if (input.providerApiKey !== undefined) {
+    const raw = input.providerApiKey.trim();
+    if (raw) sealed = sealSecret(raw);
+  }
+  if (input.startVerify) {
+    if (provider === 'postmark' && !sealed) throw new Error('Paste your Postmark Server API token');
+    if (provider === 'resend' && !sealed && !resendConfigured()) throw new Error('Paste your Resend API key');
+  }
+
   let status = current.status;
   let dnsRecords = current.dnsRecords;
-  let providerRef: string | null = null;
+  let providerRef: string | null = existing?.providerRef || null;
   let verifiedAt: Date | null = current.verifiedAt ? new Date(current.verifiedAt) : null;
-
-  const [existing] = await db.select().from(projectSending).where(eq(projectSending.projectId, projectId)).limit(1);
-  providerRef = existing?.providerRef || null;
 
   const domainChanged = domain && domain !== current.domain;
   const providerChanged = provider !== current.provider;
   const shouldVerify = Boolean(input.startVerify || domainChanged || (providerChanged && domain));
+  const byoKey = readSealedKey(sealed);
 
   if (shouldVerify && domain) {
     if (provider === 'resend') {
-      if (!resendConfigured()) throw new Error('Resend is not configured');
-      const id = await resendEnsureDomain(domain);
+      const key = byoKey || process.env.RESEND_API_KEY?.trim() || '';
+      if (!key) throw new Error('Paste your Resend API key');
+      const id = await resendEnsureDomain(domain, key);
       status = id.status;
       dnsRecords = id.dnsRecords;
       providerRef = id.providerRef;
       verifiedAt = id.verified ? new Date() : null;
+    } else if (provider === 'postmark') {
+      if (!byoKey) throw new Error('Paste your Postmark Server API token');
+      if (!fromEmail) throw new Error('From email required for Postmark');
+      const id = await postmarkCheckFrom(domain, fromEmail, byoKey);
+      status = id.status;
+      dnsRecords = id.dnsRecords;
+      providerRef = id.providerRef;
+      verifiedAt = id.verified ? new Date() : null;
+      if (!id.verified) {
+        // Allow mark-pending with clear next step; merchant verifies in Postmark then Check DNS.
+        status = 'pending';
+      }
     } else {
       if (!sesIdentityConfigured()) throw new Error('SES is not configured');
-      const id = await sesEnsureDomainIdentity(domain);
-      status = id.status;
-      dnsRecords = id.dnsRecords;
-      providerRef = id.providerRef;
-      verifiedAt = id.verified ? new Date() : null;
+      try {
+        const id = await sesEnsureDomainIdentity(domain);
+        status = id.status;
+        dnsRecords = id.dnsRecords;
+        providerRef = id.providerRef;
+        verifiedAt = id.verified ? new Date() : null;
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : '';
+        if (/not authorized|AccessDenied|GetEmailIdentity|CreateEmailIdentity/i.test(msg)) {
+          throw new Error('Omer SES cannot verify domains yet — IAM needs ses:CreateEmailIdentity and ses:GetEmailIdentity. Until then use Resend or Postmark with your own key, or ask us to update SES permissions.');
+        }
+        throw error;
+      }
     }
   } else if (!domain) {
     status = 'none';
@@ -136,6 +197,7 @@ export async function upsertProjectSending(
     status,
     dnsRecords,
     providerRef,
+    providerApiKeySealed: sealed,
     verifiedAt,
     updatedAt: now,
   }).onConflictDoUpdate({
@@ -148,6 +210,7 @@ export async function upsertProjectSending(
       status,
       dnsRecords,
       providerRef,
+      providerApiKeySealed: sealed,
       verifiedAt,
       updatedAt: now,
     },
@@ -160,27 +223,44 @@ export async function checkProjectSending(db: NodePgDatabase, projectId: string)
   const [row] = await db.select().from(projectSending).where(eq(projectSending.projectId, projectId)).limit(1);
   if (!row?.domain) return getProjectSending(db, projectId);
 
-  const provider = row.provider === 'resend' ? 'resend' : 'ses';
+  const provider = asProvider(row.provider);
+  const byoKey = readSealedKey(row.providerApiKeySealed);
   let status = row.status;
   let dnsRecords = Array.isArray(row.dnsRecords) ? row.dnsRecords : [];
   let verifiedAt = row.verifiedAt;
   let providerRef = row.providerRef;
 
   if (provider === 'resend') {
-    if (!resendConfigured()) throw new Error('Resend is not configured');
+    const key = byoKey || process.env.RESEND_API_KEY?.trim() || '';
+    if (!key) throw new Error('Paste your Resend API key');
     const ref = providerRef || row.domain;
-    const id = await resendGetDomain(ref, row.domain);
+    const id = await resendGetDomain(ref, row.domain, key);
     status = id.status;
     dnsRecords = id.dnsRecords.length ? id.dnsRecords : dnsRecords;
+    providerRef = id.providerRef;
+    verifiedAt = id.verified ? new Date() : null;
+  } else if (provider === 'postmark') {
+    if (!byoKey) throw new Error('Paste your Postmark Server API token');
+    if (!row.fromEmail) throw new Error('From email required');
+    const id = await postmarkCheckFrom(row.domain, row.fromEmail, byoKey);
+    status = id.status;
     providerRef = id.providerRef;
     verifiedAt = id.verified ? new Date() : null;
   } else {
     if (!sesIdentityConfigured()) throw new Error('SES is not configured');
-    const id = await sesGetDomainIdentity(row.domain);
-    status = id.status;
-    dnsRecords = id.dnsRecords.length ? id.dnsRecords : dnsRecords;
-    providerRef = id.providerRef;
-    verifiedAt = id.verified ? new Date() : null;
+    try {
+      const id = await sesGetDomainIdentity(row.domain);
+      status = id.status;
+      dnsRecords = id.dnsRecords.length ? id.dnsRecords : dnsRecords;
+      providerRef = id.providerRef;
+      verifiedAt = id.verified ? new Date() : null;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : '';
+      if (/not authorized|AccessDenied|GetEmailIdentity/i.test(msg)) {
+        throw new Error('Omer SES cannot check domains yet — IAM needs ses:GetEmailIdentity. Use Resend or Postmark, or update SES permissions.');
+      }
+      throw error;
+    }
   }
 
   await db.update(projectSending).set({
@@ -192,4 +272,18 @@ export async function checkProjectSending(db: NodePgDatabase, projectId: string)
   }).where(eq(projectSending.projectId, projectId));
 
   return getProjectSending(db, projectId);
+}
+
+/** Internal: sealed key for transports. */
+export async function loadSendingSecrets(db: NodePgDatabase, projectId: string) {
+  const [row] = await db.select().from(projectSending).where(eq(projectSending.projectId, projectId)).limit(1);
+  if (!row) return null;
+  return {
+    fromName: row.fromName,
+    fromEmail: row.fromEmail,
+    domain: row.domain,
+    provider: asProvider(row.provider),
+    status: row.status || 'none',
+    providerApiKey: readSealedKey(row.providerApiKeySealed),
+  };
 }

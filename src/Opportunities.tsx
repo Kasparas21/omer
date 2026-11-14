@@ -89,8 +89,8 @@ export function Opportunities({ demo, projectId, editing, onEdit, onPeople, onBa
       })
       .catch(() => { if (!gone) setRealOpps([]); });
     void fetch('/api/config').then(async (res) => {
-      const data = await res.json().catch(() => ({})) as { ses?: boolean; resend?: boolean };
-      if (!gone) setSendOn(Boolean(data.ses || data.resend));
+      const data = await res.json().catch(() => ({})) as { ses?: boolean; resend?: boolean; postmark?: boolean };
+      if (!gone) setSendOn(Boolean(data.ses || data.resend || data.postmark));
     }).catch(() => undefined);
     return () => { gone = true; };
   }, [demo, projectId]);
@@ -228,7 +228,7 @@ export function Opportunities({ demo, projectId, editing, onEdit, onPeople, onBa
       <div className="op-screen op-real">
         <header className="op-top">
           <h1 className="op-title">Opportunities</h1>
-          <p className="op-real-lede">Email-ready people. Draft on-brand follow-ups{sendOn ? ', then send' : ' (configure SES or Resend to send)'}.</p>
+          <p className="op-real-lede">Email-ready people. Draft on-brand follow-ups{sendOn ? ', then send' : ' (set up Sending in Settings)'}.</p>
         </header>
         <ul className="op-real-list">
           {list.map((o) => (

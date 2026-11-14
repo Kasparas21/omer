@@ -209,7 +209,7 @@ export const projectOpportunities = pgTable('project_opportunities', {
   index('project_opportunities_project_status_idx').on(table.projectId, table.status),
 ]);
 
-/** Per-store From / domain verification (SES or Resend). */
+/** Per-store From / domain verification (Omer SES, or BYO Resend/Postmark). */
 export const projectSending = pgTable('project_sending', {
   projectId: uuid('project_id').primaryKey().references(() => projects.id, { onDelete: 'cascade' }),
   fromName: text('from_name'),
@@ -219,6 +219,8 @@ export const projectSending = pgTable('project_sending', {
   status: text('status').notNull().default('none'),
   dnsRecords: jsonb('dns_records').$type<Array<{ host: string; type: string; value: string }>>(),
   providerRef: text('provider_ref'),
+  /** AES-GCM sealed BYO API key (Resend / Postmark). Never returned to the client. */
+  providerApiKeySealed: text('provider_api_key_sealed'),
   verifiedAt: timestamp('verified_at', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
