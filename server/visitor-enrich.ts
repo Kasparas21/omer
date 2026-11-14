@@ -196,15 +196,18 @@ export function publicEnrichment(
   const sources = Array.isArray(row.sourcesJson)
     ? row.sourcesJson as unknown as EnrichSource[]
     : [];
+  const rawStatus = (row.status as PublicEnrichment['status']) || 'pending';
+  // Older rows cached PDL misses as failed with the raw provider string.
+  const status = rawStatus === 'failed' && isPersonMiss(row.error, null) ? 'none' : rawStatus;
   return {
-    status: (row.status as PublicEnrichment['status']) || 'pending',
+    status,
     email: row.email,
-    person: row.status === 'ready' ? person : null,
-    company: row.status === 'ready' ? company : null,
-    sources: row.status === 'ready' ? sources : [],
+    person: status === 'ready' ? person : null,
+    company: status === 'ready' ? company : null,
+    sources: status === 'ready' ? sources : [],
     provider: row.provider,
     generatedAt: row.generatedAt ? String(row.generatedAt) : null,
-    error: row.status === 'failed' ? (row.error || 'Enrichment failed') : null,
+    error: status === 'failed' ? (row.error || 'Enrichment failed') : null,
     enrichEnabled,
   };
 }
@@ -237,6 +240,12 @@ async function upsertRow(
   });
 }
 
+function isPersonMiss(error: string | null | undefined, status: number | null): boolean {
+  if (status === 404) return true;
+  if (!error) return false;
+  return /no matching records|scroll is exhausted|not found|no person found/i.test(error);
+}
+
 async function runEnrich(db: NodePgDatabase, projectId: string, visitorId: string, email: string) {
   let credits = 0;
   try {
@@ -248,6 +257,23 @@ async function runEnrich(db: NodePgDatabase, projectId: string, visitorId: strin
     credits += personRes.creditsCost;
 
     if (!personRes.success && personRes.error) {
+      // Alexandria often returns PDL misses as success:false + error text instead of 404.
+      if (isPersonMiss(personRes.error, null)) {
+        await upsertRow(db, {
+          projectId,
+          visitorId,
+          email,
+          status: 'none',
+          personJson: null,
+          companyJson: null,
+          sourcesJson: [],
+          provider: 'people-data-labs',
+          creditsUsed: credits,
+          error: null,
+          generatedAt: new Date(),
+        });
+        return;
+      }
       // Terms not accepted, rate limit, etc.
       const terms = /THIRD_PARTY_DATA_TERMS|terms/i.test(personRes.error || '');
       await upsertRow(db, {
@@ -270,7 +296,7 @@ async function runEnrich(db: NodePgDatabase, projectId: string, visitorId: strin
 
     const { record, likelihood, status } = unwrapPersonPayload(personRes.data);
     // PDL miss: status 404 / empty — free, cache as none
-    if (!record || status === 404) {
+    if (!record || isPersonMiss(null, status)) {
       await upsertRow(db, {
         projectId,
         visitorId,

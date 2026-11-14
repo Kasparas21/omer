@@ -378,17 +378,19 @@ export function Profile({ projectId, seed, onLive, onName, currency = 'usd' }: {
 
             <div className="profile-columns">
             <div className="profile-left">
-              {email && enrich && enrich.enrichEnabled !== false && enrich.status !== 'none' ? (
+              {email && enrich && enrich.enrichEnabled !== false ? (
                 <section className="profile-l v2-card profile-about-card" aria-label="About them">
                   <header className="profile-summary-head profile-about-head">
                     <h3>About them</h3>
-                    {enrich.status === 'ready' || enrich.status === 'failed' ? (
+                    {enrich.status === 'ready' || enrich.status === 'failed' || enrich.status === 'none' ? (
                       <button type="button" className="btn btn-ghost btn-sm" onClick={refreshEnrich}>Refresh</button>
                     ) : null}
                   </header>
                   <div className="v2-in profile-about-in">
                     {enrich.status === 'pending' ? (
                       <p className="profile-about-pending" role="status">Looking up public context…</p>
+                    ) : enrich.status === 'none' ? (
+                      <p className="profile-about-pending">No public profile found for this email.</p>
                     ) : enrich.status === 'failed' ? (
                       <p className="profile-about-pending">{enrich.error || 'Could not load public context.'}</p>
                     ) : enrich.status === 'ready' && enrich.person ? (
