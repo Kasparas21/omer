@@ -443,6 +443,13 @@
 .set-send-fold .set-dns, .set-send-fold .omer-set-note { margin-top: 10px; }
 .set-int-adv { display: grid; gap: 10px; margin-top: 10px; width: 100%; }
 .set-int-adv .input { width: 100%; }
+.set-int-section-head { margin: 0 0 14px; }
+.set-int-section-head h3 {
+  margin: 0 0 4px; font-size: 17px; font-weight: 600; letter-spacing: -0.015em; color: var(--ink);
+}
+.set-int-section-head p {
+  margin: 0; max-width: 56ch; font-size: 14px; line-height: 1.5; color: var(--ink-3);
+}
 .set-int-tiles {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; width: 100%;
   padding: 4px 2px 8px;
@@ -511,10 +518,10 @@
 
 /* Settings → AI assistants (Stripe-style cards + connect modal) */
 .ai-connect { gap: 18px; padding-bottom: 28px; }
-.ai-section-head h3, .ai-keys h3 {
+.ai-keys h3 {
   margin: 0 0 4px; font-size: 17px; font-weight: 600; letter-spacing: -0.015em; color: var(--ink);
 }
-.ai-section-head p, .ai-keys header p {
+.ai-keys header p {
   margin: 0; max-width: 56ch; font-size: 14px; line-height: 1.5; color: var(--ink-3);
 }
 .ai-modal .cc-card { width: min(440px, 100%); }

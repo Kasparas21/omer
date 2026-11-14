@@ -251,6 +251,10 @@ export function ProjectIntegrations({ projectId }: { projectId: string }) {
   if (!rows) {
     return (
       <div className="set-main solo">
+        <header className="set-int-section-head">
+          <h3>Payments</h3>
+          <p>Connect Stripe, Dodo or RevenueCat to attribute revenue.</p>
+        </header>
         <div className="set-int-tiles set-int-tiles-skel" aria-busy="true">
           <div className="set-int-tile" /><div className="set-int-tile" /><div className="set-int-tile" />
         </div>
@@ -261,6 +265,10 @@ export function ProjectIntegrations({ projectId }: { projectId: string }) {
   return (
     <>
       <div className="set-main solo">
+        <header className="set-int-section-head">
+          <h3>Payments</h3>
+          <p>Connect Stripe, Dodo or RevenueCat to attribute revenue.</p>
+        </header>
         <div className="set-int-tiles">
           {rows.map((row) => (
             <ProviderCard
@@ -294,6 +302,10 @@ export function DemoIntegrations() {
   ];
   return (
     <div className="set-main solo">
+      <header className="set-int-section-head">
+        <h3>Payments</h3>
+        <p>Connect Stripe, Dodo or RevenueCat to attribute revenue.</p>
+      </header>
       <div className="set-int-tiles">
         {demo.map((row) => (
           <ProviderCard
