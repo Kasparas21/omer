@@ -12,6 +12,8 @@ export const projects = pgTable('onboarding_projects', {
   replayEnabled: boolean('replay_enabled').default(false).notNull(),
   /** null = auto from recent purchases */
   displayCurrency: text('display_currency'),
+  /** Omer's own personal follow-ups (not campaigns) on or off. */
+  personalFollowups: boolean('personal_followups').default(true).notNull(),
 }, (table) => [index('onboarding_projects_owner_idx').on(table.owner)]);
 
 export const pageViews = pgTable('project_page_views', {
@@ -61,6 +63,8 @@ export const visits = pgTable('project_visits', {
   place: text('place'),
   lat: doublePrecision('lat'),
   lng: doublePrecision('lng'),
+  /** The visitor's own time zone (IANA), for quiet hours. */
+  tz: text('tz'),
   activeAt: timestamp('active_at', { withTimezone: true }),
   seenAt: timestamp('seen_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
@@ -297,4 +301,39 @@ export const projectCampaigns = pgTable('project_campaigns', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   index('project_campaigns_project_idx').on(table.projectId),
+]);
+
+/** What the tracker saw beyond page views: carts, discount codes tried, products viewed (price, stock). */
+export const projectSignals = pgTable('project_signals', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  visitorId: text('visitor_id').notNull(),
+  /** cart | code | product */
+  kind: text('kind').notNull(),
+  path: text('path'),
+  data: jsonb('data').$type<Record<string, unknown>>().notNull(),
+  seenAt: timestamp('seen_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index('project_signals_visitor_idx').on(table.projectId, table.visitorId, table.seenAt),
+  index('project_signals_kind_idx').on(table.projectId, table.kind, table.seenAt),
+]);
+
+/** Each product page we know: its price and stock now, and when they last changed. */
+export const projectProducts = pgTable('project_products', {
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  path: text('path').notNull(),
+  name: text('name').notNull(),
+  priceCents: bigint('price_cents', { mode: 'number' }),
+  currency: text('currency'),
+  available: boolean('available'),
+  image: text('image'),
+  prevPriceCents: bigint('prev_price_cents', { mode: 'number' }),
+  priceChangedAt: timestamp('price_changed_at', { withTimezone: true }),
+  restockedAt: timestamp('restocked_at', { withTimezone: true }),
+  soldOutAt: timestamp('sold_out_at', { withTimezone: true }),
+  checkedAt: timestamp('checked_at', { withTimezone: true }).defaultNow().notNull(),
+  seenAt: timestamp('seen_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  primaryKey({ name: 'project_products_pk', columns: [table.projectId, table.path] }),
+  index('project_products_checked_idx').on(table.checkedAt),
 ]);

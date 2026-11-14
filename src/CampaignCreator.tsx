@@ -7,12 +7,19 @@ import { createPortal } from 'react-dom';
 import { Icon, type IconName } from './ui/Icon';
 import { Dropdown } from './ui/Dropdown';
 import {
-  DURATIONS, GROUPS, STEP_TYPES, WAITS, searchTemplates, stepLabel, stepType,
+  DURATIONS, GROUPS, STEP_GROUPS, STEP_TYPES, WAITS, searchTemplates, stepLabel, stepType,
   type CampaignTrigger, type Step, type StepKind, type Template, type TemplateGroup,
 } from '../server/trigger-library';
 
 type Opt = { value: string; count: number; label?: string };
-type Options = { pages: Opt[]; entry: Opt[]; exit: Opt[]; sources: Opt[]; countries: Opt[]; products: Opt[] };
+type Options = { pages: Opt[]; entry: Opt[]; exit: Opt[]; sources: Opt[]; countries: Opt[]; products: Opt[]; carts?: boolean };
+type Money = (n: number) => string;
+/** Whole amounts in the store's currency: 50 → "$50". */
+export function moneyWhole(currency = 'usd'): Money {
+  let f: Intl.NumberFormat;
+  try { f = new Intl.NumberFormat('en-US', { style: 'currency', currency: currency.toUpperCase(), maximumFractionDigits: 0 }); } catch { f = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }); }
+  return (n) => f.format(n);
+}
 type Screen = 'name' | 'steps' | 'library' | 'type' | 'pick';
 
 const isProject = (id: string) => /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id);
@@ -23,10 +30,12 @@ const DEMO_OPTIONS: Options = {
   sources: ['instagram.com', 'google.com', 'tiktok.com', 'facebook.com'].map((value, i) => ({ value, count: 50 - i * 10 })),
   countries: [['US', 'United States'], ['GB', 'United Kingdom'], ['DE', 'Germany'], ['LT', 'Lithuania']].map(([value, label], i) => ({ value, label, count: 80 - i * 15 })),
   products: ['Kitten Starter Pack', 'Salmon Kibble 4 kg', 'Tall Tower', 'Cozy Nook', 'Grain-free Kitten Pâté'].map((value, i) => ({ value, count: 30 - i * 4 })),
+  carts: true,
 };
 
-export function CampaignCreator({ space, name: startName, trigger: start, editing = false, onDone, onClose }: {
+export function CampaignCreator({ space, name: startName, trigger: start, editing = false, currency = 'usd', onDone, onClose }: {
   space: string;
+  currency?: string;
   name: string;
   trigger?: CampaignTrigger | null;
   /** Changing an existing campaign: opens on its steps and saves instead of creating. */
@@ -44,12 +53,14 @@ export function CampaignCreator({ space, name: startName, trigger: start, editin
   const [options, setOptions] = useState<Options | null>(isProject(space) ? null : DEMO_OPTIONS);
   const [reach, setReach] = useState<{ people: number; withEmail: number } | null>(null);
 
+  const money = useMemo(() => moneyWhole(currency), [currency]);
+  const [typeQ, setTypeQ] = useState('');
   const go = (next: Screen, d: 1 | -1 = 1) => { setDir(d); setScreen(next); };
   const trigger: CampaignTrigger = { steps, wait, ...(template ? { template } : {}) };
   const ready = steps.some((s) => s.kind !== 'no_buy' && s.kind !== 'no_return');
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !(e.target as Element).closest?.('.dd')) onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !(e.target as Element).closest?.('.dd, .dd-list')) onClose(); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, []);
@@ -97,7 +108,7 @@ export function CampaignCreator({ space, name: startName, trigger: start, editin
             <div key={i} className="cc-step">
               <span className="cc-num">{i + 1}</span>
               <Icon name={stepType(s.kind).icon as IconName} />
-              <span className="cc-step-t">{stepLabel(s)}</span>
+              <span className="cc-step-t">{stepLabel(s, money)}</span>
               <button type="button" className="cc-x" aria-label={`Remove step ${i + 1}`} onClick={() => { setSteps((x) => x.filter((_, j) => j !== i)); setTemplate(undefined); }}><Icon name="x" /></button>
             </div>
           ))}
@@ -116,23 +127,36 @@ export function CampaignCreator({ space, name: startName, trigger: start, editin
       </div>
     );
   } else if (screen === 'library') {
-    body = <Library onPick={useTemplate} onBack={() => go('steps', -1)} />;
+    body = <Library money={money} onPick={useTemplate} onBack={() => go('steps', -1)} />;
   } else if (screen === 'type') {
+    const q = typeQ.trim().toLowerCase();
+    const shown = STEP_TYPES.filter((t) => !q || `${t.name} ${t.note}`.toLowerCase().includes(q));
     body = (
       <div className="cc-screen">
         <Head chip="Add step" title="Select step type" note="Choose what they did." />
-        <div className="cc-tray cc-list">
-          {STEP_TYPES.map((t) => (
-            <button key={t.kind} type="button" className="cc-row" onClick={() => { setKind(t.kind); go('pick'); }}>
-              <Icon name={t.icon as IconName} /><span>{t.name}</span><Icon name="chevronRight" />
-            </button>
-          ))}
+        <Search value={typeQ} onChange={setTypeQ} placeholder="Search steps" />
+        <div className="cc-tray cc-list is-tall">
+          {shown.length ? STEP_GROUPS.map((g) => {
+            const list = shown.filter((t) => t.group === g.id);
+            return list.length ? [
+              <span key={g.id} className="cc-group">{g.name}</span>,
+              ...list.map((t) => (
+                <button key={t.kind} type="button" className="cc-row" onClick={() => {
+                  setTypeQ('');
+                  if (t.instant) addStep({ kind: t.kind, value: '' });
+                  else { setKind(t.kind); go('pick'); }
+                }}>
+                  <Icon name={t.icon as IconName} /><span>{t.name}</span><Icon name={t.instant ? 'plus' : 'chevronRight'} />
+                </button>
+              )),
+            ] : null;
+          }) : <p className="cc-none">No steps match.</p>}
         </div>
         <div className="cc-actions one"><button type="button" className="cc-btn" onClick={() => go('steps', -1)}>Back</button></div>
       </div>
     );
   } else {
-    body = <Pick kind={kind} options={options} onPick={addStep} onBack={() => go('type', -1)} />;
+    body = <Pick kind={kind} options={options} money={money} onPick={addStep} onBack={() => go('type', -1)} />;
   }
 
   return createPortal(
@@ -185,7 +209,7 @@ function Search({ value, onChange, placeholder }: { value: string; onChange: (v:
   );
 }
 
-function Library({ onPick, onBack }: { onPick: (t: Template) => void; onBack: () => void }) {
+function Library({ money, onPick, onBack }: { money: Money; onPick: (t: Template) => void; onBack: () => void }) {
   const [q, setQ] = useState('');
   const [group, setGroup] = useState<TemplateGroup | 'all'>('all');
   const list = useMemo(() => searchTemplates(q).filter((t) => group === 'all' || t.group === group), [q, group]);
@@ -202,7 +226,7 @@ function Library({ onPick, onBack }: { onPick: (t: Template) => void; onBack: ()
         {list.length ? list.map((t) => (
           <button key={t.id} type="button" className="cc-row is-tpl" onClick={() => onPick(t)}>
             <span className="cc-ic"><Icon name={t.icon as IconName} /></span>
-            <span className="cc-row-t"><b>{t.name}</b><small>{t.steps.map(stepLabel).join(' → ')}</small></span>
+            <span className="cc-row-t"><b>{t.name}</b><small>{t.steps.map((x) => stepLabel(x, money)).join(' → ')}</small></span>
             <Icon name="plus" />
           </button>
         )) : <p className="cc-none">No templates found.</p>}
@@ -212,15 +236,34 @@ function Library({ onPick, onBack }: { onPick: (t: Template) => void; onBack: ()
   );
 }
 
-/** A step's details: a page, source, country or product from the store's data, or how long for "didn't" steps. */
-function Pick({ kind, options, onPick, onBack }: { kind: StepKind; options: Options | null; onPick: (s: Step) => void; onBack: () => void }) {
+const CART_KINDS: StepKind[] = ['added_cart', 'cart_value', 'near_free_ship', 'code_failed'];
+
+/** A step's details: a page, source, country or product from the store's data, an amount, how many times,
+   or how long for "didn't" steps. */
+function Pick({ kind, options, money, onPick, onBack }: { kind: StepKind; options: Options | null; money: Money; onPick: (s: Step) => void; onBack: () => void }) {
   const [q, setQ] = useState('');
+  const [gap, setGap] = useState(15);
   const t = stepType(kind);
   const query = q.trim();
   let rows: { key: string; label: ReactNode; meta?: string; step: Step }[] = [];
+  let search: string | null = null;
+  const typedAmount = Math.round(Number(query.replace(/[^0-9.]/g, '')));
+  const products = (anyLabel: string) => {
+    const found = (options?.products ?? []).filter((o) => o.value.toLowerCase().includes(query.toLowerCase()));
+    return [
+      ...(query ? [] : [{ key: '*', label: anyLabel, step: { kind, value: '' } }]),
+      ...(query && !found.some((o) => o.value.toLowerCase() === query.toLowerCase()) ? [{ key: 'typed', label: <>Product name contains <b>{query}</b></>, step: { kind, value: query } }] : []),
+      ...found.map((o) => ({ key: o.value, label: o.value, meta: o.count ? String(o.count) : undefined, step: { kind, value: o.value } })),
+    ];
+  };
+  const amounts = (list: number[], make: (n: number) => Step, label: (n: number) => ReactNode) => [
+    ...(typedAmount > 0 && !list.includes(typedAmount) ? [{ key: 'typed', label: label(typedAmount), step: make(typedAmount) }] : []),
+    ...list.filter((n) => !query || String(n).includes(String(typedAmount || ''))).map((n) => ({ key: String(n), label: label(n), step: make(n) })),
+  ];
   if (t.negative) {
     rows = DURATIONS.map((d) => ({ key: d, label: `Within ${d}`, step: { kind, value: '', within: d } }));
   } else if (kind === 'visited' || kind === 'landed' || kind === 'left') {
+    search = 'Search pages';
     const list = (kind === 'visited' ? options?.pages : kind === 'landed' ? options?.entry : options?.exit) ?? [];
     const found = list.filter((o) => o.value.toLowerCase().includes(query.toLowerCase()));
     const typed = query ? (query.startsWith('/') ? query : `/${query}`) : '';
@@ -231,22 +274,43 @@ function Pick({ kind, options, onPick, onBack }: { kind: StepKind; options: Opti
       ] : []),
       ...found.map((o) => ({ key: o.value, label: o.value, meta: o.count ? String(o.count) : undefined, step: { kind, value: o.value, match: 'is' as const } })),
     ];
-  } else if (kind === 'source' || kind === 'country' || kind === 'bought') {
-    const list = (kind === 'source' ? options?.sources : kind === 'country' ? options?.countries : options?.products) ?? [];
+  } else if (kind === 'source' || kind === 'country') {
+    search = kind === 'country' ? 'Search countries' : 'Search sources';
+    const list = (kind === 'source' ? options?.sources : options?.countries) ?? [];
     const found = list.filter((o) => `${o.value} ${o.label ?? ''}`.toLowerCase().includes(query.toLowerCase()));
-    const anyLabel = kind === 'source' ? 'Anywhere (any referrer)' : kind === 'country' ? 'Any country' : 'Anything';
     rows = [
-      ...(query ? [] : [{ key: '*', label: anyLabel, step: { kind, value: '' } }]),
-      ...(query && kind !== 'country' && !found.some((o) => o.value.toLowerCase() === query.toLowerCase())
-        ? [{ key: 'typed', label: <>{kind === 'bought' ? 'Product name contains' : 'Source contains'} <b>{query}</b></>, step: { kind, value: query } }] : []),
+      ...(query ? [] : [{ key: '*', label: kind === 'source' ? 'Anywhere (any referrer)' : 'Any country', step: { kind, value: '' } }]),
+      ...(query && kind === 'source' && !found.some((o) => o.value.toLowerCase() === query.toLowerCase())
+        ? [{ key: 'typed', label: <>Source contains <b>{query}</b></>, step: { kind, value: query } }] : []),
       ...found.map((o) => ({ key: o.value, label: o.label ? `${o.label}` : o.value, meta: o.count ? String(o.count) : undefined, step: { kind, value: o.value } })),
     ];
+  } else if (kind === 'bought' || kind === 'added_cart' || kind === 'sold_out') {
+    search = 'Search products';
+    rows = products(kind === 'bought' ? 'Anything' : 'Any product');
+  } else if (kind === 'cart_value') {
+    search = 'Other amount';
+    rows = amounts([25, 50, 75, 100, 150, 200, 300], (n) => ({ kind, value: String(n) }), (n) => <>{money(n)} or more</>);
+  } else if (kind === 'near_free_ship') {
+    search = 'Other amount';
+    rows = amounts([35, 50, 60, 75, 100, 150], (n) => ({ kind, value: String(n), gap }), (n) => <>Free shipping from <b>{money(n)}</b></>);
+  } else if (kind === 'code_failed') {
+    rows = [1, 2, 3].map((n) => ({ key: String(n), label: n === 1 ? 'Once' : n === 2 ? 'Twice' : '3 times or more', step: { kind, value: '', ...(n > 1 ? { times: n } : {}) } }));
+  } else if (kind === 'compared') {
+    rows = [2, 3, 4].map((n) => ({ key: String(n), label: `Back and forth ${n} times`, step: { kind, value: '', times: n } }));
+  } else if (kind === 'price_drop') {
+    rows = [5, 10, 15, 20, 30].map((n) => ({ key: String(n), label: `${n}% or more`, step: { kind, value: String(n) } }));
   }
-  const loading = !t.negative && !options;
+  const loading = !t.negative && !options && Boolean(search);
+  const noCarts = CART_KINDS.includes(kind) && options && !options.carts;
   return (
     <div className="cc-screen">
       <Head chip="Add step" title={t.pick} note={t.note} />
-      {t.negative ? null : <Search value={q} onChange={setQ} placeholder={`Search ${kind === 'country' ? 'countries' : kind === 'source' ? 'sources' : kind === 'bought' ? 'products' : 'pages'}`} />}
+      {search ? <Search value={q} onChange={setQ} placeholder={search} /> : null}
+      {kind === 'near_free_ship' ? (
+        <div className="cc-groups cc-gap" role="group" aria-label="How close">
+          {[5, 10, 15, 20, 30].map((n) => <button key={n} type="button" aria-pressed={gap === n} onClick={() => setGap(n)}>Within {money(n)}</button>)}
+        </div>
+      ) : null}
       <div className="cc-tray cc-list is-tall">
         {loading ? <p className="cc-none">Loading…</p>
           : rows.length ? rows.map((r) => (
@@ -255,6 +319,7 @@ function Pick({ kind, options, onPick, onBack }: { kind: StepKind; options: Opti
             </button>
           )) : <p className="cc-none">Nothing found in your analytics yet.</p>}
       </div>
+      {noCarts ? <p className="cc-hint"><Icon name="info" />No carts seen yet. Cart steps work on Shopify stores, or when your store sends its cart to Omer.</p> : null}
       <div className="cc-actions one"><button type="button" className="cc-btn" onClick={onBack}>Back</button></div>
     </div>
   );

@@ -22,6 +22,11 @@ export async function saveCampaign(db: NodePgDatabase, projectId: string, id: st
   const data: Record<string, unknown> = { ...(input as Record<string, unknown>), id };
   data.name = typeof data.name === 'string' && data.name.trim() ? data.name.trim().slice(0, 80) : 'New campaign';
   data.trigger = data.trigger == null ? null : cleanTrigger(data.trigger);
+  data.mode = data.mode === 'auto' ? 'auto' : 'review';
+  const settings = (data.settings && typeof data.settings === 'object' ? data.settings : {}) as Record<string, unknown>;
+  data.settings = Object.fromEntries(['limit', 'who', 'freq', 'quiet', 'expires', 'from']
+    .filter((k) => typeof settings[k] === 'string')
+    .map((k) => [k, String(settings[k]).trim().slice(0, 80)]));
   const [existing] = await db.select({ id: projectCampaigns.id, projectId: projectCampaigns.projectId })
     .from(projectCampaigns).where(eq(projectCampaigns.id, id)).limit(1);
   if (existing && existing.projectId !== projectId) return 'Not found.';

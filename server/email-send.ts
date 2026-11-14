@@ -5,11 +5,12 @@ import { appURL } from './auth';
 import { loadBrand } from './brand-import';
 import type { MailDocLike, PageStyleLike } from './email-html';
 import { mailDocToHtml, mailDocToText } from './email-html';
-import { personalize } from './campaign-runner';
+import { personalize } from './trigger-library';
 import { brandFromStore, pageFromBrand } from './email-page';
 import { trackingUrls } from './email-tracking';
 import { loadSending, mailProvidersAvailable, sendViaTransport } from './mail-transport';
-import { projectEmailMessages, projectOpportunities, projects } from './schema';
+import { and as both, gte, or } from 'drizzle-orm';
+import { projectCampaigns, projectEmailMessages, projectOpportunities, projects, purchases } from './schema';
 
 export async function sendOpportunityEmail(
   db: NodePgDatabase,
@@ -44,7 +45,24 @@ export async function sendOpportunityEmail(
     email: opp.email,
     store_name: project.name,
   }) as unknown as MailDocLike;
-  const sending = await loadSending(db, projectId);
+  let sending = await loadSending(db, projectId);
+
+  // A campaign's email: its own sender name, and never after they've bought since it was made.
+  if (opp.campaignId) {
+    const [bought] = await db.select({ id: purchases.id }).from(purchases).where(both(
+      eq(purchases.projectId, projectId),
+      gte(purchases.seenAt, opp.createdAt),
+      opp.email ? or(eq(purchases.visitorId, opp.visitorId), eq(purchases.customerEmail, opp.email)) : eq(purchases.visitorId, opp.visitorId),
+    )).limit(1);
+    if (bought) {
+      await db.update(projectOpportunities).set({ status: 'converted', updatedAt: new Date() }).where(eq(projectOpportunities.id, opportunityId));
+      throw new Error('They already bought, so this email was dropped');
+    }
+    const [row] = await db.select({ data: projectCampaigns.data }).from(projectCampaigns)
+      .where(and(eq(projectCampaigns.id, opp.campaignId), eq(projectCampaigns.projectId, projectId))).limit(1);
+    const from = (row?.data as { settings?: { from?: string } } | undefined)?.settings?.from?.trim();
+    if (from) sending = sending ? { ...sending, fromName: from } : { fromName: from, fromEmail: null, domain: null, provider: 'ses', status: 'none' };
+  }
 
   const [queued] = await db.insert(projectEmailMessages).values({
     projectId,

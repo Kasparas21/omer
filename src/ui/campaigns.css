@@ -10,7 +10,7 @@
 }
 .cpx-dd .dd-btn:hover, .cpx-dd.open .dd-btn { background: var(--accent-soft); box-shadow: none; }
 .cpx-dd .dd-btn > .ico { width: 13px; height: 13px; color: currentColor; }
-.cpx-dd .dd-list { min-width: 170px; }
+.cpx-dd .dd-list, .cpx-dd-list { min-width: 170px; }
 .cpx-flow-acts { margin-top: 16px; }
 .cpx-flow-acts .btn .ico { width: 14px; height: 14px; }
 .cpx-flow-empty { display: grid; justify-items: start; gap: 12px; }
@@ -188,11 +188,12 @@
 .cc-search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: none; background: none; font: inherit; color: var(--ink); }
 
 /* a grey tray holding white rows, like the funnel steps */
-.cc-tray { display: grid; gap: 2px; padding: 4px; border-radius: 19px; background: var(--v2-shell); }
-.cc-list.is-tall { max-height: min(330px, 46vh); overflow-y: auto; overscroll-behavior: contain; }
+.cc-tray { display: grid; gap: 6px; padding: 6px; border-radius: 21px; background: var(--v2-shell); }
+.cc-list.is-tall { max-height: min(340px, 46vh); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .cc-step, .cc-row {
   display: grid; align-items: center; gap: 12px; min-height: 52px; padding: 0 12px 0 14px;
   border: 0; border-radius: 15px; background: var(--v2-card); font: inherit; color: var(--ink); text-align: left;
+  box-shadow: 0 1px 2px rgb(20 22 28 / 0.05);
 }
 .cc-step { grid-template-columns: auto auto minmax(0, 1fr) auto; }
 .cc-num { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 99px; background: var(--v2-shell); font-size: 13px; font-weight: 550; color: var(--ink-2); font-variant-numeric: tabular-nums; }
@@ -218,6 +219,11 @@
 .cc-row-t { display: grid; gap: 1px; min-width: 0; }
 .cc-row-t b { font-size: 14.5px; font-weight: 560; }
 .cc-row-t small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-group { padding: 8px 10px 2px; font-size: 12px; font-weight: 550; letter-spacing: 0.01em; color: var(--ink-3); }
+.cc-group:first-child { padding-top: 4px; }
+.cc-gap { margin: 0; }
+.cc-hint { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 0 4px; font-size: 12.5px; line-height: 1.45; color: var(--ink-3); }
+.cc-hint .ico { flex: none; width: 14px; height: 14px; margin-top: 2px; }
 .cc-none { margin: 0; padding: 26px 12px; border-radius: 15px; background: var(--v2-card); text-align: center; font-size: 14px; color: var(--ink-3); }
 .cc-groups { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: -2px 0; padding-right: 24px; -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
 .cc-groups button { flex: none; height: 30px; padding: 0 12px; border: 1px solid var(--v2-line); border-radius: 99px; background: var(--v2-card); font: inherit; font-size: 13px; color: var(--ink-2); cursor: pointer; transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease; }
@@ -287,3 +293,36 @@
 .cpe-state i { width: 7px; height: 7px; border-radius: 50%; background: var(--success, #16A34A); }
 .cpe-state.is-dirty i { background: #F59E0B; }
 .cpe-pub { flex: none !important; height: 34px !important; min-height: 34px; padding-inline: 18px; border-radius: 99px; }
+
+/* ---------- campaign settings: the create card's look */
+.cc-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.cc-btn .ico { width: 16px; height: 16px; }
+.cps-card { width: min(500px, 100%); max-height: calc(100dvh - 40px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.cps-inner { display: grid; gap: 18px; }
+.cps-saved { display: inline-flex; align-items: center; gap: 5px; height: 20px; margin: 0; font-size: 13px; color: var(--success-text); opacity: 0; transition: opacity 0.2s ease; }
+.cps-saved.show { opacity: 1; }
+.cps-saved .ico { width: 13px; height: 13px; }
+.cps-group { display: grid; gap: 8px; }
+.cps-group > .cc-group { padding: 0 4px; }
+.cps-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 14px; min-height: 60px; padding: 8px 10px 8px 16px;
+  border-radius: 15px; background: var(--v2-card); box-shadow: 0 1px 2px rgb(20 22 28 / 0.05); }
+.cps-k { display: grid; gap: 2px; min-width: 0; }
+.cps-k b { font-size: 14.5px; font-weight: 560; color: var(--ink); }
+.cps-k small { font-size: 12.5px; color: var(--ink-3); }
+.cps-dd { max-width: 220px; }
+.cps-dd .dd-value { text-align: left; }
+.cps-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px; border-radius: 21px; background: var(--v2-shell); }
+.cps-seg button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 46px; padding: 0 10px; border: 0; border-radius: 15px;
+  background: none; font: inherit; font-size: 14px; font-weight: 500; color: var(--ink-2); cursor: pointer; transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease; }
+.cps-seg button .ico { width: 15px; height: 15px; }
+.cps-seg button:hover { color: var(--ink); }
+.cps-seg button[aria-pressed="true"] { background: var(--v2-card); color: var(--ink); box-shadow: 0 1px 2px rgb(20 22 28 / 0.06), 0 4px 12px -6px rgb(20 22 28 / 0.18); }
+.cps-seg button[aria-pressed="true"] .ico { color: var(--accent); }
+.cps-del { color: var(--danger-text); }
+.cps-del:hover { color: var(--danger-text); background: color-mix(in srgb, var(--danger-text) 9%, var(--v2-shell)); }
+.cps-del.is-armed { background: var(--danger); color: #fff; }
+@media (max-width: 480px) {
+  .cps-row { grid-template-columns: 1fr; gap: 8px; padding: 12px 12px 12px 14px; }
+  .cps-dd { max-width: none; }
+  .cps-seg { grid-template-columns: 1fr; }
+}

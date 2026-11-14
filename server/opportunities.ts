@@ -1,7 +1,7 @@
 /* Personal follow-up queue from email-ready visitor insights (no drafts/send yet). */
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { identities, projectCampaignSuggestions, projectOpportunities, visitorInsights } from './schema';
+import { identities, projectCampaignSuggestions, projectOpportunities, projects, visitorInsights } from './schema';
 
 const ACTIVE = ['review', 'hold', 'ready_for_draft', 'drafted', 'sent'] as const;
 
@@ -12,6 +12,9 @@ export async function upsertOpportunityFromInsight(
   insight: { emailReady: boolean; summaryText: string | null; emailHooks: string[] },
 ) {
   if (!insight.emailReady) return null;
+  // Personal follow-ups switched off on the Campaigns page: don't queue new ones.
+  const [project] = await db.select({ on: projects.personalFollowups }).from(projects).where(eq(projects.id, projectId)).limit(1);
+  if (project && !project.on) return null;
   const [identity] = await db.select().from(identities)
     .where(and(eq(identities.projectId, projectId), eq(identities.visitorId, visitorId)))
     .limit(1);

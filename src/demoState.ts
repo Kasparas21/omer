@@ -4,31 +4,36 @@
 import { useSyncExternalStore } from 'react';
 import { toast } from './ui/toast';
 import { cleanTrigger, type CampaignTrigger } from '../server/trigger-library';
-import { CAMPAIGNS, PAGE_STYLE, PEOPLE, PICKS, REPLIES, type Campaign, type MailDoc, type PageStyle, type Person, type Reply, type Status } from './storeData';
+import { CAMPAIGNS, PAGE_STYLE, PEOPLE, REPLIES, type Campaign, type MailDoc, type PageStyle, type Person, type Reply, type Status } from './storeData';
 
-export type CampaignSettings = { limit: string; who: string; freq: string; quiet: string; expires: string; from: string; goal: string };
+export type CampaignSettings = { limit: string; who: string; freq: string; quiet: string; expires: string; from: string };
 export type CampaignState = Campaign & {
-  picks: Record<string, string>;
   settings: CampaignSettings;
   page: PageStyle;
   /** The email everyone else sees: what was last published. */
   published: { doc: MailDoc; page: PageStyle } | null;
   dismissed?: boolean;
-  /** What starts it (stores' own campaigns). Demo examples use flow + picks instead. */
-  trigger?: CampaignTrigger | null;
 };
 export type PersonState = Person & { status: Status; skipped?: boolean; snoozed?: string; page?: PageStyle };
 
-const DEFAULT_SETTINGS: CampaignSettings = {
-  limit: '500 a day', who: 'Everyone with an email', freq: '1 email a week', quiet: 'Same as Settings: 9 PM to 8 AM', expires: '48 hours', from: 'Marc from Pawsome', goal: 'They buy',
+export const DEFAULT_SETTINGS: CampaignSettings = {
+  limit: '200 a day', who: 'Everyone with an email', freq: '1 email a week', quiet: '9 PM to 8 AM', expires: '48 hours', from: 'Marc from Pawsome',
 };
+/** Older saved settings: the first quiet-hours wording, and Goal (now always: stop when they buy). */
+function cleanSettings(s: Partial<CampaignSettings> & { goal?: string } | undefined, from?: string): CampaignSettings {
+  const { goal: _goal, ...rest } = s ?? {};
+  const out = { ...DEFAULT_SETTINGS, ...(from ? { from } : {}), ...rest };
+  if (out.quiet === 'Same as Settings: 9 PM to 8 AM') out.quiet = '9 PM to 8 AM';
+  if (!['50 a day', '100 a day', '200 a day', '500 a day', '1,000 a day'].includes(out.limit)) out.limit = '200 a day';
+  return out;
+}
 
 type State = { campaigns: CampaignState[]; personal: boolean; people: PersonState[]; replies: Reply[]; ready: boolean };
 /** The demo store's space; every real store gets its own space keyed by project id. */
 export const DEMO_SPACE = 'demo';
 const spaces = new Map<string, State>([[DEMO_SPACE, {
   campaigns: CAMPAIGNS.map((c) => ({
-    ...c, picks: {}, settings: { ...DEFAULT_SETTINGS }, page: { ...PAGE_STYLE },
+    ...c, settings: { ...DEFAULT_SETTINGS, limit: '500 a day' }, page: { ...PAGE_STYLE },
     published: c.mail ? { doc: c.mail, page: { ...PAGE_STYLE } } : null,
   })),
   personal: true,
@@ -61,7 +66,7 @@ async function load(id: string) {
     if (!res.ok) throw new Error(String(res.status));
     let campaigns = ((await res.json()) as { campaigns?: CampaignState[] }).campaigns ?? [];
     // Campaigns from the first trigger library become steps.
-    campaigns = campaigns.map((c) => (c.trigger ? { ...c, trigger: cleanTrigger(c.trigger) } : c));
+    campaigns = campaigns.map((c) => ({ ...c, settings: cleanSettings(c.settings), ...(c.trigger ? { trigger: cleanTrigger(c.trigger) } : {}) }));
     // Campaigns made before they were saved on the server were kept in this browser: move them up once.
     if (!campaigns.length) {
       try {
@@ -69,7 +74,12 @@ async function load(id: string) {
         if (old?.campaigns?.length) { campaigns = old.campaigns; campaigns.forEach((c) => queueSave(id, c)); }
       } catch { /* nothing to move */ }
     }
-    spaces.set(id, { ...space(id), campaigns, ready: true });
+    let personal = space(id).personal;
+    try {
+      const p = await fetch(api(id, '/personal'), { cache: 'no-store' });
+      if (p.ok) personal = ((await p.json()) as { on?: boolean }).on !== false;
+    } catch { /* keep what we had */ }
+    spaces.set(id, { ...space(id), campaigns, personal, ready: true });
   } catch {
     spaces.set(id, { ...space(id), ready: true });
     toast('Couldn’t load your campaigns. Reload to try again.', { kind: 'warn' });
@@ -112,14 +122,9 @@ const set = (next: (s: State) => State) => setIn(DEMO_SPACE, next);
 const subscribe = (l: () => void) => { listeners.add(l); return () => listeners.delete(l); };
 export const useDemo = (id: string = DEMO_SPACE) => useSyncExternalStore(subscribe, () => space(id));
 
-export const pickValue = (c: CampaignState, key: string) => c.picks[key] ?? PICKS[key]?.def ?? '';
-
 export const demo = {
   updateCampaign(id: string, patch: Partial<CampaignState>) {
     setFor(id, (s) => ({ ...s, campaigns: s.campaigns.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
-  },
-  setPick(id: string, key: string, value: string) {
-    setFor(id, (s) => ({ ...s, campaigns: s.campaigns.map((c) => (c.id === id ? { ...c, picks: { ...c.picks, [key]: value } } : c)) }));
   },
   setSetting(id: string, key: keyof CampaignSettings, value: string) {
     setFor(id, (s) => ({ ...s, campaigns: s.campaigns.map((c) => (c.id === id ? { ...c, settings: { ...c.settings, [key]: value } } : c)) }));
@@ -130,21 +135,21 @@ export const demo = {
   add(where: string = DEMO_SPACE, from?: string, name = 'New campaign'): string {
     const id = `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const settings = from ? { ...DEFAULT_SETTINGS, from } : { ...DEFAULT_SETTINGS };
-    setIn(where, (s) => ({ ...s, campaigns: [...s.campaigns, { id, name, flow: null, icon: 'megaphone', mode: 'review', on: false, draft: true, mail: null, picks: {}, settings, page: { ...PAGE_STYLE }, published: null, trigger: null }] }));
+    setIn(where, (s) => ({ ...s, campaigns: [...s.campaigns, { id, name, icon: 'megaphone', mode: 'review', on: false, draft: true, mail: null, settings, page: { ...PAGE_STYLE }, published: null, trigger: null }] }));
     return id;
   },
   setTrigger(id: string, trigger: CampaignTrigger, patch: Partial<CampaignState> = {}) {
-    demo.updateCampaign(id, { ...patch, trigger, flow: null });
+    demo.updateCampaign(id, { ...patch, trigger });
   },
-  /** A new campaign picks what starts it; it borrows the email of the campaign that starts the same way. */
-  setFlow(id: string, flow: string) {
-    const own = [...spaces.values()].find((st) => st.campaigns.some((c) => c.id === id));
-    const template = CAMPAIGNS.find((c) => c.flow === flow && c.mail);
-    const twin = own?.campaigns.find((c) => c.flow === flow && c.published)
-      ?? (template ? { icon: template.icon, published: { doc: template.mail!, page: { ...PAGE_STYLE } } } : undefined);
-    setFor(id, (s) => ({ ...s, campaigns: s.campaigns.map((c) => (c.id === id ? { ...c, flow: flow as Campaign['flow'], icon: twin?.icon ?? c.icon, published: twin?.published ?? c.published } : c)) }));
+  /** Personal follow-ups on or off: saved on the server for real stores (it stops new ones being made). */
+  setPersonal(on: boolean, where: string = DEMO_SPACE) {
+    setIn(where, (s) => ({ ...s, personal: on }));
+    if (isProject(where)) {
+      void fetch(api(where, '/personal'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on }) })
+        .then((r) => { if (!r.ok) throw new Error(); })
+        .catch(() => { setIn(where, (s) => ({ ...s, personal: !on })); toast('Couldn’t save that. Try again.', { kind: 'warn' }); });
+    }
   },
-  setPersonal(on: boolean, where: string = DEMO_SPACE) { setIn(where, (s) => ({ ...s, personal: on })); },
   updateReply(id: string, patch: Partial<Reply>) {
     set((s) => ({ ...s, replies: s.replies.map((r) => (r.id === id ? { ...r, ...patch } : r)) }));
   },
