@@ -193,13 +193,14 @@ export function Opportunities({ demo, projectId, storeName = '', host, editing, 
       try {
         const res = await fetch(`/api/projects/${projectId}/opportunities/${id}/send`, { method: 'POST' });
         const data = await res.json().catch(() => ({})) as { error?: string };
-        if (!res.ok) throw new Error(data.error || 'Send failed');
+        if (!res.ok) throw new Error((data.error && String(data.error)) || `Send failed (${res.status})`);
         setRealOpps((prev) => (prev || []).map((o) => (o.id === id ? { ...o, status: 'sent' } : o)));
         setEditOppId(null);
         onEdit(false);
-        toast('Sent');
+        toast('Sent — check Gmail', { kind: 'ok' });
       } catch (error) {
-        toast(error instanceof Error ? error.message : 'Could not send', { kind: 'warn' });
+        const msg = error instanceof Error ? error.message : 'Could not send';
+        toast(msg, { kind: 'warn' });
       } finally {
         setRealBusy(false);
       }

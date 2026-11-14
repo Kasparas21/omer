@@ -35,6 +35,21 @@ export async function sendOpportunityEmail(
     throw new Error('Demo sends are limited to the allowlisted filming inbox');
   }
 
+  // Sprüt filming: rewrite surveillance-style insight drafts before the send lands in Gmail.
+  if (isSprutDemoOrigin(project.origin)) {
+    const hooks = Array.isArray(opp.hooksJson) ? opp.hooksJson : [];
+    const creepy = hooks.some((h) => /mention they|lingered|we saw|you viewed|you left/i.test(String(h)))
+      || /mention they|lingered/i.test(opp.reason || '');
+    if (creepy || !opp.draftJson) {
+      const { draftOpportunityEmail } = await import('./email-draft');
+      await draftOpportunityEmail(db, projectId, opportunityId);
+      const [fresh] = await db.select().from(projectOpportunities)
+        .where(and(eq(projectOpportunities.id, opportunityId), eq(projectOpportunities.projectId, projectId)))
+        .limit(1);
+      if (fresh?.draftJson) Object.assign(opp, fresh);
+    }
+  }
+
   const brandFull = await loadBrand(db, projectId);
   let host = '';
   try { host = new URL(project.origin).host; } catch { host = project.origin; }
