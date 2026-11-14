@@ -50,7 +50,7 @@ function cleanTimeZone(v: unknown) {
   if (typeof v !== 'string' || !/^[A-Za-z_]+(?:\/[A-Za-z0-9_+-]+){0,2}$/.test(v) || v.length > 40) return null;
   try { new Intl.DateTimeFormat('en-US', { timeZone: v }); return v; } catch { return null; }
 }
-import { dailyVisitors, dwell, emailEvents, identities, pageViews, pathViews, projectOpportunities, projects, purchases, referrerViews, replayChunks, replayInsights, replaySessions, visitorInsights, visits } from './schema';
+import { dailyVisitors, dwell, emailEvents, identities, pageViews, pathViews, projectEmailMessages, projectOpportunities, projects, purchases, referrerViews, replayChunks, replayInsights, replaySessions, visitorInsights, visits } from './schema';
 import { auth, pool, appURL } from './auth';
 import { bearerFrom, userFromToken } from './mcp-auth';
 
@@ -870,6 +870,9 @@ async function visitorProfile(request: Request, env: Env, projectId: string, vis
       .orderBy(desc(purchases.seenAt))
       .limit(40);
 
+    const [sentRow] = await db.select({ n: sql<number>`count(*)::int` }).from(projectEmailMessages)
+      .where(and(eq(projectEmailMessages.projectId, projectId), eq(projectEmailMessages.visitorId, visitorKey), eq(projectEmailMessages.status, 'sent')));
+    const sentCount = sentRow?.n ?? 0;
     const mail = await db.select({
       id: emailEvents.id,
       type: emailEvents.type,
@@ -997,13 +1000,13 @@ async function visitorProfile(request: Request, env: Env, projectId: string, vis
         dwellMs,
         revenue,
         orders: orderRows.length,
-        sent: 0,
+        sent: sentCount,
         opens,
         clicks,
         attributed: orderRows.filter((row) => row.campaign).length,
       },
       mail: {
-        sent: 0,
+        sent: sentCount,
         opened: opens,
         clicked: clicks,
         lastOpenedAt: lastOpen ? String(lastOpen.seenAt) : null,

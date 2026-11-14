@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createDotGlobe, preloadDotGlobe } from './globe/dotglobe.js';
 import { Icon } from './ui/Icon';
 import { Orb } from './ui/Orb';
@@ -246,13 +246,6 @@ export function Profile({ projectId, seed, onLive, onName, currency = 'usd' }: {
   const hasPurchases = (data?.journey ?? []).some((s) => s.purchases.length > 0);
   // Campaign tags only count as follow-up sales once we have actually emailed this person.
   const followUpOrders = data?.mail.sent ? data.mail.attributed : 0;
-  const elig = !email
-    ? { k: 'unverified', title: 'Email unavailable', detail: 'A recipient address is required to send a follow-up.' }
-    : !data?.identity?.name
-      ? { k: 'weak', title: 'Email known, name uncertain', detail: 'Only an email address is linked to this profile.' }
-      : data.live
-        ? { k: 'wait', title: 'Waiting for the session to end', detail: 'Follow-up is paused while they’re browsing.' }
-        : { k: 'ok', title: data.mail.sent ? 'Has been emailed' : 'Eligible to email', detail: email };
 
   return (
     <div className="profile people-page">
@@ -355,66 +348,7 @@ export function Profile({ projectId, seed, onLive, onName, currency = 'usd' }: {
                   </summary>
                   <div className="profile-followup-expand"><div className="profile-followup-expand-in">
                     <div className="v2-in profile-followup-body">
-                      <div className="profile-fu">
-                        <div className={`profile-fu-status profile-elig-${elig.k}`}>
-                          <span className="profile-fu-dot" aria-hidden="true" />
-                          <div className="profile-fu-status-copy">
-                            <b>{elig.title}</b>
-                            <span>{elig.detail}</span>
-                          </div>
-                        </div>
-                        {data.insightsEnabled ? (
-                          <div className="profile-fu-brief">
-                            {(() => {
-                              const insight = data.visitorInsight;
-                              const readyPct = insight?.emailReadyConfidence != null
-                                ? Math.round(Math.max(0, Math.min(1, insight.emailReadyConfidence)) * 100)
-                                : null;
-                              const elig = insight?.emailReady ? 'profile-elig-ok'
-                                : insight?.status === 'ready' ? 'profile-elig-wait'
-                                  : 'profile-elig-wait';
-                              return (
-                                <>
-                                  <div className={`profile-fu-status ${elig}`}>
-                                    <span className="profile-fu-dot" />
-                                    <div className="profile-fu-status-copy">
-                                      <b>
-                                        {visitorBusy ? 'Building visitor context…'
-                                          : insight?.status === 'ready' && insight.summary
-                                            ? (insight.emailReady ? `Email-ready ${readyPct}%` : `Not email-ready yet${readyPct != null ? ` · ${readyPct}%` : ''}`)
-                                            : 'Context grows with each analyzed session'}
-                                      </b>
-                                      <span>
-                                        {visitorError
-                                          || insight?.summary
-                                          || 'Open a Watch replay to analyze a session. We roll those insights into this visitor brief — high-confidence follow-ups send on their own.'}
-                                      </span>
-                                    </div>
-                                  </div>
-                                  {!!insight?.interests?.length && (
-                                    <div className="profile-insight-chips-row">
-                                      {insight.interests.map((item) => (
-                                        <span key={item} className="profile-insight-chip">{item}</span>
-                                      ))}
-                                    </div>
-                                  )}
-                                  {!!insight?.emailHooks?.length && (
-                                    <ul className="profile-insight-list">
-                                      {insight.emailHooks.slice(0, 4).map((item) => (
-                                        <li key={item}>{item}</li>
-                                      ))}
-                                    </ul>
-                                  )}
-                                  {!!insight?.gaps?.length && (
-                                    <p className="profile-insight-gaps">Gaps: {insight.gaps.join(' · ')}</p>
-                                  )}
-                                </>
-                              );
-                            })()}
-                          </div>
-                        ) : null}
-                        <p className="profile-empty">No messages or campaign enrollments yet.</p>
-                      </div>
+                      <FollowUps data={data} busy={visitorBusy} error={visitorError} />
                     </div>
                   </div></div>
                 </details>
@@ -564,5 +498,108 @@ function JourneyCard({ session, date, replayEnabled, onReplay, currency = 'usd' 
         </div>
       </article>
     </>
+  );
+}
+
+/** AI phrasing and raw page text, as a short topic: "Mention they lingered on “How Do You Identify? Male…”" → "How do you identify?". */
+function topicOf(raw: string) {
+  let t = raw.replace(/\s+/g, ' ').trim()
+    .replace(/^(mention|reference|note)\b.*?\b(explored|interest in|lingered on|read|viewed|clicked|looked at|spent time (reading|on))\s*/i, '');
+  // A quoted label is the topic: “First week with a kitten” twice → First week with a kitten.
+  const quoted = t.match(/^[“"']([^”"']+)[”"']/);
+  if (quoted) t = quoted[1];
+  t = t.replace(/^[“”"']+|[“”"']+$/g, '')
+    .replace(/\s*[←→].*$/, '')
+    .replace(/\s+(filters?|sort( by)?|menu|close|next|previous|back|add to cart|buy now|quantity)\b.*$/i, '')
+    .trim();
+  const q = t.indexOf('?');
+  if (q > 0) t = t.slice(0, q + 1);
+  const words = t.split(' ');
+  // Long Title Case UI Labels read like shouting: sentence case them. Short ones are usually product names.
+  if ((words.length >= 5 || t.endsWith('?')) && words.filter((w) => /^[A-Z]/.test(w)).length >= words.length - 1) {
+    t = words.map((w, i) => (i ? w.toLowerCase() : w.charAt(0) + w.slice(1).toLowerCase())).join(' ');
+  }
+  if (t.length > 40) t = `${t.slice(0, 38).replace(/\s+\S*$/, '')}…`;
+  return t;
+}
+/** "The visitor is a new owner…" reads better as "They're a new owner…". */
+function theyFirst(text: string) {
+  return text
+    .replace(/^(the|this) visitor is\b/i, 'They’re')
+    .replace(/^(the|this) visitor was\b/i, 'They were')
+    .replace(/^(the|this) visitor has\b/i, 'They’ve')
+    .replace(/^(the|this) visitor (\w+?)s\b/i, 'They $2')
+    .replace(/^(the|this) visitor\b/i, 'They');
+}
+const NOT_A_TOPIC = /capture email|gather|clearer preference|before sending|a different angle|^(homepage|unknown|other)$/i;
+
+/** Follow-ups for one visitor, at a glance: can we email them, how ready they are, what they cared about, what was sent. */
+function FollowUps({ data, busy, error }: { data: ProfileData; busy: boolean; error: string | null }) {
+  const [allTopics, setAllTopics] = useState(false);
+  const [fullWhy, setFullWhy] = useState(false);
+  const email = data.identity?.email;
+  const insight = data.insightsEnabled ? data.visitorInsight : null;
+  const ready = insight?.status === 'ready';
+  const pct = ready && insight?.emailReadyConfidence != null ? Math.round(Math.max(0, Math.min(1, insight.emailReadyConfidence)) * 100) : null;
+  const status = !email ? { tone: 'muted', title: 'No email yet', note: 'Follow-ups start once they share one.' }
+    : data.live ? { tone: 'wait', title: 'On your site now', note: 'Follow-ups wait until they leave.' }
+      : busy ? { tone: 'muted', title: 'Reading their sessions…', note: '' }
+        : ready && insight?.emailReady ? { tone: 'ok', title: 'Ready for a follow-up', note: '' }
+          : ready ? { tone: 'wait', title: 'Not ready yet', note: 'Omer needs a clearer signal first.' }
+            : { tone: 'muted', title: 'Getting to know them', note: data.insightsEnabled ? 'This grows with each visit Omer watches.' : '' };
+  const visits = insight?.sourceSessionCount ?? 0;
+  const who = email ?? '';
+  // One sentence of why, not the whole analysis.
+  const why = ready && insight?.summary
+    ? (() => {
+      const first = theyFirst(insight.summary).split(/(?<=[.;!?])\s/)[0].replace(/[;,]\s*$/, '').replace(/;$/, '.');
+      if (first.length > 150) return `${first.slice(0, 148).replace(/\s+\S*$/, '')}…`;
+      return /[.!?…]$/.test(first) ? first : `${first}.`;
+    })() : '';
+  const topics: string[] = [];
+  for (const raw of [...(insight?.interests ?? []), ...(insight?.emailHooks ?? [])]) {
+    const t = topicOf(raw);
+    const k = t.toLowerCase().replace(/…$/, '');
+    if (t.length < 3 || NOT_A_TOPIC.test(t) || topics.some((x) => { const y = x.toLowerCase().replace(/…$/, ''); return y.includes(k) || k.includes(y); })) continue;
+    topics.push(t);
+    if (topics.length === 10) break;
+  }
+  const shownTopics = allTopics ? topics : topics.slice(0, 4);
+  const moreTopics = topics.length - shownTopics.length;
+  const longer = Boolean(insight?.summary && why && insight.summary.trim().length > why.length + 12);
+  const sent = data.mail.sent;
+  const mailLine = sent
+    ? `${sent} email${sent === 1 ? '' : 's'} sent · ${data.mail.opened} opened${data.mail.attributed ? ` · ${data.mail.attributed} order${data.mail.attributed === 1 ? '' : 's'}` : ''}`
+    : 'No emails sent yet';
+  return (
+    <div className="fu">
+      <div className={`fu-head is-${status.tone}`}>
+        {pct != null && email ? (
+          <span className="fu-ring" style={{ '--p': pct } as CSSProperties} title={`Email-ready ${pct}%`}><b>{pct}</b></span>
+        ) : <span className="fu-ring is-empty" aria-hidden="true"><Icon name={email ? 'clock' : 'mail'} /></span>}
+        <div className="fu-head-t">
+          <b>{status.title}</b>
+          {who ? <small>{who}</small> : null}
+        </div>
+      </div>
+      {error ? <p className="fu-why is-error">{error}</p>
+        : why ? (
+          <p className="fu-why">
+            {fullWhy && insight?.summary ? theyFirst(insight.summary) : why}
+            {longer ? <> <button type="button" className="fu-more" aria-expanded={fullWhy} onClick={() => setFullWhy((v) => !v)}>{fullWhy ? 'Less' : 'More'}</button></> : null}
+          </p>
+        ) : status.note ? <p className="fu-why">{status.note}</p> : null}
+      {topics.length ? (
+        <div className="fu-topics">
+          <span className="fu-k">Interested in{visits > 1 ? <span className="fu-k-n"> · from {visits} visits</span> : null}</span>
+          <div className="fu-chips">
+            {shownTopics.map((t) => <span key={t} title={t}>{t}</span>)}
+            {moreTopics > 0 ? <button type="button" className="fu-chip-more" onClick={() => setAllTopics(true)}>+{moreTopics} more</button>
+              : allTopics && topics.length > 4 ? <button type="button" className="fu-chip-more" onClick={() => setAllTopics(false)}>Show less</button> : null}
+          </div>
+        </div>
+      ) : null}
+      {email ? <div className="fu-foot"><Icon name="mail" />{mailLine}</div> : null}
+    </div>
   );
 }
