@@ -38,7 +38,7 @@ try {
   // Setup asks to import the brand first (Firecrawl); skip it to reach the install step.
   await page.getByRole('heading', { name: 'Your brand' }).waitFor();
   await page.getByRole('button', { name: 'Skip for now', exact: true }).click();
-  await page.getByRole('heading', { name: 'Add this to your site' }).waitFor();
+  await page.getByRole('heading', { name: 'Install Omer' }).waitFor();
   const projects = await page.evaluate(async () => (await (await fetch('/api/projects')).json()).projects);
   assert.equal(projects.length, 1);
   assert.equal(projects[0].firstEventAt, null);
@@ -46,15 +46,17 @@ try {
   await page.getByRole('button', { name: 'Copy install prompt', exact: true }).click();
   const prompt = await page.evaluate(() => navigator.clipboard.readText());
   assert.ok(prompt.includes(key));
+  assert.ok(prompt.includes('Install Omer'));
   assert.ok(prompt.includes('analytics: true'));
+  assert.ok(prompt.includes('cookie banner') || prompt.includes('Cookie banner'));
   await page.getByRole('button', { name: 'Installation guide', exact: true }).first().click();
-  await page.getByRole('heading', { name: 'Installation guide' }).waitFor();
+  await page.getByRole('heading', { name: 'Install Omer' }).waitFor();
   await page.keyboard.press('Escape');
   await page.reload();
   // Setup asks to import the brand first (Firecrawl); skip it to reach the install step.
   await page.getByRole('heading', { name: 'Your brand' }).waitFor();
   await page.getByRole('button', { name: 'Skip for now', exact: true }).click();
-  await page.getByRole('heading', { name: 'Add this to your site' }).waitFor();
+  await page.getByRole('heading', { name: 'Install Omer' }).waitFor();
   const outsider = await browser.newContext();
   const other = await outsider.request.get(`${base}/api/projects`);
   assert.equal(other.status(), 401);
