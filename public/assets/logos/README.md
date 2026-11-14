@@ -14,4 +14,4 @@ Use `default` unless it's made for dark backgrounds; then take the `light` varia
 (`/icons/<slug>/light.svg`) for our light UI. Resend and TikTok defaults are white —
 use their `light` variants so they read on our UI.
 
-In here now: google, instagram, meta, tiktok (light), shopify, stripe, resend (light), postmark, revenuecat, dodo (`dodo-payments` on thesvg.org).
+In here now: google, instagram, meta, tiktok (light), shopify, stripe, resend (light), postmark, revenuecat, dodo (`dodo-payments` on thesvg.org), claude, chatgpt (`openai-chatgpt`), cursor (light).
