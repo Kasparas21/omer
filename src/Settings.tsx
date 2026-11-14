@@ -63,7 +63,7 @@ function Row({ title, children, wide }: { title: string; children: React.ReactNo
   );
 }
 
-export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab, demo = false, onGo, onProjectUpdate }: {
+export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab, demo = false, onGo, onProjectUpdate, onReplay, storageReady = true, replayBusy = false }: {
   startTab?: Tab;
   /** The demo store shows the kit's full example Settings. */
   demo?: boolean;
@@ -247,6 +247,25 @@ export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab
                 </Row>
                 <Row title="Tracking">
                   <span className={`status-pill ${project.firstEventAt ? 'received' : ''}`}><span className="lvp-dot" aria-hidden="true" />{project.firstEventAt ? 'Live' : 'Not installed'}</span>
+                </Row>
+                <Row title="Session replay">
+                  {!storageReady ? (
+                    <span className="omer-set-val">Storage not configured on this server</span>
+                  ) : project.replayEnabled ? (
+                    <span className="status-pill received"><Icon name="checkCircle" />On</span>
+                  ) : (
+                    <span className="omer-set-acts">
+                      <span className="status-pill"><Icon name="alert" />Off</span>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        disabled={demo || replayBusy || !onReplay}
+                        onClick={() => onReplay?.(true)}
+                      >
+                        Turn on
+                      </button>
+                    </span>
+                  )}
                 </Row>
                 <Row title="Install script" wide>
                   <div className="su-code omer-set-snippet"><pre>{snippet}</pre>

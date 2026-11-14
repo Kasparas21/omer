@@ -17,6 +17,8 @@ export function pageVars(page: PageStyle = PAGE_STYLE): CSSProperties {
     ['--ml-bg' as string]: page.bg, ['--ml-fill' as string]: page.fill, ['--ml-text' as string]: page.text, ['--ml-accent' as string]: page.accent,
     ['--ml-head' as string]: STACK[page.headFont] ?? STACK.Inter, ['--ml-body' as string]: STACK[page.bodyFont] ?? STACK.Inter,
     ['--ml-size' as string]: `${page.size}px`, ['--ml-width' as string]: `${page.width}px`, ['--ml-corners' as string]: `${page.corners}px`,
+    ['--ml-cta-radius' as string]: `${page.ctaRadius ?? 999}px`,
+    ['--ml-head-size' as string]: `${page.headSize ?? 34}px`,
   };
 }
 

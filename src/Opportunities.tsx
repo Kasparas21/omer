@@ -234,7 +234,7 @@ export function Opportunities({ demo, projectId, storeName = '', host, editing, 
       <div className="op-screen op-real">
         <header className="op-top">
           <h1 className="op-title">Opportunities</h1>
-          <p className="op-real-lede">Email-ready people. Draft on-brand follow-ups{sendOn ? ', then send' : ' (set up Sending in Settings)'}.</p>
+          <p className="op-real-lede">Email-ready people. High-confidence ones draft and send on their own{sendOn ? '' : ' once Sending is set up'}; the rest you can draft here.</p>
         </header>
         <ul className="op-real-list">
           {list.map((o) => (

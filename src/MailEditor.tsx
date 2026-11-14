@@ -15,6 +15,7 @@ import { useSlidingPill } from './ui/useSlidingPill';
 import type { Brand, BrandFile } from './brandStore';
 import { lastingSrc, uploadImage } from './campaignMail';
 import { FIELDS, FIELD_RE } from '../server/trigger-library';
+import { mailDocToHtml } from '../server/email-html';
 
 export type Draft = { doc: MailDoc; page: PageStyle };
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -389,6 +390,36 @@ export function MailEditor({ space, brand, published, onPublish }: {
           <i className="cpe-dock-sep" />
           <button type="button" className="cpe-ib" aria-label="Undo" title="Undo" disabled={!undo.current.length} onClick={() => step(undo, redo)}><Icon name="undo" /></button>
           <button type="button" className="cpe-ib" aria-label="Redo" title="Redo" disabled={!redo.current.length} onClick={() => step(redo, undo)}><Icon name="redo" /></button>
+          <button
+            type="button"
+            className="cpe-ib"
+            aria-label="Copy HTML"
+            title="Copy production HTML"
+            onClick={() => {
+              try {
+                const html = mailDocToHtml(doc, draft.page, {
+                  name: mailBrand.name,
+                  logo: mailBrand.logo,
+                  sender: mailBrand.sender,
+                  signoff: mailBrand.signoff,
+                  address: mailBrand.address,
+                }, {
+                  openPixel: 'https://example.com/o.gif',
+                  unsubscribeUrl: 'https://example.com/unsubscribe',
+                  wrapClick: (url) => url || '#',
+                  name: null,
+                });
+                void navigator.clipboard.writeText(html).then(
+                  () => toast('HTML copied — paste into Litmus or a test send'),
+                  () => toast('Could not copy HTML', { kind: 'warn' }),
+                );
+              } catch (error) {
+                toast(error instanceof Error ? error.message : 'Could not build HTML', { kind: 'warn' });
+              }
+            }}
+          >
+            <Icon name="file" />
+          </button>
           <i className="cpe-dock-sep" />
           <span ref={fieldsRef} className={`cpe-fields${fieldsOpen ? ' open' : ''}`}>
             <button type="button" className="cpe-fields-btn" aria-haspopup="menu" aria-expanded={fieldsOpen}

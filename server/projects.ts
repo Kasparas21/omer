@@ -25,6 +25,7 @@ import {
 } from './opportunities';
 import { draftOpportunityEmail, saveOpportunityDraft } from './email-draft';
 import { sendOpportunityEmail } from './email-send';
+import { kickPersonalFollowup } from './personal-followups';
 import { loadEmailContext } from './email-context';
 import { mailProvidersAvailable } from './mail-transport';
 import { checkProjectSending, getProjectSending, upsertProjectSending } from './sending';
@@ -197,6 +198,12 @@ async function ownerID(request: Request) {
 async function listProjects(request: Request, env: Env) {
   const owner = await ownerID(request);
   if (!owner) return json({ error: 'Sign in to view projects.' }, 401);
+  // Replays are core product — heal any project still stuck off when R2 is ready.
+  if (objectStoreConfigured()) {
+    await withDatabase(env, (db) => db.update(projects)
+      .set({ replayEnabled: true })
+      .where(and(eq(projects.owner, owner), eq(projects.replayEnabled, false))));
+  }
   const url = new URL(request.url);
   const summary = url.searchParams.get('view') === 'summary';
   const selected = url.searchParams.get('project');
@@ -409,7 +416,13 @@ async function createProject(request: Request, env: Env, url: URL) {
 
   const owner = await ownerID(request);
   if (!owner) return json({ error: 'Sign in to create a project.' }, 401);
-  const [project] = await withDatabase(env, (db) => db.insert(projects).values({ owner, name, origin }).returning(projectFields));
+  const [project] = await withDatabase(env, (db) => db.insert(projects).values({
+    owner,
+    name,
+    origin,
+    // Always capture when R2 is configured — replays are a core product surface.
+    replayEnabled: objectStoreConfigured(),
+  }).returning(projectFields));
   return json({ project }, 201);
 }
 
@@ -1451,11 +1464,15 @@ async function summarizeVisitor(request: Request, env: Env, projectId: string, v
         const hooks = Array.isArray(saved.emailHooksJson)
           ? saved.emailHooksJson.filter((item): item is string => typeof item === 'string')
           : [];
-        await upsertOpportunityFromInsight(db, projectId, visitorKey, {
+        const opp = await upsertOpportunityFromInsight(db, projectId, visitorKey, {
           emailReady: Boolean(saved.emailReady),
           summaryText: saved.summaryText,
           emailHooks: hooks,
+          emailReadyConfidence: saved.emailReadyConfidence,
         });
+        if (opp?.id) {
+          kickPersonalFollowup(db, projectId, opp.id, saved.emailReadyConfidence);
+        }
         await refreshCampaignSuggestions(db, projectId);
       } catch (hookError) {
         console.error('opportunity upsert failed', hookError);
@@ -1529,6 +1546,10 @@ async function patchProject(request: Request, env: Env, projectId: string) {
   if (typeof body?.replayEnabled === 'boolean') {
     if (body.replayEnabled && !objectStoreConfigured()) {
       return json({ error: 'Replay storage is not configured on this server.' }, 400);
+    }
+    // Replays stay on whenever storage is ready — no off switch.
+    if (!body.replayEnabled && objectStoreConfigured()) {
+      return json({ error: 'Session replay stays on.' }, 400);
     }
     patch.replayEnabled = body.replayEnabled;
   }

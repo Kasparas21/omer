@@ -195,6 +195,8 @@ const campaignTick = async () => {
   await checkProducts(db).catch((e) => console.error('product check failed', e instanceof Error ? e.message : e));
   await pool.query(`delete from project_signals where seen_at < now() - interval '90 days'`).catch(() => undefined);
   await runCampaigns(db).catch((e) => console.error('Unable to run campaigns', e instanceof Error ? e.message : e));
+  const { processPersonalFollowups } = await import('./personal-followups');
+  await processPersonalFollowups(db).catch((e) => console.error('Unable to send personal follow-ups', e instanceof Error ? e.message : e));
 };
 const campaignTimer = setInterval(() => void campaignTick(), 10 * 60 * 1000);
 setTimeout(() => void campaignTick(), 60 * 1000).unref();

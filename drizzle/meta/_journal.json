@@ -21,6 +21,7 @@
     {"idx": 16, "version": "7", "when": 1794694000000, "tag": "0016_project_integrations", "breakpoints": true},
     {"idx": 17, "version": "7", "when": 1794698000000, "tag": "0017_campaign_opportunities", "breakpoints": true},
     {"idx": 18, "version": "7", "when": 1794702000000, "tag": "0018_display_currency", "breakpoints": true},
-    {"idx": 19, "version": "7", "when": 1794706000000, "tag": "0019_campaign_signals", "breakpoints": true}
+    {"idx": 19, "version": "7", "when": 1794706000000, "tag": "0019_campaign_signals", "breakpoints": true},
+    {"idx": 20, "version": "7", "when": 1794710000000, "tag": "0020_replay_on_by_default", "breakpoints": true}
   ]
 }
