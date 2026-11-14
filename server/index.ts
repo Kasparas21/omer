@@ -45,7 +45,9 @@ app.get('/api/config', (c) => c.json({
   firecrawl: firecrawlConfigured(),
   brandImport: brandImportReady(),
   ses: sesConfigured(),
-  resend: Boolean(process.env.RESEND_API_KEY?.trim()),
+  // BYO Resend / Postmark are always available in Settings (merchant pastes their key).
+  resend: true,
+  postmark: true,
 }));
 app.all('/api/projects', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id', (c) => projects.fetch(c.req.raw, env));

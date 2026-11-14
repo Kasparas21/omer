@@ -1,4 +1,4 @@
-/* Resend domains + send when RESEND_API_KEY is set. */
+/* Resend domains + send. Supports platform RESEND_API_KEY or a per-project BYO key. */
 import type { DnsRecord } from './ses';
 
 function env(name: string) {
@@ -9,12 +9,13 @@ export function resendConfigured() {
   return Boolean(env('RESEND_API_KEY'));
 }
 
-async function resendFetch(path: string, init?: RequestInit) {
-  if (!resendConfigured()) throw new Error('Resend is not configured');
+async function resendFetch(path: string, init: RequestInit | undefined, apiKey: string) {
+  const key = apiKey.trim();
+  if (!key) throw new Error('Resend API key missing');
   const res = await fetch(`https://api.resend.com${path}`, {
     ...init,
     headers: {
-      Authorization: `Bearer ${env('RESEND_API_KEY')}`,
+      Authorization: `Bearer ${key}`,
       'Content-Type': 'application/json',
       ...(init?.headers || {}),
     },
@@ -27,6 +28,10 @@ async function resendFetch(path: string, init?: RequestInit) {
     throw new Error(`Resend ${res.status}: ${msg}`);
   }
   return body;
+}
+
+function platformKey() {
+  return env('RESEND_API_KEY');
 }
 
 export type ResendDomainStatus = {
@@ -65,20 +70,18 @@ function parseDomain(raw: Record<string, unknown>, fallbackDomain: string): Rese
   };
 }
 
-export async function resendEnsureDomain(domain: string): Promise<ResendDomainStatus> {
+export async function resendEnsureDomain(domain: string, apiKey?: string | null): Promise<ResendDomainStatus> {
+  const key = (apiKey || platformKey()).trim();
   const clean = domain.trim().toLowerCase().replace(/\.$/, '');
   if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(clean)) throw new Error('Invalid domain');
   try {
-    const created = await resendFetch('/domains', {
-      method: 'POST',
-      body: JSON.stringify({ name: clean }),
-    });
+    const created = await resendFetch('/domains', { method: 'POST', body: JSON.stringify({ name: clean }) }, key);
     return parseDomain(created, clean);
   } catch (error) {
     const msg = error instanceof Error ? error.message : '';
     if (!/already|exist|409|422/i.test(msg)) throw error;
   }
-  const list = await resendFetch('/domains');
+  const list = await resendFetch('/domains', undefined, key);
   const data = Array.isArray(list.data) ? list.data : Array.isArray(list) ? list : [];
   const hit = data.find((row) => {
     const r = row as Record<string, unknown>;
@@ -87,14 +90,15 @@ export async function resendEnsureDomain(domain: string): Promise<ResendDomainSt
   if (!hit) throw new Error('Resend domain not found after create');
   const id = String(hit.id || '');
   if (id) {
-    const detailed = await resendFetch(`/domains/${encodeURIComponent(id)}`);
+    const detailed = await resendFetch(`/domains/${encodeURIComponent(id)}`, undefined, key);
     return parseDomain(detailed, clean);
   }
   return parseDomain(hit, clean);
 }
 
-export async function resendGetDomain(providerRef: string, domain: string): Promise<ResendDomainStatus> {
-  const detailed = await resendFetch(`/domains/${encodeURIComponent(providerRef)}`);
+export async function resendGetDomain(providerRef: string, domain: string, apiKey?: string | null): Promise<ResendDomainStatus> {
+  const key = (apiKey || platformKey()).trim();
+  const detailed = await resendFetch(`/domains/${encodeURIComponent(providerRef)}`, undefined, key);
   return parseDomain(detailed, domain);
 }
 
@@ -107,7 +111,9 @@ export async function resendSendEmail(input: {
   text: string;
   replyTo?: string | null;
   listUnsubscribeUrl?: string;
+  apiKey?: string | null;
 }): Promise<{ messageId: string }> {
+  const key = (input.apiKey || platformKey()).trim();
   const headers: Record<string, string> = {};
   if (input.listUnsubscribeUrl) {
     headers['List-Unsubscribe'] = `<${input.listUnsubscribeUrl}>`;
@@ -124,7 +130,7 @@ export async function resendSendEmail(input: {
       reply_to: input.replyTo || undefined,
       headers: Object.keys(headers).length ? headers : undefined,
     }),
-  });
+  }, key);
   const messageId = String(body.id || '');
   if (!messageId) throw new Error('Resend send returned no id');
   return { messageId };
