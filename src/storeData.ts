@@ -1,6 +1,7 @@
 /* Example content for the demo store (Pawsome): the people behind Opportunities, the campaigns and the emails
    they send. Mirrors the UI kit's example app. Real projects never read this; they show empty states until
    email drafting ships. */
+import type { CampaignTrigger } from '../server/trigger-library';
 
 export const photo = (id: string, w = 800) => `https://images.unsplash.com/${id}?auto=format&fit=crop&w=${w}&q=70`;
 export const PHOTOS = {
@@ -213,68 +214,11 @@ export const REPLIES: Reply[] = [
 ];
 
 // ---------------- Campaigns ----------------
-export type Pick = { opts: string[]; def: string };
-export const PICKS: Record<string, Pick> = {
-  tries: { opts: ['once', 'twice', '3 times'], def: 'once' },
-  reads: { opts: ['2 times', '3 times', '5 times'], def: '3 times' },
-  switches: { opts: ['2 times', '3 times', '5 times'], def: '3 times' },
-  gap: { opts: ['$5', '$10', '$15'], def: '$5' },
-  days: { opts: ['2 weeks', '3 weeks', '4 weeks'], def: '3 weeks' },
-  hold: { opts: ['7 days', '14 days', '30 days'], def: '30 days' },
-  discount: { opts: ['No discount', '5% off', '10% off', '15% off', '20% off'], def: '10% off' },
-  wait: { opts: ['10 minutes', '1 hour', '1 day', 'until their best time'], def: 'until their best time' },
-  drop: { opts: ['5%', '10%', '20%'], def: '5%' },
-};
-type Step = { icon: 'cart' | 'tag' | 'exit' | 'clock' | 'send' | 'book' | 'eye' | 'rotate' | 'alert' | 'truck' | 'calendar'; t: string; s?: string };
-export type Flow = { about: string; they: Step[]; we: Step[]; when: (v: (k: string) => string) => string };
-export const FLOWS: Record<string, Flow> = {
-  expired: {
-    about: 'Someone’s discount code doesn’t work at checkout and they leave. We send them a code that does, with their cart saved.',
-    they: [{ icon: 'cart', t: 'Adds something to their cart' }, { icon: 'tag', t: 'Tries a code that has expired {tries}', s: 'Like WELCOME10 or SPRING15' }, { icon: 'exit', t: 'Leaves without buying' }],
-    we: [{ icon: 'clock', t: 'We wait {wait}', s: 'So it lands when they’re likely to read it' }, { icon: 'send', t: 'We send a working code, {discount}', s: 'Good for 48 hours, and their cart is one click away' }],
-    when: (v) => `Tried an expired code ${v('tries')}, then left`,
-  },
-  interest: {
-    about: 'Someone keeps reading about one thing but doesn’t buy. We send a short personal note about exactly that, with the product most people pick.',
-    they: [{ icon: 'book', t: 'Reads about one thing {reads}', s: 'Like kitten food, across pages and articles' }, { icon: 'exit', t: 'Leaves without buying' }],
-    we: [{ icon: 'clock', t: 'We wait {wait}', s: 'So it lands when they’re likely to read it' }, { icon: 'send', t: 'We send a note from Marc, {discount}', s: 'About what they read, with the product to start with' }],
-    when: (v) => `Read about one thing ${v('reads')}`,
-  },
-  compare: {
-    about: 'Someone can’t decide between two products. We send both side by side, so the difference is easy to see.',
-    they: [{ icon: 'eye', t: 'Looks at two similar products' }, { icon: 'rotate', t: 'Switches between them {switches}', s: 'They’re comparing, not browsing' }, { icon: 'exit', t: 'Leaves without picking one' }],
-    we: [{ icon: 'clock', t: 'We wait {wait}', s: 'So it lands when they’re likely to read it' }, { icon: 'send', t: 'We send both side by side', s: 'Price, size and who each one is best for' }],
-    when: (v) => `Switched between 2 products ${v('switches')}`,
-  },
-  stock: {
-    about: 'Someone wanted something that was sold out. The moment it’s back on the shelf, we tell them.',
-    they: [{ icon: 'alert', t: 'Wants something that’s out of stock', s: 'Sees “Out of stock” on the page' }, { icon: 'exit', t: 'Leaves the site' }],
-    we: [{ icon: 'rotate', t: 'We wait for it to come back, up to {hold}', s: 'If it’s not back by then, nothing goes out' }, { icon: 'send', t: 'We tell them it’s back', s: 'Before it sells out again' }],
-    when: () => 'Saw something out of stock',
-  },
-  shipping: {
-    about: 'Someone’s cart is just under free shipping and the shipping cost stops them. We cover it.',
-    they: [{ icon: 'cart', t: 'Has a cart within {gap} of free shipping' }, { icon: 'truck', t: 'Sees the shipping cost' }, { icon: 'exit', t: 'Leaves checkout' }],
-    we: [{ icon: 'clock', t: 'We wait {wait}', s: 'So it lands when they’re likely to read it' }, { icon: 'send', t: 'We send their cart with free shipping', s: 'The same items, shipping set to $0' }],
-    when: (v) => `Left a cart within ${v('gap')} of free shipping`,
-  },
-  pricedrop: {
-    about: 'Someone looked at a product and left. When its price drops, we tell them it’s cheaper now, while they still remember it.',
-    they: [{ icon: 'eye', t: 'Looks at a product' }, { icon: 'exit', t: 'Leaves without buying' }],
-    we: [{ icon: 'tag', t: 'Its price drops by {drop} or more', s: 'We check your store’s prices every hour' }, { icon: 'send', t: 'We tell them it’s cheaper now', s: 'Old and new price side by side' }],
-    when: (v) => `Looked at something that dropped ${v('drop')} or more`,
-  },
-  reorder: {
-    about: 'Someone bought food a while ago and it’s about to run out. We remind them before it does, with one click to reorder.',
-    they: [{ icon: 'cart', t: 'Buys food or litter' }, { icon: 'calendar', t: 'Hasn’t ordered again after {days}', s: 'Most bags last about four weeks' }],
-    we: [{ icon: 'send', t: 'We send a reminder to reorder', s: 'The same product, one click to buy it again' }],
-    when: (v) => `Bought food about ${v('days')} ago`,
-  },
-};
-
 export type CampaignIcon = 'tag' | 'book' | 'rotate' | 'bell' | 'truck' | 'calendar' | 'dollar' | 'megaphone';
 export type Campaign = {
-  id: string; name: string; flow: keyof typeof FLOWS | null; icon: CampaignIcon; mode: 'auto' | 'review'; on: boolean;
+  id: string; name: string; icon: CampaignIcon; mode: 'auto' | 'review'; on: boolean;
+  /** Who gets it: the same steps every store's campaigns use. */
+  trigger?: CampaignTrigger | null;
   draft?: boolean; suggested?: boolean; share?: number; facts?: [string, string][];
   /** The email it sends: a sample person's, or an example. */
   mail: MailDoc | null;
@@ -289,19 +233,19 @@ export function tokenize(doc: MailDoc): MailDoc {
   return d;
 }
 export const CAMPAIGNS: Campaign[] = [
-  { id: 'pricedrop', name: 'Price drop', flow: 'pricedrop', icon: 'dollar', mode: 'review', on: false, draft: true, suggested: true,
+  { id: 'pricedrop', name: 'Price drop', trigger: { steps: [{ kind: 'price_drop', value: '5' }], wait: 'right away', template: 'price-drop' }, icon: 'dollar', mode: 'review', on: false, draft: true, suggested: true,
     facts: [['Looked at it this week', '12 people'], ['Tall Tower now', '$119 <s>$129</s>']],
     mail: tokenize(mail({
       subject: 'The Tall Tower just got cheaper', preview: 'Now $119, down from $129.', headline: 'It’s $10 less now',
       body: ['Hi Sam,', 'You looked at the Tall Tower last week. It just dropped from $129 to $119, so if it’s still on your mind, now’s a good time.'],
       products: [{ photo: 'tower', name: 'Tall Tower', was: '$129.00', now: '$119.00', note: '160 cm, for climbers' }], cta: 'See the Tall Tower', perks: ['Free shipping over $35', '30-day returns'],
     })) },
-  { id: 'expired', name: 'Expired code rescue', flow: 'expired', icon: 'tag', mode: 'auto', on: true, share: 0.27, mail: tokenize(personMail('alex')) },
-  { id: 'interest', name: 'Interest match', flow: 'interest', icon: 'book', mode: 'review', on: true, share: 0.3, mail: tokenize(personMail('jamie')) },
-  { id: 'compare', name: 'Help them choose', flow: 'compare', icon: 'rotate', mode: 'review', on: true, share: 0.08, mail: tokenize(personMail('priya')) },
-  { id: 'stock', name: 'Back in stock', flow: 'stock', icon: 'bell', mode: 'auto', on: true, share: 0.14, mail: tokenize(personMail('taylor')) },
-  { id: 'shipping', name: 'Free shipping nudge', flow: 'shipping', icon: 'truck', mode: 'review', on: true, share: 0.21, mail: tokenize(personMail('lukas')) },
-  { id: 'reorder', name: 'Running low', flow: 'reorder', icon: 'calendar', mode: 'review', on: false, draft: true,
+  { id: 'expired', name: 'Expired code rescue', trigger: { steps: [{ kind: 'code_failed', value: '' }, { kind: 'no_buy', value: '', within: '1 hour' }], wait: 'right away', template: 'code' }, icon: 'tag', mode: 'auto', on: true, share: 0.27, mail: tokenize(personMail('alex')) },
+  { id: 'interest', name: 'Interest match', trigger: { steps: [{ kind: 'visited', value: '/blogs/', match: 'starts', times: 3 }, { kind: 'no_buy', value: '', within: '1 day' }], wait: 'right away', template: 'reader' }, icon: 'book', mode: 'review', on: true, share: 0.3, mail: tokenize(personMail('jamie')) },
+  { id: 'compare', name: 'Help them choose', trigger: { steps: [{ kind: 'compared', value: '', times: 3 }, { kind: 'no_buy', value: '', within: '1 day' }], wait: 'right away', template: 'compare' }, icon: 'rotate', mode: 'review', on: true, share: 0.08, mail: tokenize(personMail('priya')) },
+  { id: 'stock', name: 'Back in stock', trigger: { steps: [{ kind: 'sold_out', value: '' }, { kind: 'back_in_stock', value: '' }], wait: 'right away', template: 'back-in-stock' }, icon: 'bell', mode: 'auto', on: true, share: 0.14, mail: tokenize(personMail('taylor')) },
+  { id: 'shipping', name: 'Free shipping nudge', trigger: { steps: [{ kind: 'near_free_ship', value: '35', gap: 5 }, { kind: 'no_buy', value: '', within: '1 hour' }], wait: 'right away', template: 'free-ship' }, icon: 'truck', mode: 'review', on: true, share: 0.21, mail: tokenize(personMail('lukas')) },
+  { id: 'reorder', name: 'Running low', trigger: { steps: [{ kind: 'bought', value: 'Salmon Kibble' }, { kind: 'no_buy', value: '', within: '3 weeks' }], wait: 'right away', template: 'reorder' }, icon: 'calendar', mode: 'review', on: false, draft: true,
     mail: tokenize(mail({
       subject: 'Running low on Salmon Kibble?', preview: 'One click and it’s on its way.', headline: 'Time for a refill?',
       body: ['Hi Sam,', 'It’s been about three weeks since your Salmon Kibble 4 kg arrived, so the bag is probably getting light. Here it is again, ready to go.'],

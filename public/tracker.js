@@ -151,7 +151,196 @@
       ...basePayload('pageview'),
       path,
       ref: trafficSource(),
+      tz: timeZone(),
     });
+    watchCommerce();
+  }
+
+  function timeZone() {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined; } catch { return undefined; }
+  }
+
+  // ---------- commerce: products viewed (price, stock), the cart, discount codes tried
+  // Read-only: product JSON the store already publishes, the cart, and the text the store shows
+  // after a code is applied. Never card details, passwords or what people type elsewhere.
+  const shopify = () => Boolean(window.Shopify && (window.Shopify.shop || window.Shopify.routes));
+  const shopRoot = () => (window.Shopify && window.Shopify.routes && window.Shopify.routes.root) || '/';
+  const shopCurrency = () => (window.Shopify && window.Shopify.currency && window.Shopify.currency.active) || undefined;
+  const sent = new Set();
+  const sendOnce = (sig, payload) => {
+    try {
+      const k = `uw_sig_${key}`;
+      const seen = JSON.parse(sessionStorage.getItem(k) || '[]');
+      if (seen.includes(sig) || sent.has(sig)) return;
+      sent.add(sig);
+      sessionStorage.setItem(k, JSON.stringify([...seen.slice(-60), sig]));
+    } catch {
+      if (sent.has(sig)) return;
+      sent.add(sig);
+    }
+    void post(payload);
+  };
+
+  function productFromLd() {
+    for (const el of document.querySelectorAll('script[type="application/ld+json"]')) {
+      try {
+        const data = JSON.parse(el.textContent || 'null');
+        const list = Array.isArray(data) ? data : (data && data['@graph']) || [data];
+        for (const item of list) {
+          const type = item && item['@type'];
+          if (type !== 'Product' && !(Array.isArray(type) && type.includes('Product'))) continue;
+          const offer = Array.isArray(item.offers) ? item.offers[0] : (item.offers && (item.offers.offers ? item.offers.offers[0] : item.offers));
+          const price = offer && Number(offer.price || offer.lowPrice);
+          const avail = offer && String(offer.availability || '');
+          return {
+            name: String(item.name || '').slice(0, 120),
+            cents: Number.isFinite(price) ? Math.round(price * 100) : undefined,
+            currency: offer && offer.priceCurrency,
+            available: avail ? !/OutOfStock|SoldOut|Discontinued/i.test(avail) : undefined,
+            image: typeof item.image === 'string' ? item.image : Array.isArray(item.image) ? item.image[0] : undefined,
+          };
+        }
+      } catch { /* not JSON */ }
+    }
+    return null;
+  }
+
+  function soldOutOnPage() {
+    const buttons = document.querySelectorAll('button[name="add"], form[action*="/cart/add"] button, button[type="submit"], .product-form button');
+    for (const b of buttons) {
+      if (/sold\s*out|out of stock|unavailable/i.test(b.textContent || '') ) return true;
+    }
+    return undefined;
+  }
+
+  async function readProduct() {
+    if (!consented) return;
+    let product = null;
+    if (shopify() && /\/products\/[^/]+/.test(location.pathname)) {
+      try {
+        const res = await fetch(`${location.pathname.replace(/\/$/, '')}.js`, { credentials: 'same-origin' });
+        if (res.ok) {
+          const p = await res.json();
+          product = { name: p.title, cents: p.price, currency: shopCurrency(), available: p.available, image: p.featured_image && (String(p.featured_image).startsWith('//') ? `https:${p.featured_image}` : p.featured_image) };
+        }
+      } catch { /* fall back to page data */ }
+    }
+    if (!product) product = productFromLd();
+    if (!product || !product.name) return;
+    if (product.available === undefined) product.available = soldOutOnPage();
+    const sig = `p|${location.pathname}|${product.cents}|${product.available}`;
+    sendOnce(sig, { ...basePayload('product'), url: location.pathname, ...product });
+  }
+
+  let cartTimer = 0;
+  async function readCart() {
+    if (!consented || !shopify()) return;
+    try {
+      const res = await fetch(`${shopRoot()}cart.js`, { credentials: 'same-origin', cache: 'no-store' });
+      if (!res.ok) return;
+      const c = await res.json();
+      const codes = (c.discount_codes || []).map((d) => ({ code: String(d.code || ''), ok: d.applicable !== false })).filter((d) => d.code);
+      for (const d of codes) sendOnce(`c|${d.code}|${d.ok}`, { ...basePayload('code'), code: d.code, ok: d.ok });
+      if (!c.item_count && !codes.length) return;
+      const items = (c.items || []).slice(0, 10).map((i) => ({ name: String(i.product_title || i.title || '').slice(0, 80), cents: i.final_line_price, qty: i.quantity, path: i.url ? String(i.url).split('?')[0] : undefined }));
+      const sig = `cart|${c.token}|${c.total_price}|${c.item_count}`;
+      sendOnce(sig, { ...basePayload('cart'), total: c.total_price, currency: c.currency || shopCurrency(), count: c.item_count, items, codes });
+    } catch { /* no cart */ }
+  }
+  const soonCart = () => { window.clearTimeout(cartTimer); cartTimer = window.setTimeout(readCart, 700); };
+
+  // Codes on any store: remember a code typed in a discount field, then read what the page says back.
+  const CODE_FIELD = /discount|coupon|promo|voucher|gift.?card|reduction|rabatt/i;
+  const CODE_BAD = /(expired|not valid|isn['’]t valid|invalid|can['’]t be (used|applied)|cannot be (used|applied)|not applicable|unable to (apply|find)|doesn['’]t exist|does not exist|no longer (valid|available)|isn['’]t available|not available|couldn['’]t (find|apply))/i;
+  const CODE_GOOD = /(applied|discount added|code added|you saved|successfully)/i;
+  let pendingCode = '';
+  function codeFieldValue(el) {
+    if (!el || el.tagName !== 'INPUT' || /password|email|tel|number|hidden/i.test(el.type || '')) return '';
+    const hint = `${el.name || ''} ${el.id || ''} ${el.placeholder || ''} ${el.getAttribute('aria-label') || ''}`;
+    if (!CODE_FIELD.test(hint)) return '';
+    const v = String(el.value || '').trim();
+    return /^[A-Za-z0-9_\-%.]{2,40}$/.test(v) ? v.toUpperCase() : '';
+  }
+  function watchCodeResult(code) {
+    let done = false;
+    const finish = (ok, reason) => {
+      if (done) return;
+      done = true;
+      observer.disconnect();
+      sendOnce(`c|${code}|${ok}`, { ...basePayload('code'), code, ok, reason: reason ? reason.slice(0, 120) : undefined });
+    };
+    const observer = new MutationObserver((records) => {
+      for (const r of records) {
+        const nodes = r.type === 'characterData' ? [r.target] : [...r.addedNodes];
+        for (const n of nodes) {
+          const text = String(n.textContent || '').replace(/\s+/g, ' ').trim();
+          if (!text || text.length > 300) continue;
+          if (CODE_BAD.test(text) && /code|discount|coupon|promo|voucher/i.test(text)) return finish(false, text);
+          if (CODE_GOOD.test(text) && /code|discount|coupon|promo|voucher|saved/i.test(text)) return finish(true);
+        }
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    window.setTimeout(() => { if (!done) { done = true; observer.disconnect(); if (shopify()) soonCart(); } }, 6000);
+  }
+  function codeAttempt(event) {
+    if (!consented) return;
+    const t = event.target;
+    if (event.type === 'keydown' && event.key !== 'Enter') return;
+    const field = t && t.tagName === 'INPUT' ? t : null;
+    const fromField = codeFieldValue(field);
+    if (fromField) pendingCode = fromField;
+    const isApply = event.type === 'submit' || (event.type === 'keydown' && fromField)
+      || (event.type === 'click' && t && t.closest && /apply|redeem|use code|submit/i.test((t.closest('button, input[type="submit"], a') || {}).textContent || (t.closest('input[type="submit"]') || {}).value || ''));
+    if (!isApply) return;
+    let code = pendingCode;
+    if (!code) {
+      const form = t && t.closest && t.closest('form, div, section');
+      const input = form && [...form.querySelectorAll('input')].find((i) => codeFieldValue(i));
+      code = codeFieldValue(input);
+    }
+    if (code) { pendingCode = ''; watchCodeResult(code); }
+  }
+
+  let commerceBound = false;
+  function watchCommerce() {
+    if (!consented) return;
+    window.setTimeout(readProduct, 900);
+    soonCart();
+    if (commerceBound) return;
+    commerceBound = true;
+    document.addEventListener('change', codeAttempt, true);
+    document.addEventListener('keydown', codeAttempt, true);
+    document.addEventListener('click', codeAttempt, true);
+    document.addEventListener('submit', codeAttempt, true);
+    // Shopify themes add to the cart with fetch/XHR: read the cart right after.
+    const cartCall = (url) => /\/cart\/(add|change|update|clear)|\/discount\//.test(String(url || ''));
+    const realFetch = window.fetch;
+    window.fetch = function (input, init) {
+      const p = realFetch.apply(this, arguments);
+      try { if (cartCall(typeof input === 'string' ? input : input && input.url)) p.then(soonCart, () => {}); } catch { /* ignore */ }
+      return p;
+    };
+    const open = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function (method, url) {
+      try { if (cartCall(url)) this.addEventListener('loadend', soonCart); } catch { /* ignore */ }
+      return open.apply(this, arguments);
+    };
+  }
+
+  /** For stores that aren't on Shopify: tell us what's in the cart. */
+  function cart(input) {
+    if (!consented || !input || typeof input !== 'object') return;
+    const total = Number(input.total);
+    if (!Number.isFinite(total) || total < 0) return;
+    const items = Array.isArray(input.items) ? input.items.slice(0, 10).map((i) => ({
+      name: String((i && i.name) || 'Product').slice(0, 80),
+      cents: Number.isFinite(Number(i && i.price)) ? Math.round(Number(i.price) * 100) : undefined,
+      qty: Number(i && i.qty) || 1,
+      path: i && typeof i.url === 'string' ? i.url : undefined,
+    })) : [];
+    const codes = Array.isArray(input.codes) ? input.codes.slice(0, 5).map((c) => ({ code: String((c && c.code) || ''), ok: c && c.ok !== false })) : [];
+    void post({ ...basePayload('cart'), total: Math.round(total * 100), currency: input.currency || 'usd', count: items.reduce((n, i) => n + i.qty, 0), items, codes });
   }
 
   async function refreshConfig() {
@@ -549,6 +738,7 @@
     consent: onConsent,
     identify,
     purchase,
+    cart,
     emailOpen: (input) => emailEvent('email_open', input),
     emailClick: (input) => emailEvent('email_click', input),
   };

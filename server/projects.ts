@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { createHash } from 'node:crypto';
 import { amountCents, cleanCampaign, cleanCurrency, cleanEmail, cleanName, cleanOrderId, cleanProducts } from './commerce';
@@ -42,7 +42,14 @@ import {
 import { CAMPAIGN_ID, MAX_IMAGE_BYTES, deleteCampaign, imageStorageReady, listCampaigns, saveCampaign, storeImage } from './campaigns';
 import { campaignQueueCounts, previewTrigger, runCampaigns, triggerOptions } from './campaign-runner';
 import { cleanTrigger } from './trigger-library';
-import { dailyVisitors, dwell, emailEvents, identities, pageViews, pathViews, projects, purchases, referrerViews, replayChunks, replayInsights, replaySessions, visitorInsights, visits } from './schema';
+import { recordSignal } from './signals';
+
+/** An IANA zone like Europe/Vilnius, or null. */
+function cleanTimeZone(v: unknown) {
+  if (typeof v !== 'string' || !/^[A-Za-z_]+(?:\/[A-Za-z0-9_+-]+){0,2}$/.test(v) || v.length > 40) return null;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: v }); return v; } catch { return null; }
+}
+import { dailyVisitors, dwell, emailEvents, identities, pageViews, pathViews, projectOpportunities, projects, purchases, referrerViews, replayChunks, replayInsights, replaySessions, visitorInsights, visits } from './schema';
 import { auth, pool, appURL } from './auth';
 
 type RateLimit = { limit(input: { key: string }): Promise<{ success: boolean }> };
@@ -440,7 +447,8 @@ async function receiveEvent(request: Request, env: Env) {
   const writeKey = typeof body?.key === 'string' ? body.key : '';
   const type = body?.type === 'pageview' || body?.type === 'dwell' || body?.type === 'presence'
     || body?.type === 'purchase' || body?.type === 'identify'
-    || body?.type === 'email_open' || body?.type === 'email_click' ? body.type : null;
+    || body?.type === 'email_open' || body?.type === 'email_click'
+    || body?.type === 'cart' || body?.type === 'code' || body?.type === 'product' ? body.type : null;
   const vid = typeof body?.vid === 'string' && visitorId.test(body.vid) ? body.vid : null;
   const path = cleanPath(body?.path) ?? '/';
   if (!uuid.test(writeKey) || !type || !vid) return collectReply(origin, 400);
@@ -509,6 +517,10 @@ async function receiveEvent(request: Request, env: Env) {
         });
       await reattachStripePurchasesByEmail(tx, project.id, vid, email);
       return project.id;
+    }
+
+    if (type === 'cart' || type === 'code' || type === 'product') {
+      return (await recordSignal(tx, project.id, vid, type, body ?? {}, path)) ? project.id : null;
     }
 
     if (type === 'email_open' || type === 'email_click') {
@@ -590,6 +602,7 @@ async function receiveEvent(request: Request, env: Env) {
       place: geo?.place ?? null,
       lat: geo?.lat ?? null,
       lng: geo?.lng ?? null,
+      tz: cleanTimeZone(body?.tz),
       activeAt: sql`now()`,
     });
     return project.id;
@@ -2012,6 +2025,21 @@ async function campaignTool(request: Request, env: Env, projectId: string, tool:
   return withDatabase(env, async (db) => {
     if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
     if (tool === 'options') return json(await triggerOptions(db, projectId));
+    if (tool === 'personal') {
+      if (request.method === 'POST') {
+        let on = true;
+        try { on = (JSON.parse((await readText(request, 1000)) ?? '{}') as { on?: unknown }).on !== false; } catch { return json({ error: 'Invalid JSON.' }, 400); }
+        await db.update(projects).set({ personalFollowups: on }).where(eq(projects.id, projectId));
+        return json({ on });
+      }
+      // On or off, plus the last personal follow-ups that really went out (newest first).
+      const [row] = await db.select({ on: projects.personalFollowups }).from(projects).where(eq(projects.id, projectId)).limit(1);
+      const sent = await db.select({ draft: projectOpportunities.draftJson, page: projectOpportunities.pageJson, at: projectOpportunities.updatedAt })
+        .from(projectOpportunities)
+        .where(and(eq(projectOpportunities.projectId, projectId), isNull(projectOpportunities.campaignId), eq(projectOpportunities.status, 'sent'), isNotNull(projectOpportunities.draftJson)))
+        .orderBy(desc(projectOpportunities.updatedAt)).limit(3);
+      return json({ on: row?.on !== false, sent: sent.map((r) => ({ doc: r.draft, page: r.page })) });
+    }
     if (tool === 'run') return json({ queued: await runCampaigns(db, projectId), queue: await campaignQueueCounts(db, projectId) });
     const raw = await readText(request, 20_000);
     let trigger = null;
@@ -2109,10 +2137,10 @@ export default {
         if (request.method === 'POST') return await postBrandImport(request, env, brandImportMatch[1]);
         return json({ error: 'Method not allowed.' }, 405);
       }
-      const toolMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/campaigns\/(options|preview|run)$/i);
+      const toolMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/campaigns\/(options|preview|run|personal)$/i);
       if (toolMatch) {
         const tool = toolMatch[2].toLowerCase();
-        if ((tool === 'options' && request.method === 'GET') || (tool !== 'options' && request.method === 'POST')) return await campaignTool(request, env, toolMatch[1], tool);
+        if (((tool === 'options' || tool === 'personal') && request.method === 'GET') || (tool !== 'options' && request.method === 'POST')) return await campaignTool(request, env, toolMatch[1], tool);
         return json({ error: 'Method not allowed.' }, 405);
       }
       const campaignMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/campaigns(?:\/([a-z0-9-]+))?$/i);

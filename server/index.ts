@@ -12,6 +12,7 @@ import { openaiConfigured } from './replay-insight';
 import projects from './projects';
 import { loadImage } from './campaigns';
 import { runCampaigns } from './campaign-runner';
+import { checkProducts } from './signals';
 import { PIXEL_GIF, recordEmailEvent, suppressVisitor, verifyTrackingToken } from './email-tracking';
 import { sesConfigured } from './ses';
 
@@ -188,7 +189,15 @@ const runMonitor = () => {
 };
 const retentionTimer = setInterval(() => { prune(); pruneReplays(); runMonitor(); }, 60 * 60 * 1000);
 // Manual campaigns: queue new matches for approval every 10 minutes.
-const campaignTimer = setInterval(() => void runCampaigns(drizzle(pool)).catch(() => console.error('Unable to run campaigns')), 10 * 60 * 1000);
+// Products people viewed are re-checked for price and stock first, so drops and restocks are current.
+const campaignTick = async () => {
+  const db = drizzle(pool);
+  await checkProducts(db).catch((e) => console.error('product check failed', e instanceof Error ? e.message : e));
+  await pool.query(`delete from project_signals where seen_at < now() - interval '90 days'`).catch(() => undefined);
+  await runCampaigns(db).catch((e) => console.error('Unable to run campaigns', e instanceof Error ? e.message : e));
+};
+const campaignTimer = setInterval(() => void campaignTick(), 10 * 60 * 1000);
+setTimeout(() => void campaignTick(), 60 * 1000).unref();
 campaignTimer.unref();
 retentionTimer.unref();
 prune();
