@@ -3,6 +3,8 @@
    images and products from Brand knowledge (or uploaded, or a link), the button and where it goes. Changes
    stay a draft until Save. */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { setLeaveGuard } from './leaveGuard';
+import { createPortal } from 'react-dom';
 import { Icon, type IconName } from './ui/Icon';
 import { Dropdown } from './ui/Dropdown';
 import { Uploader } from './ui/Uploader';
@@ -82,6 +84,15 @@ export function MailEditor({ space, brand, published, onPublish }: {
   const [, bump] = useState(0);
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(published), [draft, published]);
   const doc = draft.doc;
+  // Unsaved changes: leaving asks first (keep editing, discard, or save and leave); closing the tab warns too.
+  const [leaving, setLeaving] = useState<(() => void) | null>(null);
+  useEffect(() => {
+    if (!dirty) return;
+    const off = setLeaveGuard((proceed) => { setLeaving(() => proceed); return true; });
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    addEventListener('beforeunload', warn);
+    return () => { off(); removeEventListener('beforeunload', warn); };
+  }, [dirty]);
   // Personal fields go where you were last typing: subject, preview, or text in the email.
   const lastText = useRef<{ el: HTMLElement; range?: Range } | null>(null);
   useEffect(() => {
@@ -372,8 +383,8 @@ export function MailEditor({ space, brand, published, onPublish }: {
         </div>
         <div className="cpe-dock">
           <div className="seg cpe-devseg" role="group" aria-label="Preview size" ref={devPill}>
-            <button type="button" aria-pressed={device === 'desktop'} onClick={() => setDevice('desktop')}><Icon name="monitor" />Desktop</button>
-            <button type="button" aria-pressed={device === 'phone'} onClick={() => setDevice('phone')}><Icon name="phone" />iPhone</button>
+            <button type="button" aria-pressed={device === 'desktop'} onClick={() => setDevice('desktop')} title="Desktop" aria-label="Desktop"><Icon name="monitor" /><span className="cpe-lbl">Desktop</span></button>
+            <button type="button" aria-pressed={device === 'phone'} onClick={() => setDevice('phone')} title="iPhone" aria-label="iPhone"><Icon name="phone" /><span className="cpe-lbl">iPhone</span></button>
           </div>
           <i className="cpe-dock-sep" />
           <button type="button" className="cpe-ib" aria-label="Undo" title="Undo" disabled={!undo.current.length} onClick={() => step(undo, redo)}><Icon name="undo" /></button>
@@ -381,7 +392,7 @@ export function MailEditor({ space, brand, published, onPublish }: {
           <i className="cpe-dock-sep" />
           <span ref={fieldsRef} className={`cpe-fields${fieldsOpen ? ' open' : ''}`}>
             <button type="button" className="cpe-fields-btn" aria-haspopup="menu" aria-expanded={fieldsOpen}
-              onMouseDown={(e) => e.preventDefault()} onClick={() => setFieldsOpen((o) => !o)}><Icon name="user" />Personal field</button>
+              onMouseDown={(e) => e.preventDefault()} onClick={() => setFieldsOpen((o) => !o)} title="Personal field" aria-label="Personal field"><Icon name="user" /><span className="cpe-lbl">Personal field</span></button>
             {fieldsOpen ? (
               <span className="cpe-fields-menu menu" role="menu">
                 <span className="menu-label">Filled in for each person</span>
@@ -403,6 +414,26 @@ export function MailEditor({ space, brand, published, onPublish }: {
           </div>
         </div>
       </div>
+      {leaving ? createPortal(
+        <div className="cc-modal">
+          <div className="cc-scrim" onClick={() => setLeaving(null)} />
+          <section className="cc-card cpe-leave" role="alertdialog" aria-modal="true" aria-labelledby="cpeLeaveT">
+            <div className="cc-inner cc-screen">
+              <header className="cc-head">
+                <span className="cc-chip">Not saved yet</span>
+                <h2 id="cpeLeaveT">Save your changes?</h2>
+                <p>You changed this email since you last saved.</p>
+              </header>
+              <div className="cc-actions">
+                <button type="button" className="cc-btn" onClick={() => { const go = leaving; setLeaving(null); go(); }}>Discard</button>
+                <button type="button" className="cc-btn is-primary" disabled={uploading} onClick={() => { const go = leaving; onPublish(clone(draft)); setLeaving(null); go(); }}>Save and leave</button>
+              </div>
+              <button type="button" className="cc-link" autoFocus onClick={() => setLeaving(null)}>Keep editing</button>
+            </div>
+          </section>
+        </div>,
+        document.querySelector('.app') ?? document.body,
+      ) : null}
     </div>
   );
 }
