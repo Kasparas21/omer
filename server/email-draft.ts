@@ -14,12 +14,42 @@ const MODEL = 'gpt-6-luna';
 
 function pickRecipe(hooks: string[], summary: string | null): LayoutRecipeId {
   const blob = `${hooks.join(' ')} ${summary || ''}`.toLowerCase();
-  if (/cart|checkout|abandon|left checkout|code|coupon|discount/.test(blob)) return 'cart_rescue';
+  if (/cart|checkout|abandon|left checkout|code|coupon|discount|shipping/.test(blob)) return 'cart_rescue';
   if (/compar|vs\.|between|two |decide|side by side/.test(blob)) return 'compare';
   if (/restock|back in stock|sold out|returned|in stock again/.test(blob)) return 'restock';
   if (/digest|newsletter|round.?up|this week|recap/.test(blob)) return 'digest';
-  if (/product|looked at|viewed|interested|price|launch|drop/.test(blob)) return 'launch';
+  // Personal follow-ups: prefer letter-like editorial over campaign "launch" chrome.
+  if (/product|looked at|viewed|interested|price|launch|drop/.test(blob)) return 'editorial_note';
   return 'editorial_note';
+}
+
+/** Opportunity drafts are always personal notes — keep structure letter-like even if recipe is cart/product. */
+function personalFollowupOrder(recipe: LayoutRecipeId, opts: { hasHero: boolean; hasProducts: boolean }): string[] {
+  const withHero = opts.hasHero;
+  const withProducts = opts.hasProducts;
+  if (recipe === 'cart_rescue' || recipe === 'restock') {
+    return [
+      'body.0',
+      ...(withHero ? ['hero'] as const : []),
+      'body.1',
+      ...(withProducts ? ['products'] as const : []),
+      'cta',
+      'perks',
+      'sig',
+      'footer',
+    ];
+  }
+  return [
+    'body.0',
+    ...(withHero ? ['hero'] as const : []),
+    'headline',
+    'body.1',
+    'body.2',
+    ...(withProducts ? ['products'] as const : []),
+    'cta',
+    'sig',
+    'footer',
+  ];
 }
 
 function openaiKey() {
@@ -69,31 +99,50 @@ function normalizeDoc(
   origin: string,
   brand: StoredBrand,
   firstName: string | null,
+  opts?: { forcePersonal?: boolean },
 ): MailDocLike {
   const layout = LAYOUT_RECIPES[recipe];
-  const order = [...layout.order];
+  const forcePersonal = Boolean(opts?.forcePersonal);
+  const kind: 'brand' | 'personal' = forcePersonal ? 'personal' : layout.kind;
   const body = asStringArray(raw.body, 6, 600);
   while (body.length < 2) body.push('');
-  if (layout.kind === 'personal' && firstName && body[0] && !/hi |hello |hey /i.test(body[0])) {
+  if (kind === 'personal' && firstName && body[0] && !/hi |hello |hey /i.test(body[0])) {
     body[0] = `Hi ${firstName},`;
   }
+
+  const brandPhoto = brand.photos.find((p) => p?.src)?.src
+    || brand.products.find((p) => p.image?.src)?.image?.src;
 
   const products = Array.isArray(raw.products)
     ? raw.products.slice(0, 2).map((p) => {
       const row = (p && typeof p === 'object') ? p as Record<string, unknown> : {};
       const name = asString(row.name, 80);
       const match = brand.products.find((bp) => bp.name.toLowerCase() === name.toLowerCase())
-        || brand.products.find((bp) => name && bp.name.toLowerCase().includes(name.toLowerCase()));
+        || brand.products.find((bp) => name && bp.name.toLowerCase().includes(name.toLowerCase()))
+        || brand.products[0];
       return {
         name: name || match?.name || 'Product',
         now: asString(row.now, 40) || match?.price || '',
         was: asString(row.was, 40) || undefined,
         note: asString(row.note, 120) || undefined,
-        img: match?.image?.src || undefined,
+        img: match?.image?.src || brandPhoto || undefined,
         url: origin,
       };
     }).filter((p) => p.name)
     : [];
+
+  // If Luna omitted products but Brand has them, attach one so the email isn't text-only.
+  if (!products.length && brand.products[0]) {
+    const match = brand.products[0];
+    products.push({
+      name: match.name,
+      now: match.price || '',
+      was: undefined,
+      note: undefined,
+      img: match.image?.src || brandPhoto || undefined,
+      url: origin,
+    });
+  }
 
   let ctaUrl = asString(raw.ctaUrl, 300);
   try {
@@ -106,7 +155,7 @@ function normalizeDoc(
     ctaUrl = origin;
   }
 
-  const heroSrc = products[0]?.img || brand.photos[0]?.src || brand.products[0]?.image?.src;
+  const heroSrc = products[0]?.img || brandPhoto || undefined;
   const code = raw.code && typeof raw.code === 'object'
     ? { c: asString((raw.code as { c?: unknown }).c, 40), n: asString((raw.code as { n?: unknown }).n, 120) }
     : undefined;
@@ -114,8 +163,12 @@ function normalizeDoc(
   const perks = asStringArray(raw.perks, 4, 80);
   const features = asStringArray(raw.features, 4, 80);
   const social = asStringArray(raw.social, 4, 40);
+  const order = kind === 'personal'
+    ? personalFollowupOrder(recipe, { hasHero: Boolean(heroSrc), hasProducts: products.length > 0 })
+    : [...layout.order];
+
   const doc: MailDocLike & { blocks: Record<string, unknown> } = {
-    kind: layout.kind,
+    kind,
     subject: asString(raw.subject, 120) || 'Following up',
     preview: asString(raw.preview, 160) || undefined,
     headline: asString(raw.headline, 120),
@@ -127,7 +180,8 @@ function normalizeDoc(
     perks: perks.length ? perks : undefined,
     features: features.length ? features : (recipe === 'restock' && perks.length ? perks : undefined),
     social: social.length ? social : undefined,
-    hero: layout.kind !== 'personal' && heroSrc ? { src: heroSrc } : undefined,
+    // Personal notes also get a brand/product hero when we have imagery.
+    hero: heroSrc ? { src: heroSrc } : undefined,
     footer: undefined,
     order: order.includes('footer') ? order : [...order, 'footer'],
     blocks: {},
@@ -234,7 +288,8 @@ DESIGN BRIEF
 - Layout recipe: "${recipe}" — ${layout.blurb}
 - Section slots (fill copy that fits; leave unused optionals out): ${layout.order.join(' → ')}
 - One hero idea. Short headline. Scannable body. Single CTA.
-- Personal notes (editorial_note): lead with a greeting line; prefer text-link CTA energy in cta copy.
+- Personal notes: lead with a greeting line; keep CTA short (button label). Do not describe email layout, logos, or colors.
+- Leave space for brand imagery — do not paste long product descriptions that compete with the photo.
 
 HARD RULES
 - Match the language of Brand Voice / Product Information (same language as the site).
@@ -301,8 +356,9 @@ ANTI-PATTERNS
 
   const raw = await lunaDraftJson(system, user);
   const first = (opp.name || '').trim().split(/\s+/)[0] || null;
-  const doc = normalizeDoc(raw, recipe, project.origin, brand, first);
-  doc.kind = layout.kind;
+  // Opportunities are always personal follow-ups (on-brand letter), not campaign blasts.
+  const doc = normalizeDoc(raw, recipe, project.origin, brand, first, { forcePersonal: true });
+  doc.kind = 'personal';
 
   const now = new Date();
   const [row] = await db.update(projectOpportunities).set({

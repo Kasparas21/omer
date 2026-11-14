@@ -10,10 +10,56 @@ export function storeMailBrand(storeName: string, brand: Brand, sender?: string,
   return { name: storeName, logo: logo?.src || undefined, sender: sender?.trim() || storeName, signoff: storeName, address: host ? `${storeName} · ${host}` : storeName };
 }
 
+const FONT_ALIASES: Record<string, (typeof FONTS)[number]> = {
+  arial: 'Arial',
+  helvetica: 'Helvetica',
+  'helvetica neue': 'Helvetica',
+  inter: 'Inter',
+  roboto: 'Helvetica',
+  'open sans': 'Helvetica',
+  montserrat: 'Helvetica',
+  poppins: 'Helvetica',
+  lato: 'Helvetica',
+  'system-ui': 'Helvetica',
+  'sans-serif': 'Helvetica',
+  georgia: 'Georgia',
+  'times new roman': 'Times New Roman',
+  times: 'Times New Roman',
+  serif: 'Georgia',
+  verdana: 'Verdana',
+  tahoma: 'Tahoma',
+  'trebuchet ms': 'Trebuchet MS',
+};
+
+function mapFont(family: string | undefined, fallback: (typeof FONTS)[number]): (typeof FONTS)[number] {
+  if (!family?.trim()) return fallback;
+  const raw = family.trim().replace(/['"]/g, '');
+  if ((FONTS as readonly string[]).includes(raw)) return raw as (typeof FONTS)[number];
+  const key = raw.split(',')[0].trim().toLowerCase();
+  if (FONT_ALIASES[key]) return FONT_ALIASES[key];
+  for (const [alias, mapped] of Object.entries(FONT_ALIASES)) {
+    if (key.includes(alias)) return mapped;
+  }
+  return fallback;
+}
+
+function softWash(hex: string | undefined, fallback: string): string {
+  if (hex && /^#[0-9a-f]{6}$/i.test(hex)) {
+    const n = parseInt(hex.slice(1), 16);
+    const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+    const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    if (lum < 0.35 || lum > 0.96) return fallback;
+    return hex;
+  }
+  return fallback;
+}
+
 function skinFromClientBrand(brand: Brand): PageStyle['skin'] {
   const blob = `${brand.voice?.tone || ''} ${brand.voice?.tagline || ''} ${(brand.docs?.voice || '').slice(0, 800)}`.toLowerCase();
-  if (/\b(playful|fun|witty|warm|friendly|casual|quirky|pet|kids?)\b/.test(blob)) return 'playful';
+  if (/\b(playful|fun|witty|warm|friendly|casual|quirky|pet|kids?|beauty|lifestyle|shop|boutique)\b/.test(blob)) return 'playful';
   if (/\b(professional|corporate|enterprise|formal|premium|luxury|minimal|b2b)\b/.test(blob)) return 'professional';
+  const catalog = (brand.products?.length || 0) + (brand.photos?.length || 0);
+  if (catalog >= 3) return 'playful';
   return 'modern';
 }
 
@@ -21,22 +67,21 @@ function skinFromClientBrand(brand: Brand): PageStyle['skin'] {
 export function storePage(brand: Brand): PageStyle {
   const main = brand.colors.find((c) => c.role === 'main')?.hex || brand.colors[0]?.hex;
   const secondary = brand.colors.find((c) => c.role === 'secondary')?.hex;
-  const fontOf = (role: string, fallback: string) => {
-    const family = brand.fonts.find((f) => f.role === role)?.family;
-    return family && FONTS.includes(family) ? family : fallback;
-  };
+  const accent = brand.colors.find((c) => c.role === 'accent')?.hex || main;
+  const fontOf = (role: string, fallback: (typeof FONTS)[number]) =>
+    mapFont(brand.fonts.find((f) => f.role === role)?.family, fallback);
   const skin = skinFromClientBrand(brand);
   const chrome = skin === 'professional'
     ? { corners: 8, ctaRadius: 8, size: 15, headSize: 30, wash: '#F3F4F6', head: 'Helvetica' as const }
     : skin === 'playful'
       ? { corners: 22, ctaRadius: 999, size: 16, headSize: 38, wash: '#F7F3EE', head: 'Georgia' as const }
-      : { corners: 16, ctaRadius: 999, size: 16, headSize: 34, wash: '#F6F6F6', head: 'Georgia' as const };
+      : { corners: 16, ctaRadius: 999, size: 16, headSize: 34, wash: '#F4F5F7', head: 'Georgia' as const };
   return {
     ...PAGE_STYLE,
-    bg: /^#[0-9a-f]{6}$/i.test(secondary ?? '') ? secondary! : chrome.wash,
-    fill: '#FAFAFA',
+    bg: softWash(secondary, chrome.wash),
+    fill: '#FFFFFF',
     text: '#1A1A1A',
-    accent: /^#[0-9a-f]{6}$/i.test(main ?? '') ? main! : '#1A1A1A',
+    accent: /^#[0-9a-f]{6}$/i.test(accent ?? '') ? accent! : '#1A1A1A',
     headFont: fontOf('Headings', chrome.head),
     bodyFont: fontOf('Body', 'Helvetica'),
     size: chrome.size,
