@@ -223,10 +223,14 @@ export const projectOpportunities = pgTable('project_opportunities', {
   draftJson: jsonb('draft_json').$type<Record<string, unknown>>(),
   pageJson: jsonb('page_json').$type<Record<string, unknown>>(),
   suppressed: boolean('suppressed').default(false).notNull(),
+  /** Set when a manual campaign queued this email; null for personal follow-ups. */
+  campaignId: text('campaign_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
-  uniqueIndex('project_opportunities_project_visitor_idx').on(table.projectId, table.visitorId),
+  // One personal follow-up per person, and one per person per campaign (migration 0014 makes these partial).
+  uniqueIndex('project_opportunities_project_visitor_idx').on(table.projectId, table.visitorId).where(sql`${table.campaignId} is null`),
+  uniqueIndex('project_opportunities_campaign_visitor_idx').on(table.projectId, table.campaignId, table.visitorId).where(sql`${table.campaignId} is not null`),
   index('project_opportunities_project_status_idx').on(table.projectId, table.status),
 ]);
 

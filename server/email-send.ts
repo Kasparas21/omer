@@ -5,6 +5,7 @@ import { appURL } from './auth';
 import { loadBrand } from './brand-import';
 import type { MailDocLike, PageStyleLike } from './email-html';
 import { mailDocToHtml, mailDocToText } from './email-html';
+import { personalize } from './campaign-runner';
 import { brandFromStore, pageFromBrand } from './email-page';
 import { trackingUrls } from './email-tracking';
 import { loadSending, mailProvidersAvailable, sendViaTransport } from './mail-transport';
@@ -36,7 +37,13 @@ export async function sendOpportunityEmail(
   const page = (opp.pageJson && typeof opp.pageJson === 'object')
     ? { ...pageFromBrand(brandFull), ...(opp.pageJson as Partial<PageStyleLike>) }
     : pageFromBrand(brandFull);
-  const doc = opp.draftJson as unknown as MailDocLike;
+  // Any {{field}} still in the draft gets this person's details, else the fallback set in the editor.
+  const doc = personalize(opp.draftJson as Parameters<typeof personalize>[0], {
+    first_name: (opp.name ?? '').trim().split(/\s+/)[0] ?? '',
+    full_name: (opp.name ?? '').trim(),
+    email: opp.email,
+    store_name: project.name,
+  }) as unknown as MailDocLike;
   const sending = await loadSending(db, projectId);
 
   const [queued] = await db.insert(projectEmailMessages).values({

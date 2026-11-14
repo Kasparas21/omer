@@ -1,5 +1,5 @@
 /* Personal follow-up queue from email-ready visitor insights (no drafts/send yet). */
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { identities, projectCampaignSuggestions, projectOpportunities, visitorInsights } from './schema';
 
@@ -21,7 +21,7 @@ export async function upsertOpportunityFromInsight(
   const reason = hooks[0] || 'Enough signal for a personal follow-up';
   const now = new Date();
   const [existing] = await db.select().from(projectOpportunities)
-    .where(and(eq(projectOpportunities.projectId, projectId), eq(projectOpportunities.visitorId, visitorId)))
+    .where(and(eq(projectOpportunities.projectId, projectId), eq(projectOpportunities.visitorId, visitorId), isNull(projectOpportunities.campaignId)))
     .limit(1);
 
   if (existing) {
@@ -72,6 +72,7 @@ export async function listOpportunities(db: NodePgDatabase, projectId: string) {
     email: row.email,
     name: row.name,
     suppressed: row.suppressed,
+    campaignId: row.campaignId,
     hasDraft: Boolean(row.draftJson),
     draft: row.draftJson || null,
     page: row.pageJson || null,

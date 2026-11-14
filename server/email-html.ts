@@ -20,6 +20,8 @@ export type MailDocLike = {
   hero?: { src?: string; img?: string; tag?: string };
   footer?: string;
   order: string[];
+  /** Per-block look set in the editor (align, headline size, button width). */
+  blocks?: Record<string, { align?: 'left' | 'center'; size?: 's' | 'm' | 'l'; width?: 'fit' | 'full' }>;
 };
 
 export type PageStyleLike = {
@@ -178,6 +180,8 @@ export function mailDocToHtml(
     blocks.push(logoRow(brand, head, textColor, tight ? '22px 40px 12px' : '32px 40px 8px'));
   };
 
+  const look = (k: string) => doc.blocks?.[k] ?? {};
+  const alignOf = (k: string) => look(k).align ?? align;
   for (const key of order) {
     const [t, n] = key.split('.');
     if (t === 'hero') {
@@ -193,7 +197,8 @@ export function mailDocToHtml(
 
     if (t === 'headline' && doc.headline) {
       ensureLogo();
-      blocks.push(`<tr><td align="${align}" style="padding:${personal ? '8px' : '28px'} ${padX} 10px;font-family:${esc(head)};font-size:${personal ? 26 : 34}px;line-height:1.15;font-weight:700;letter-spacing:-0.03em;color:${esc(textColor)}">${esc(fillName(doc.headline, name))}</td></tr>`);
+      const hSize = { s: personal ? 22 : 26, m: personal ? 26 : 34, l: personal ? 30 : 40 }[look(key).size ?? 'm'];
+      blocks.push(`<tr><td align="${alignOf(key)}" style="padding:${personal ? '8px' : '28px'} ${padX} 10px;font-family:${esc(head)};font-size:${hSize}px;text-align:${alignOf(key)};line-height:1.15;font-weight:700;letter-spacing:-0.03em;color:${esc(textColor)}">${esc(fillName(doc.headline, name))}</td></tr>`);
       continue;
     }
 
@@ -202,7 +207,7 @@ export function mailDocToHtml(
       if (text == null || !text.trim()) continue;
       ensureLogo();
       const isLead = Number(n) === 0 && !personal;
-      blocks.push(`<tr><td align="${align}" style="padding:${isLead ? '4px' : '0'} ${padX} 12px;font-family:${esc(body)};font-size:${page.size || 16}px;line-height:1.55;color:${esc(personal ? textColor : '#4B5563')};${personal ? '' : `max-width:420px;`}">${esc(fillName(text, name))}</td></tr>`);
+      blocks.push(`<tr><td align="${alignOf(key)}" style="padding:${isLead ? '4px' : '0'} ${padX} 12px;text-align:${alignOf(key)};font-family:${esc(body)};font-size:${page.size || 16}px;line-height:1.55;color:${esc(personal ? textColor : '#4B5563')};${personal ? '' : `max-width:420px;`}">${esc(fillName(text, name))}</td></tr>`);
       continue;
     }
 
@@ -245,7 +250,7 @@ export function mailDocToHtml(
         blocks.push(`<tr><td align="left" style="padding:18px ${padX} 8px;font-family:${esc(body)};font-size:16px"><a href="${esc(ctaHref)}" style="color:${esc(accent)};font-weight:600;text-decoration:underline;text-underline-offset:3px">${esc(fillName(doc.cta, name))} →</a></td></tr>`);
       } else {
         blocks.push(`<tr><td align="center" style="padding:22px ${padX} 8px">
-          <a href="${esc(ctaHref)}" style="display:inline-block;background:${esc(accent)};color:${esc(btnInk)};font-family:${esc(body)};font-size:15px;font-weight:600;letter-spacing:0.01em;text-decoration:none;padding:14px 28px;border-radius:999px">${esc(fillName(doc.cta, name))}</a>
+          <a href="${esc(ctaHref)}" style="display:${look(key).width === 'full' ? 'block;text-align:center' : 'inline-block'};background:${esc(accent)};color:${esc(btnInk)};font-family:${esc(body)};font-size:15px;font-weight:600;letter-spacing:0.01em;text-decoration:none;padding:14px 28px;border-radius:999px">${esc(fillName(doc.cta, name))}</a>
         </td></tr>`);
       }
       continue;

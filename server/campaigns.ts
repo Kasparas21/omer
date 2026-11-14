@@ -1,13 +1,11 @@
-/* A store's campaigns on the server: list, save one, delete one; turning a typed description into a trigger;
-   and images for emails (kept in R2 under an unguessable name, served publicly so inboxes can load them).
+/* A store's campaigns on the server: list, save one, delete one; and images for emails (kept in R2 under an unguessable name, served publicly so inboxes can load them).
    The app owns the campaign's shape; the server checks the parts it relies on (id, name, trigger, size). */
 import { and, asc, eq } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { randomUUID } from 'node:crypto';
 import { projectCampaigns } from './schema';
 import { getObject, objectStoreConfigured, putObject } from './object-store';
-import { openaiConfigured } from './replay-insight';
-import { EVENTS, LIBRARY, PARAMS, THENS, cleanTrigger, searchTriggers, type TriggerRef } from './trigger-library';
+import { cleanTrigger } from './trigger-library';
 
 export const CAMPAIGN_ID = /^[a-z0-9][a-z0-9-]{5,63}$/i;
 const MAX_CAMPAIGNS = 100;
@@ -39,56 +37,6 @@ export async function saveCampaign(db: NodePgDatabase, projectId: string, id: st
 
 export async function deleteCampaign(db: NodePgDatabase, projectId: string, id: string) {
   await db.delete(projectCampaigns).where(and(eq(projectCampaigns.id, id), eq(projectCampaigns.projectId, projectId)));
-}
-
-// ---------- "Describe it": a sentence becomes a library trigger or a custom one
-const MODEL = 'gpt-6-luna';
-
-function fromWords(text: string): TriggerRef {
-  const best = searchTriggers(text)[0];
-  if (best && best.id) return { id: best.id, params: {} };
-  const t = text.toLowerCase();
-  const event = /bought|purchas|order/.test(t) ? 'bought' : /cart|basket/.test(t) ? 'cart' : /checkout/.test(t) ? 'checkout'
-    : /search/.test(t) ? 'searched' : /read|blog|article|page/.test(t) ? 'page' : 'viewed';
-  return { id: 'custom', params: {}, custom: { event, match: '', then: event === 'bought' ? 'gone' : 'left' } };
-}
-
-function responseText(body: unknown): string {
-  const b = body as { output_text?: string; output?: { content?: { text?: string }[] }[] };
-  if (typeof b?.output_text === 'string') return b.output_text;
-  return (b?.output ?? []).flatMap((o) => o.content ?? []).map((c) => c.text ?? '').join('');
-}
-
-/** Picks the closest library trigger, or builds a custom one, from what the person typed. */
-export async function describeTrigger(text: string): Promise<{ trigger: TriggerRef; ai: boolean }> {
-  const clean = text.replace(/\s+/g, ' ').trim().slice(0, 240);
-  if (!clean) return { trigger: { id: LIBRARY[0].id, params: {} }, ai: false };
-  if (!openaiConfigured()) return { trigger: fromWords(clean), ai: false };
-  const prompt = [
-    'You map a shop owner’s description of when an email should go out to one trigger.',
-    'Reply with JSON only, no prose: either {"id":"<library id>","params":{...}} or {"id":"custom","custom":{"event":"...","match":"...","then":"..."}}.',
-    'Prefer a library trigger when one fits. Only use params listed for it, with one of the allowed values.',
-    `Library: ${JSON.stringify(LIBRARY.map((t) => ({ id: t.id, when: t.when })))}`,
-    `Param values: ${JSON.stringify(Object.fromEntries(Object.entries(PARAMS).map(([k, v]) => [k, v.opts])))}`,
-    `Custom events: ${EVENTS.map((e) => e.id).join(', ')}. Custom then: ${THENS.map((t) => t.id).join(', ')}. "match" is the product, page or word, a few words at most, or "".`,
-    `Description: ${JSON.stringify(clean)}`,
-  ].join('\n');
-  try {
-    const res = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY?.trim()}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, input: prompt, max_output_tokens: 200, reasoning: { effort: 'low' } }),
-      signal: AbortSignal.timeout(20_000),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(`Responses API ${res.status}`);
-    const json = responseText(body).match(/\{[\s\S]*\}/)?.[0];
-    const trigger = json ? cleanTrigger(JSON.parse(json)) : null;
-    if (trigger) return { trigger, ai: true };
-  } catch (error) {
-    console.error('describe trigger failed', error instanceof Error ? error.message : error);
-  }
-  return { trigger: fromWords(clean), ai: false };
 }
 
 // ---------- Email images

@@ -675,7 +675,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
                 setReached((value) => Math.max(value, stepIndex('install')));
               }} />
           ) : screen === 'inbox' && project ? (
-            <Opportunities key={`${project.id}-${start.n}`} start={start.op} demo={isDemo(project)} projectId={project.id} editing={editing} onEdit={setEditing}
+            <Opportunities key={`${project.id}-${start.n}`} start={start.op} demo={isDemo(project)} projectId={project.id} storeName={project.name} host={(() => { try { return new URL(project.origin).host; } catch { return project.origin; } })()} editing={editing} onEdit={setEditing}
               onPeople={() => openScreen('visitors')} onBack={() => openScreen('home')} />
           ) : screen === 'campaigns' && project ? (
             <Campaigns key={project.id} space={campaignSpace} storeName={project.name}

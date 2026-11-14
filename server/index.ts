@@ -11,6 +11,7 @@ import { firecrawlConfigured } from './firecrawl';
 import { openaiConfigured } from './replay-insight';
 import projects from './projects';
 import { loadImage } from './campaigns';
+import { runCampaigns } from './campaign-runner';
 import { PIXEL_GIF, recordEmailEvent, suppressVisitor, verifyTrackingToken } from './email-tracking';
 import { sesConfigured } from './ses';
 
@@ -185,6 +186,9 @@ const runMonitor = () => {
     .catch((error) => console.error('brand monitoring failed', error));
 };
 const retentionTimer = setInterval(() => { prune(); pruneReplays(); runMonitor(); }, 60 * 60 * 1000);
+// Manual campaigns: queue new matches for approval every 10 minutes.
+const campaignTimer = setInterval(() => void runCampaigns(drizzle(pool)).catch(() => console.error('Unable to run campaigns')), 10 * 60 * 1000);
+campaignTimer.unref();
 retentionTimer.unref();
 prune();
 pruneReplays();

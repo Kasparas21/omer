@@ -37,7 +37,9 @@ import {
   syncProjectStripe,
   reattachStripePurchasesByEmail,
 } from './integrations';
-import { CAMPAIGN_ID, MAX_IMAGE_BYTES, deleteCampaign, describeTrigger, imageStorageReady, listCampaigns, saveCampaign, storeImage } from './campaigns';
+import { CAMPAIGN_ID, MAX_IMAGE_BYTES, deleteCampaign, imageStorageReady, listCampaigns, saveCampaign, storeImage } from './campaigns';
+import { campaignQueueCounts, previewTrigger, runCampaigns, triggerOptions } from './campaign-runner';
+import { cleanTrigger } from './trigger-library';
 import { dailyVisitors, dwell, emailEvents, identities, pageViews, pathViews, projects, purchases, referrerViews, replayChunks, replayInsights, replaySessions, visitorInsights, visits } from './schema';
 import { auth, pool, appURL } from './auth';
 
@@ -1855,7 +1857,7 @@ async function getCampaigns(request: Request, env: Env, projectId: string) {
   if (!owner) return json({ error: 'Sign in to view campaigns.' }, 401);
   return withDatabase(env, async (db) => {
     if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
-    return json({ campaigns: await listCampaigns(db, projectId), imageStorage: imageStorageReady() });
+    return json({ campaigns: await listCampaigns(db, projectId), queue: await campaignQueueCounts(db, projectId), imageStorage: imageStorageReady() });
   });
 }
 
@@ -1870,7 +1872,10 @@ async function putCampaign(request: Request, env: Env, projectId: string, campai
   return withDatabase(env, async (db) => {
     if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
     const error = await saveCampaign(db, projectId, campaignId, body?.campaign);
-    return error ? json({ error }, error === 'Not found.' ? 404 : 400) : json({ ok: true });
+    if (error) return json({ error }, error === 'Not found.' ? 404 : 400);
+    // A campaign that's on looks for matches right away, not only on the next scheduled run.
+    if ((body?.campaign as { on?: boolean } | undefined)?.on) void runCampaigns(db, projectId).catch(() => undefined);
+    return json({ ok: true });
   });
 }
 
@@ -1885,16 +1890,19 @@ async function removeCampaign(request: Request, env: Env, projectId: string, cam
   });
 }
 
-async function postDescribe(request: Request, env: Env, projectId: string) {
+async function campaignTool(request: Request, env: Env, projectId: string, tool: string) {
   if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
   const owner = await ownerID(request);
   if (!owner) return json({ error: 'Sign in first.' }, 401);
-  const raw = await readText(request, 2000);
-  let text = '';
-  try { text = String((JSON.parse(raw ?? '{}') as { text?: unknown }).text ?? ''); } catch { return json({ error: 'Invalid JSON.' }, 400); }
-  const owned = await withDatabase(env, (db) => ownedProject(db, projectId, owner));
-  if (!owned) return json({ error: 'Not found.' }, 404);
-  return json(await describeTrigger(text));
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    if (tool === 'options') return json(await triggerOptions(db, projectId));
+    if (tool === 'run') return json({ queued: await runCampaigns(db, projectId), queue: await campaignQueueCounts(db, projectId) });
+    const raw = await readText(request, 20_000);
+    let trigger = null;
+    try { trigger = cleanTrigger((JSON.parse(raw ?? '{}') as { trigger?: unknown }).trigger); } catch { return json({ error: 'Invalid JSON.' }, 400); }
+    return json(await previewTrigger(db, projectId, trigger ?? { steps: [], wait: 'right away' }));
+  });
 }
 
 async function postAsset(request: Request, env: Env, projectId: string) {
@@ -1986,9 +1994,10 @@ export default {
         if (request.method === 'POST') return await postBrandImport(request, env, brandImportMatch[1]);
         return json({ error: 'Method not allowed.' }, 405);
       }
-      const describeMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/campaigns\/describe$/i);
-      if (describeMatch) {
-        if (request.method === 'POST') return await postDescribe(request, env, describeMatch[1]);
+      const toolMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/campaigns\/(options|preview|run)$/i);
+      if (toolMatch) {
+        const tool = toolMatch[2].toLowerCase();
+        if ((tool === 'options' && request.method === 'GET') || (tool !== 'options' && request.method === 'POST')) return await campaignTool(request, env, toolMatch[1], tool);
         return json({ error: 'Method not allowed.' }, 405);
       }
       const campaignMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/campaigns(?:\/([a-z0-9-]+))?$/i);

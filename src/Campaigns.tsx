@@ -1,20 +1,21 @@
 /* Campaigns: the follow-up recipes. The list shows each one by the email it sends; a campaign opens on its own
-   page (what starts it, the email big enough to read), with Settings in a window and the email editor one
-   click away. A new campaign: pick what starts it (library, your words, or built from parts), then write the
-   email yourself in the editor. The demo store shows the kit's example set; a real store's campaigns are
-   saved on the server. */
+   page (who gets it, the email big enough to read), with Settings in a window and the email editor one click
+   away. A new campaign: name it and add steps (or start from a template) in the create card, then write the
+   email yourself in the editor. When it's on, the server matches real visitors and queues their emails in
+   Opportunities for approval. The demo store shows the kit's example set; a real store's campaigns are saved
+   on the server. */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Icon, type IconName } from './ui/Icon';
 import { Dropdown } from './ui/Dropdown';
 import { toast } from './ui/toast';
 import { DEMO_MAIL_BRAND, MailBrandProvider, MailInbox, MailPeek } from './Mail';
 import { MailEditor } from './MailEditor';
-import { TriggerPicker } from './TriggerPicker';
+import { CampaignCreator } from './CampaignCreator';
 import { FLOWS, PAGE_STYLE, PICKS, PERSONAL_MAILS, campaignStats, type Flow } from './storeData';
 import { DEMO_SPACE, demo as store, pickValue, useDemo, type CampaignSettings, type CampaignState } from './demoState';
 import { useBrand } from './brandStore';
 import { starterMail, storeMailBrand, storePage } from './campaignMail';
-import { PARAMS, libraryTrigger, paramValue, triggerName, triggerSentence, type TriggerRef } from '../server/trigger-library';
+import { TEMPLATES, WAITS, stepLabel, stepType, triggerLine, type CampaignTrigger } from '../server/trigger-library';
 
 type Suggestion = {
   id: string;
@@ -45,6 +46,7 @@ export function Campaigns({ space, storeName, host, projectId, openId, editing, 
   const demo = space === DEMO_SPACE;
   const open = campaigns.find((c) => c.id === openId);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     if (!projectId) return;
@@ -76,7 +78,16 @@ export function Campaigns({ space, storeName, host, projectId, openId, editing, 
   if (!ready) return <div className="cp-screen" aria-busy="true" />;
 
   const ordered = [...campaigns.filter((c) => c.suggested && !c.dismissed), ...campaigns.filter((c) => !c.suggested)];
-  const create = () => onOpen(store.add(space, space === DEMO_SPACE ? undefined : storeName));
+  const create = () => setCreating(true);
+  /** Nothing is made until the create card is done: then the campaign, a blank email, and straight to the editor. */
+  const made = ({ name, trigger }: { name: string; trigger: CampaignTrigger }) => {
+    const id = store.add(space, demo ? undefined : storeName, name);
+    const icon = (TEMPLATES.find((t) => t.id === trigger.template)?.icon ?? 'megaphone') as CampaignState['icon'];
+    store.setTrigger(id, trigger, { icon, published: { doc: starterMail(), page: demo ? { ...PAGE_STYLE } : storePage(brand) } });
+    setCreating(false);
+    onOpen(id);
+    onEdit(true);
+  };
   const dismissSuggestion = async (id: string) => {
     if (!projectId) return;
     try {
@@ -99,7 +110,7 @@ export function Campaigns({ space, storeName, host, projectId, openId, editing, 
         body: JSON.stringify({ status: 'accepted' }),
       });
       setSuggestions((prev) => prev.filter((s) => s.id !== id));
-      onOpen(store.add(space, title));
+      onOpen(store.add(space, demo ? undefined : storeName, title));
       toast('Campaign shell created — email content comes next');
     } catch {
       toast('Could not accept suggestion', { kind: 'warn' });
@@ -140,6 +151,7 @@ export function Campaigns({ space, storeName, host, projectId, openId, editing, 
         {ordered.map((c) => <MailBrandProvider key={c.id} value={mailBrand(c)}><Card c={c} onOpen={() => onOpen(c.id)} /></MailBrandProvider>)}
         <NewCard onClick={create} />
       </div>
+      {creating ? <CampaignCreator space={space} name="New campaign" onDone={made} onClose={() => setCreating(false)} /> : null}
     </div>
   );
 }
@@ -193,7 +205,7 @@ function NewCard({ onClick }: { onClick: () => void }) {
       <div className="cpx-stage cpx-new-stage">
         <span className="cpx-new-ic" aria-hidden="true"><Icon name="plus" /></span>
         <b>Create a campaign</b>
-        <span>Pick what starts it, then write the email.</span>
+        <span>Choose who gets it, then write the email.</span>
       </div>
     </button>
   );
@@ -206,14 +218,6 @@ function InlinePick({ value, opts, label, onChange }: { value: string; opts: rea
 function PickIn({ c, k }: { c: CampaignState; k: string }) {
   return <InlinePick value={pickValue(c, k)} opts={PICKS[k].opts} label="Change" onChange={(v) => store.setPick(c.id, k, v)} />;
 }
-/** A library sentence with its values as in-place picks. */
-function triggerText(c: CampaignState, ref: TriggerRef, text: string) {
-  return text.split(/(\{\w+\})/).map((part, i) => {
-    const m = part.match(/^\{(\w+)\}$/);
-    const p = m ? (PARAMS as Record<string, { opts: readonly string[] }>)[m[1]] : null;
-    return m && p ? <InlinePick key={i} value={paramValue(ref, m[1])} opts={p.opts} label="Change" onChange={(v) => store.setTriggerParam(c.id, m[1], v)} /> : <span key={i}>{part}</span>;
-  });
-}
 function stepText(c: CampaignState, text: string) {
   return text.split(/(\{\w+\})/).map((part, i) => {
     const m = part.match(/^\{(\w+)\}$/);
@@ -221,30 +225,31 @@ function stepText(c: CampaignState, text: string) {
   });
 }
 
-function FlowCard({ c, flow, onChange }: { c: CampaignState; flow: Flow | null; onChange: () => void }) {
-  const ref = c.trigger;
-  if (ref) {
-    const lib = libraryTrigger(ref.id);
+function FlowCard({ c, flow, onChange, queue }: { c: CampaignState; flow: Flow | null; onChange: () => void; queue: { review: number; sent: number } | null }) {
+  const t = c.trigger;
+  if (t?.steps.length) {
     return (
       <>
         <div className="cpx-lane"><span className="cpx-lane-k"><Icon name="user" />What they do</span>
-          <ol className="cpx-steps"><li className="cpx-step"><span className="cpx-ic"><Icon name={(lib?.icon ?? 'eye') as IconName} /></span>
-            <div><p>{lib ? triggerText(c, ref, lib.when) : triggerSentence(ref)}</p></div></li></ol>
+          <ol className="cpx-steps">{t.steps.map((s, i) => (
+            <li key={i} className="cpx-step"><span className="cpx-ic"><Icon name={stepType(s.kind).icon as IconName} /></span><div><p>{stepLabel(s)}</p></div></li>
+          ))}</ol>
         </div>
         <div className="cpx-lane is-us"><span className="cpx-lane-k"><Icon name="ghost" />What we do</span>
           <ol className="cpx-steps">
-            <li className="cpx-step is-us"><span className="cpx-ic"><Icon name="send" /></span><div><p>We send your email <InlinePick value={paramValue(ref, 'wait')} opts={PARAMS.wait.opts} label="When we send it" onChange={(v) => store.setTriggerParam(c.id, 'wait', v)} /></p></div></li>
+            <li className="cpx-step is-us"><span className="cpx-ic"><Icon name="send" /></span><div><p>We write your email to them <InlinePick value={t.wait} opts={WAITS} label="When" onChange={(v) => store.setTrigger(c.id, { ...t, wait: v })} /></p>
+              <small>It waits for your OK in Opportunities{queue ? ` · ${queue.review} waiting, ${queue.sent} sent` : ''}</small></div></li>
           </ol>
         </div>
-        <div className="cpx-flow-acts"><button type="button" className="btn btn-ghost btn-sm" onClick={onChange}><Icon name="rotate" />Change what starts it</button></div>
+        <div className="cpx-flow-acts"><button type="button" className="btn btn-ghost btn-sm" onClick={onChange}><Icon name="edit" />Edit steps</button></div>
       </>
     );
   }
   if (!flow) {
     return (
       <div className="cpx-flow-empty">
-        <p>What starts this campaign?</p>
-        <button type="button" className="btn btn-primary btn-sm" onClick={onChange}><Icon name="plus" />Pick what starts it</button>
+        <p>Who gets this campaign?</p>
+        <button type="button" className="btn btn-primary btn-sm" onClick={onChange}><Icon name="plus" />Add steps</button>
       </div>
     );
   }
@@ -268,18 +273,21 @@ function FlowCard({ c, flow, onChange }: { c: CampaignState; flow: Flow | null; 
 
 function CampaignPage({ c, space, storeName, onWrite, onClose }: { c: CampaignState; space: string; storeName: string; onWrite: () => void; onClose: () => void }) {
   const [settings, setSettings] = useState(false);
-  // A brand-new campaign opens straight on "what starts it".
-  const [picking, setPicking] = useState(!c.trigger && !c.flow && !c.published);
+  const [picking, setPicking] = useState(false);
   const onEdit = onWrite;
-  function pick(ref: TriggerRef) {
-    const fresh = !c.trigger && !c.flow;
-    const icon = (libraryTrigger(ref.id)?.icon ?? 'megaphone') as CampaignState['icon'];
-    store.setTrigger(c.id, ref, { icon, ...(c.name === 'New campaign' || (c.trigger && c.name === triggerName(c.trigger)) ? { name: triggerName(ref) } : {}) });
+  const real = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(space);
+  const [queue, setQueue] = useState<{ review: number; sent: number } | null>(null);
+  useEffect(() => {
+    if (!real || !c.trigger) return;
+    void fetch(`/api/projects/${space}/campaigns`).then((r) => r.json()).then((d: { queue?: Record<string, { review: number; sent: number }> }) => setQueue(d.queue?.[c.id] ?? { review: 0, sent: 0 })).catch(() => undefined);
+  }, [space, c.id, c.on]);
+  function picked({ name: n, trigger }: { name: string; trigger: CampaignTrigger }) {
+    store.setTrigger(c.id, trigger, n && n !== c.name ? { name: n } : {});
+    if (n && n !== c.name) setName(n);
     setPicking(false);
-    if (fresh && !c.published) onWrite();
   }
   function turnOn() {
-    if (!c.trigger && !c.flow) { setPicking(true); return; }
+    if (!c.trigger?.steps.length && !c.flow) { setPicking(true); return; }
     if (!c.published) { toast('Write the email first', { kind: 'warn' }); onWrite(); return; }
     if (!c.published.doc.subject.trim()) { toast('Add a subject line first', { kind: 'warn' }); onWrite(); return; }
     store.start(c.id);
@@ -305,7 +313,7 @@ function CampaignPage({ c, space, storeName, onWrite, onClose }: { c: CampaignSt
             {c.suggested ? <span className="cpx-ai-chip"><Icon name="ghost" />Suggested by Ghost</span> : null}
             <span className={`set-saved${saved ? ' show' : ''}`}><Icon name="check" />Saved</span>
           </div>
-          <p className="cpx-about">{c.trigger ? triggerSentence(c.trigger) : flow ? flow.about : 'Pick what starts it, then write the email.'}</p>
+          <p className="cpx-about">{c.trigger ? triggerLine(c.trigger) : flow ? flow.about : 'Choose who gets it, then write the email.'}</p>
         </div>
         <div className="cpx-head-r">
           {c.suggested ? <>
@@ -339,7 +347,7 @@ function CampaignPage({ c, space, storeName, onWrite, onClose }: { c: CampaignSt
       <div className="cpx-main">
         <section className="v2-card cpx-flow">
           <header><Icon name="cursor" /><h3>How it works</h3></header>
-          <div className="v2-in"><FlowCard c={c} flow={flow} onChange={() => setPicking(true)} /></div>
+          <div className="v2-in"><FlowCard c={c} flow={flow} queue={queue} onChange={() => setPicking(true)} /></div>
         </section>
         <section className="v2-card cpx-email">
           <header><Icon name="mail" /><h3>The email</h3>
@@ -354,7 +362,7 @@ function CampaignPage({ c, space, storeName, onWrite, onClose }: { c: CampaignSt
       </div>
 
       {settings ? <SettingsDialog c={c} storeName={space === DEMO_SPACE ? '' : storeName} onClose={() => setSettings(false)} onDelete={() => { store.remove(c.id); onClose(); }} /> : null}
-      {picking ? <TriggerPicker space={space} current={c.trigger} onPick={pick} onClose={() => setPicking(false)} /> : null}
+      {picking ? <CampaignCreator space={space} name={c.name} trigger={c.trigger} editing onDone={picked} onClose={() => setPicking(false)} /> : null}
     </div>
   );
 }
