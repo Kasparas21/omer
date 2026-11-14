@@ -45,6 +45,7 @@ app.get('/api/config', (c) => c.json({
   firecrawl: firecrawlConfigured(),
   brandImport: brandImportReady(),
   ses: sesConfigured(),
+  resend: Boolean(process.env.RESEND_API_KEY?.trim()),
 }));
 app.all('/api/projects', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id', (c) => projects.fetch(c.req.raw, env));
@@ -52,6 +53,8 @@ app.get('/api/projects/:id/live/stream', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/live', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/brand', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/brand/*', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/sending', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/sending/*', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/opportunities', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/opportunities/:oid', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/opportunities/:oid/draft', (c) => projects.fetch(c.req.raw, env));

@@ -8,6 +8,7 @@ import { useSlidingPill } from './ui/useSlidingPill';
 import { BrandKnowledge, MonitoringSection } from './BrandKnowledge';
 import { DEMO_BRAND_SPACE, updateBrand, useBrand } from './brandStore';
 import { DemoChanges, DemoPrivacy, DemoSending, useDemoSettingsCounts } from './DemoSettings';
+import { ProjectSending } from './ProjectSending';
 import type { Go } from './DashboardV2';
 
 export type DockMode = 'always' | 'scroll' | 'auto';
@@ -29,8 +30,6 @@ function Row({ title, children, wide }: { title: string; children: React.ReactNo
     </div>
   );
 }
-
-const Soon = () => <span className="status-pill">Soon</span>;
 
 export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab, demo = false, onGo }: {
   startTab?: Tab;
@@ -140,14 +139,7 @@ export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab
               )}
             </div>
           )}
-          {!demo && tab === 'sending' && (
-            <div className="set-main solo">
-              <Row title="From name"><Soon /></Row>
-              <Row title="From email"><Soon /></Row>
-              <Row title="Daily limit"><Soon /></Row>
-              <Row title="Quiet hours"><Soon /></Row>
-            </div>
-          )}
+          {!demo && tab === 'sending' && <ProjectSending projectId={project.id} />}
           {!demo && tab === 'privacy' && (
             <div className="set-main solo">
               <Row title="Consent"><span className="status-pill received"><Icon name="check" />Required</span></Row>

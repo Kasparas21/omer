@@ -1,4 +1,4 @@
-/* Send a drafted opportunity email via SES and log the message. */
+/* Send a drafted opportunity email via SES/Resend and log the message. */
 import { and, eq } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { appURL } from './auth';
@@ -7,7 +7,7 @@ import type { MailDocLike, PageStyleLike } from './email-html';
 import { mailDocToHtml, mailDocToText } from './email-html';
 import { brandFromStore, pageFromBrand } from './email-page';
 import { trackingUrls } from './email-tracking';
-import { sesConfigured, sesSendEmail } from './ses';
+import { loadSending, mailProvidersAvailable, sendViaTransport } from './mail-transport';
 import { projectEmailMessages, projectOpportunities, projects } from './schema';
 
 export async function sendOpportunityEmail(
@@ -15,7 +15,8 @@ export async function sendOpportunityEmail(
   projectId: string,
   opportunityId: string,
 ) {
-  if (!sesConfigured()) throw new Error('SES is not configured');
+  const providers = mailProvidersAvailable();
+  if (!providers.ses && !providers.resend) throw new Error('Email sending is not configured');
 
   const [opp] = await db.select().from(projectOpportunities)
     .where(and(eq(projectOpportunities.id, opportunityId), eq(projectOpportunities.projectId, projectId)))
@@ -36,6 +37,7 @@ export async function sendOpportunityEmail(
     ? { ...pageFromBrand(brandFull), ...(opp.pageJson as Partial<PageStyleLike>) }
     : pageFromBrand(brandFull);
   const doc = opp.draftJson as unknown as MailDocLike;
+  const sending = await loadSending(db, projectId);
 
   const [queued] = await db.insert(projectEmailMessages).values({
     projectId,
@@ -57,20 +59,21 @@ export async function sendOpportunityEmail(
   const text = mailDocToText(doc, brand, { name: opp.name, unsubscribeUrl: urls.unsubscribe });
 
   try {
-    const { messageId } = await sesSendEmail({
+    const { messageId, from } = await sendViaTransport({
+      projectName: project.name,
+      sending,
       to: opp.email,
       subject: doc.subject || 'Hello',
       html,
       text,
-      fromName: project.name,
-      replyTo: null,
       listUnsubscribeUrl: urls.unsubscribe,
-      listUnsubscribePost: true,
     });
     const now = new Date();
     const [sent] = await db.update(projectEmailMessages).set({
       status: 'sent',
       sesMessageId: messageId,
+      provider: from.provider,
+      fromEmail: from.fromEmail,
       sentAt: now,
     }).where(eq(projectEmailMessages.id, queued.id)).returning();
 
@@ -79,7 +82,7 @@ export async function sendOpportunityEmail(
       updatedAt: now,
     }).where(eq(projectOpportunities.id, opportunityId));
 
-    return { message: sent, tracking: { unsubscribe: urls.unsubscribe } };
+    return { message: sent, tracking: { unsubscribe: urls.unsubscribe }, from };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Send failed';
     await db.update(projectEmailMessages).set({

@@ -26,7 +26,8 @@ import {
 import { draftOpportunityEmail, saveOpportunityDraft } from './email-draft';
 import { sendOpportunityEmail } from './email-send';
 import { loadEmailContext } from './email-context';
-import { sesConfigured } from './ses';
+import { mailProvidersAvailable } from './mail-transport';
+import { checkProjectSending, getProjectSending, upsertProjectSending } from './sending';
 import { CAMPAIGN_ID, MAX_IMAGE_BYTES, deleteCampaign, describeTrigger, imageStorageReady, listCampaigns, saveCampaign, storeImage } from './campaigns';
 import { dailyVisitors, dwell, emailEvents, identities, pageViews, pathViews, projects, purchases, referrerViews, replayChunks, replayInsights, replaySessions, visitorInsights, visits } from './schema';
 import { auth, pool, appURL } from './auth';
@@ -1628,15 +1629,69 @@ async function sendOpportunityRoute(request: Request, env: Env, projectId: strin
   if (!uuid.test(projectId) || !uuid.test(opportunityId)) return json({ error: 'Not found.' }, 404);
   const owner = await ownerID(request);
   if (!owner) return json({ error: 'Sign in to send.' }, 401);
-  if (!sesConfigured()) return json({ error: 'SES is not configured yet.' }, 503);
+  const providers = mailProvidersAvailable();
+  if (!providers.ses && !providers.resend) return json({ error: 'Email sending is not configured yet.' }, 503);
   return withDatabase(env, async (db) => {
     if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
     try {
       const result = await sendOpportunityEmail(db, projectId, opportunityId);
-      return json({ message: result.message, tracking: result.tracking });
+      return json({ message: result.message, tracking: result.tracking, from: result.from });
     } catch (error) {
       console.error('opportunity send failed', error);
       return json({ error: error instanceof Error ? error.message.slice(0, 240) : 'Send failed' }, 502);
+    }
+  });
+}
+
+async function getSendingRoute(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to view sending.' }, 401);
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    const sending = await getProjectSending(db, projectId);
+    return json({ sending });
+  });
+}
+
+async function putSendingRoute(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to update sending.' }, 401);
+  const raw = await readText(request, 8_000);
+  if (raw === null) return json({ error: 'Payload too large.' }, 413);
+  let body: {
+    fromName?: string;
+    fromEmail?: string;
+    domain?: string;
+    provider?: 'ses' | 'resend';
+    startVerify?: boolean;
+  } | null;
+  try { body = JSON.parse(raw); } catch { return json({ error: 'Invalid JSON.' }, 400); }
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    try {
+      const sending = await upsertProjectSending(db, projectId, body || {});
+      return json({ sending });
+    } catch (error) {
+      console.error('sending update failed', error);
+      return json({ error: error instanceof Error ? error.message.slice(0, 240) : 'Update failed' }, 400);
+    }
+  });
+}
+
+async function checkSendingRoute(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to check DNS.' }, 401);
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    try {
+      const sending = await checkProjectSending(db, projectId);
+      return json({ sending });
+    } catch (error) {
+      console.error('sending check failed', error);
+      return json({ error: error instanceof Error ? error.message.slice(0, 240) : 'Check failed' }, 502);
     }
   });
 }
@@ -1854,6 +1909,17 @@ export default {
       const opportunitySend = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/opportunities\/([0-9a-f-]{36})\/send$/i);
       if (opportunitySend) {
         if (request.method === 'POST') return await sendOpportunityRoute(request, env, opportunitySend[1], opportunitySend[2]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const sendingCheck = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/sending\/check$/i);
+      if (sendingCheck) {
+        if (request.method === 'POST') return await checkSendingRoute(request, env, sendingCheck[1]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const sendingMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/sending$/i);
+      if (sendingMatch) {
+        if (request.method === 'GET') return await getSendingRoute(request, env, sendingMatch[1]);
+        if (request.method === 'PUT') return await putSendingRoute(request, env, sendingMatch[1]);
         return json({ error: 'Method not allowed.' }, 405);
       }
       const opportunityOne = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/opportunities\/([0-9a-f-]{36})$/i);
