@@ -1,3 +1,3 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-export default defineConfig({ plugins: [react()], server: { proxy: { '/api': 'http://127.0.0.1:3000', '/v1': 'http://127.0.0.1:3000', '/mcp': 'http://127.0.0.1:3000', '/oauth': 'http://127.0.0.1:3000', '/.well-known': 'http://127.0.0.1:3000' } } });
+export default defineConfig({ plugins: [react()], server: { proxy: { '/api': 'http://127.0.0.1:3000', '/v1': 'http://127.0.0.1:3000', '/mcp': 'http://127.0.0.1:3000', '/oauth': 'http://127.0.0.1:3000', '/.well-known': 'http://127.0.0.1:3000', '/connect': 'http://127.0.0.1:3000' } } });
