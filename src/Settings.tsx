@@ -10,6 +10,7 @@ import { DEMO_BRAND_SPACE, updateBrand, useBrand } from './brandStore';
 import { DemoChanges, DemoPrivacy, DemoSending, useDemoSettingsCounts } from './DemoSettings';
 import { DemoIntegrations, ProjectIntegrations } from './ProjectIntegrations';
 import { ProjectSending } from './ProjectSending';
+import { ConnectAI } from './ConnectAI';
 import { toast } from './ui/toast';
 import type { Go } from './DashboardV2';
 
@@ -187,7 +188,7 @@ export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab
         <div className="set-sheet">
           {demo && tab === 'changes' && <DemoChanges onGo={onGo} />}
           {demo && tab === 'sending' && <DemoSending />}
-          {demo && tab === 'integrations' && <DemoIntegrations />}
+          {demo && tab === 'integrations' && <><DemoIntegrations /><ConnectAI /></>}
           {demo && tab === 'privacy' && <DemoPrivacy />}
           {tab === 'company' && (
             <>
@@ -338,7 +339,7 @@ export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab
             </div>
           )}
           {!demo && tab === 'sending' && <ProjectSending projectId={project.id} />}
-          {!demo && tab === 'integrations' && <ProjectIntegrations projectId={project.id} />}
+          {!demo && tab === 'integrations' && <><ProjectIntegrations projectId={project.id} /><ConnectAI /></>}
           {!demo && tab === 'privacy' && (
             <div className="set-main solo">
               <Row title="Consent"><span className="status-pill received"><Icon name="check" />Required</span></Row>

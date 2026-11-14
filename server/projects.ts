@@ -52,6 +52,7 @@ function cleanTimeZone(v: unknown) {
 }
 import { dailyVisitors, dwell, emailEvents, identities, pageViews, pathViews, projectOpportunities, projects, purchases, referrerViews, replayChunks, replayInsights, replaySessions, visitorInsights, visits } from './schema';
 import { auth, pool, appURL } from './auth';
+import { bearerFrom, userFromToken } from './mcp-auth';
 
 type RateLimit = { limit(input: { key: string }): Promise<{ success: boolean }> };
 type Env = {
@@ -191,6 +192,10 @@ async function withDatabase<T>(_env: Env, action: (db: NodePgDatabase) => Promis
 }
 
 async function ownerID(request: Request) {
+  // A personal API key or OAuth token (MCP, scripts) acts as its owner. A bad token is never
+  // quietly swapped for a cookie session.
+  const token = bearerFrom(request);
+  if (token) return (await userFromToken(token)) ?? undefined;
   const session = await auth.api.getSession({ headers: request.headers });
   return session?.user.id;
 }
