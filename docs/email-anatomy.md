@@ -33,28 +33,48 @@
 
 ## Spacing / chrome tokens (Omer defaults)
 
-Derived from the dominant single-column + light/muted set:
+Derived from the dominant single-column + light/muted set, plus Colorlib MJML production chrome:
 
-- Content width **600px**, page wash `#F6F6F6`, card fill `#FFFFFF`, corners **16px**
+- Content width **600px**, soft page wash (not pure white/black), card fill `#FAFAFA`, corners from **skin**
 - Side pad **40px** (brand) / **36px** (personal)
-- Body **16px / 1.55**, headline **32–36px**, letter-spacing tight on heads
-- Fonts: brand kit first; fallback **Georgia** heads + **Helvetica** body
-- CTA: pill `border-radius: 999px`, 14×28 padding; ink chosen by accent luminance
+- Body **15–16px / 1.55**, headline from skin (**30 / 34 / 38**), letter-spacing tight on heads
+- Fonts: brand kit first; fallback **Georgia** heads + **Helvetica** body (professional prefers Helvetica heads)
+- CTA: **bulletproof table button**; radius **8** (professional) or **999** (modern/playful)
+- Shell: preheader, `color-scheme`, Apple reformatting meta, MSO width table
+
+## Visual skins (brand voice → chrome)
+
+Recipe picks **structure**; skin picks **look** (`server/email-page.ts`):
+
+| Skin | Corners | CTA | Head | When |
+|------|---------|-----|------|------|
+| `professional` | 8 | 8 | 30 / Helvetica | Formal, B2B, luxury, clinic |
+| `modern` | 16 | pill | 34 / Georgia | Default clean product email |
+| `playful` | 22 | pill | 38 / Georgia | Warm, witty, pet, lifestyle |
 
 ## High-frequency compositions → Omer recipes
 
-| Recipe | Typical order | When |
-|--------|---------------|------|
-| `launch` | logo → hero → headline → body → cta → perks → footer | Product interest / drop |
-| `cart_rescue` | logo → hero → headline → products → code? → cta → perks → footer | Cart / checkout |
-| `compare` | logo → headline → body → product_grid → cta → footer | Two options |
-| `editorial_note` | body… → inset product → cta_text → sig → footer | Personal advice |
-| `restock` | logo → headline → product_feature → cta → features → footer | Back in stock |
-| `digest` | logo → headline → body beats + dividers → soft cta → footer | Soft newsletter |
+| Recipe | Typical order | Colorlib cousin | When |
+|--------|---------------|-----------------|------|
+| `launch` | logo → hero → headline → body → products → cta → perks → footer | Loop (25) | Product interest / drop |
+| `cart_rescue` | logo → hero → headline → products → code? → cta → perks → footer | Shop (12) / Verge (27) | Cart / checkout / winback |
+| `compare` | logo → headline → body → product_grid → cta → footer | — | Two options |
+| `editorial_note` | body… → inset product → cta_text → sig → footer | Brief (24) | Personal advice |
+| `restock` | logo → hero → headline → products → cta → features → footer | — | Back in stock |
+| `digest` | logo → headline → body beats + dividers → soft cta → footer | Brief (24) | Soft newsletter |
+
+## How to test generated emails
+
+1. **Demo store** → Opportunities → open a person → Generate / Edit draft. Use Desktop / iPhone in MailEditor. Preview never sends.
+2. **Real project** (Brand knowledge filled, `OPENAI_API_KEY` set) → Opportunities → **Draft email** → inspect in MailEditor → **View HTML** to copy for Litmus / Email on Acid → **Send** to yourself (Settings → Sending connected).
+3. **Fixtures**: `npm run email:fixtures` writes recipe × skin HTML under `tmp/email-fixtures/` for a quick browser pass.
+4. Reference gallery (design inspiration only): [`/email-examples.html`](../public/email-examples.html).
 
 ## Implementation map
 
 - Tokens + section ids: [`server/email-sections.ts`](../server/email-sections.ts)
+- Skins + page: [`server/email-page.ts`](../server/email-page.ts)
 - SES HTML: [`server/email-html.ts`](../server/email-html.ts)
 - Luna recipes: [`server/email-draft.ts`](../server/email-draft.ts)
 - In-app mirror: [`src/Mail.tsx`](../src/Mail.tsx), [`src/ui/mail.css`](../src/ui/mail.css)
+- Fixtures: [`scripts/email-fixtures.mjs`](../scripts/email-fixtures.mjs)

@@ -4,7 +4,7 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { loadBrand, type StoredBrand } from './brand-import';
 import { loadEmailContext } from './email-context';
 import type { MailDocLike, PageStyleLike } from './email-html';
-import { brandFromStore, pageFromBrand } from './email-page';
+import { brandFromStore, pageFromBrand, skinPromptCues } from './email-page';
 import { LAYOUT_RECIPES, type LayoutRecipeId } from './email-sections';
 import { openaiConfigured } from './replay-insight';
 import { projectOpportunities, projects } from './schema';
@@ -201,19 +201,44 @@ export async function draftOpportunityEmail(
   const paths = (brand.monitor || []).slice(0, 8).map((m) => m.path).join(', ') || '/';
 
   const layout = LAYOUT_RECIPES[recipe];
-  const system = `You write one personalized follow-up email for a merchant's store visitor.
-Output ONLY a JSON object (no markdown fences) with keys:
-subject, preview, headline, body (string array), cta, ctaUrl, products (optional array of {name, now, was?, note?}), code (optional {c,n}), perks (optional string array), features (optional string array for restock/feature-list rows), social (optional short labels).
+  const skin = page.skin || 'modern';
+  const system = `You write ONE personalized marketing follow-up email for a store visitor.
+This is not a newsletter blast and not a support ticket. One visitor, one clear reason, one CTA.
 
-Rules:
-- Match the language of the Brand Voice Guide / Product Information (same language as the site).
-- Sound like the brand voice. Short, concrete. No invented prices, discounts, shipping promises, or codes.
-- Only use facts from approved store facts or product list. If a discount/code is not in facts, omit code.
-- body: 2-5 short paragraphs/lines. Use {{first_name}} at most once if helpful.
-- ctaUrl must be on the store origin (${project.origin}) — prefer a real path from monitored pages when relevant.
-- Layout recipe is "${recipe}" (${layout.blurb}).
-- Section order to fill: ${layout.order.join(' → ')}. Write copy that fits those slots; leave unused optional fields out.
-- Premium email tone: one clear hero idea, short headline, no template filler. Never use em dashes or banned AI filler.`;
+OUTPUT
+- Return ONLY a single JSON object. No markdown fences, no commentary.
+- Keys (omit unused optionals):
+  subject (string, ≤80 chars)
+  preview (string, ≤120 chars — inbox snippet after the subject)
+  headline (string, ≤70 chars; empty string allowed for personal/letter recipes)
+  body (string[], 2–5 short lines/paragraphs; each ≤220 chars)
+  cta (string, ≤40 chars)
+  ctaUrl (string — must stay on store origin)
+  products (optional [{name, now, was?, note?}], max 2; names/prices only from Products on file)
+  code (optional {c, n} — ONLY if that exact code exists in Approved facts)
+  perks (optional string[], max 4 short trust lines)
+  features (optional string[], max 4 — prefer for restock)
+  social (optional short labels, max 4)
+
+DESIGN BRIEF
+- ${skinPromptCues(skin)}
+- Layout recipe: "${recipe}" — ${layout.blurb}
+- Section slots (fill copy that fits; leave unused optionals out): ${layout.order.join(' → ')}
+- One hero idea. Short headline. Scannable body. Single CTA.
+- Personal notes (editorial_note): lead with a greeting line; prefer text-link CTA energy in cta copy.
+
+HARD RULES
+- Match the language of Brand Voice / Product Information (same language as the site).
+- Sound like this brand. Short, concrete. No invented prices, discounts, shipping, stock, or codes.
+- Only use Approved facts + Products on file. If a code/discount is not listed, omit "code".
+- ctaUrl must be on ${project.origin} — prefer a monitored path when relevant.
+- Use {{first_name}} at most once across the whole email (usually body[0]).
+- Never use em dashes. No AI filler ("I hope this finds you well", "unlock", "synergy", "game-changer", "delve").
+- Do not repeat the product name in every paragraph. Do not stack multiple CTAs in body text.
+- No fake urgency ("last chance!!!") unless a real deadline is in Approved facts.
+
+ANTI-PATTERNS
+- Walls of text; more than one primary ask; inventing a second product; pasting the hero product description twice.`;
 
   const user = [
     `Store: ${project.name} (${project.origin})`,
@@ -222,6 +247,7 @@ Rules:
     `Hooks: ${hooks.join(' | ') || 'none'}`,
     `Insight: ${opp.insightSummary || ctx.insight?.summary || ''}`,
     `Interests: ${(ctx.insight?.interests || []).join(', ') || 'n/a'}`,
+    `Visual skin: ${skin}`,
     `Recipe: ${recipe}`,
     `Section order: ${layout.order.join(' → ')}`,
     `Monitored paths: ${paths}`,
