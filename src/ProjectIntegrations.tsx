@@ -1,12 +1,14 @@
-/* Settings → Integrations: Stripe connect (+ Dodo / RevenueCat soon). */
-import { useCallback, useEffect, useState } from 'react';
+/* Settings → Integrations: logo cards + connect modal (Stripe / Dodo / RevenueCat). */
+import { useCallback, useEffect, useId, useState } from 'react';
 import { BrandLogo } from './ui/brandLogos';
 import { Icon } from './ui/Icon';
 import { toast } from './ui/toast';
 
+type Provider = 'stripe' | 'dodo' | 'revenuecat';
+
 type Integration = {
-  provider: 'stripe' | 'dodo' | 'revenuecat';
-  status: 'none' | 'connected' | 'invalid' | 'error' | 'soon';
+  provider: Provider;
+  status: 'none' | 'connected' | 'invalid' | 'error';
   hasApiKey: boolean;
   hasWebhookSecret: boolean;
   accountId: string | null;
@@ -15,48 +17,169 @@ type Integration = {
   available: boolean;
 };
 
-function Row({ title, children, wide }: { title: string; children: React.ReactNode; wide?: boolean }) {
+const META: Record<Provider, {
+  label: string;
+  blurb: string;
+  placeholder: string;
+  keyLabel: string;
+  tipHref: string | null;
+  tipLabel: string;
+}> = {
+  stripe: {
+    label: 'Stripe',
+    blurb: 'Track revenue attribution from Stripe.',
+    placeholder: 'rk_live_…',
+    keyLabel: 'Restricted API key',
+    tipHref: 'https://docs.stripe.com/keys/restricted-api-keys',
+    tipLabel: 'Stripe key guide',
+  },
+  dodo: {
+    label: 'Dodo Payments',
+    blurb: 'Track revenue attribution from Dodo Payments.',
+    placeholder: 'Your API key…',
+    keyLabel: 'API key',
+    tipHref: 'https://docs.dodopayments.com/api-reference/introduction',
+    tipLabel: 'Dodo integration guide',
+  },
+  revenuecat: {
+    label: 'RevenueCat',
+    blurb: 'Track subscription revenue from RevenueCat.',
+    placeholder: 'sk_…',
+    keyLabel: 'Secret API key',
+    tipHref: 'https://www.revenuecat.com/docs/welcome/authentication',
+    tipLabel: 'RevenueCat key guide',
+  },
+};
+
+function ConnectModal({
+  provider,
+  busy,
+  onClose,
+  onConnect,
+}: {
+  provider: Provider;
+  busy: boolean;
+  onClose: () => void;
+  onConnect: (apiKey: string) => void;
+}) {
+  const [apiKey, setApiKey] = useState('');
+  const titleId = useId();
+  const meta = META[provider];
+  const can = apiKey.trim().length > 0 && !busy;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [busy, onClose]);
+
   return (
-    <div className={`set-row${wide ? ' wide' : ''}`}>
-      <div className="set-k"><b>{title}</b></div>
-      <div className="set-v">{children}</div>
+    <div className="cc-modal set-int-modal" role="presentation">
+      <button type="button" className="cc-scrim" aria-label="Close" disabled={busy} onClick={onClose} />
+      <section className="cc-card" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <div className="cc-inner">
+          <button type="button" className="cc-x set-int-modal-x" aria-label="Close" disabled={busy} onClick={onClose}>
+            <Icon name="x" />
+          </button>
+          <div className="cc-slide">
+            <div className="cc-screen">
+              <header className="cc-head">
+                <span className="cc-chip">Connect integration</span>
+                <span className="set-int-modal-mark"><BrandLogo slug={provider} /></span>
+                <h2 id={titleId}>Connect {meta.label}</h2>
+                <p>Add your {meta.keyLabel.toLowerCase()} to enable revenue attribution.</p>
+              </header>
+
+              {meta.tipHref ? (
+                <p className="set-int-tip">
+                  Tip: Follow our{' '}
+                  <a href={meta.tipHref} target="_blank" rel="noreferrer">{meta.tipLabel}</a>
+                  {' '}if you are unsure how to obtain this key.
+                </p>
+              ) : null}
+
+              <label className="set-int-field">
+                <span>{meta.keyLabel}</span>
+                <input
+                  className="cc-input"
+                  type="password"
+                  autoComplete="off"
+                  autoFocus
+                  value={apiKey}
+                  placeholder={meta.placeholder}
+                  disabled={busy}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && can) onConnect(apiKey.trim());
+                  }}
+                />
+              </label>
+
+              <div className="cc-actions">
+                <button type="button" className="cc-btn" disabled={busy} onClick={onClose}>Cancel</button>
+                <button
+                  type="button"
+                  className="cc-btn is-primary"
+                  disabled={!can}
+                  onClick={() => onConnect(apiKey.trim())}
+                >
+                  {busy ? 'Connecting…' : 'Connect'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
 
-function logoSlug(provider: Integration['provider']) {
-  if (provider === 'stripe') return 'stripe';
-  if (provider === 'dodo') return 'dodo';
-  return 'revenuecat';
-}
+function ProviderCard({
+  row,
+  busy,
+  onConnect,
+  onSync,
+  onDisconnect,
+}: {
+  row: Integration;
+  busy: boolean;
+  onConnect: () => void;
+  onSync: () => void;
+  onDisconnect: () => void;
+}) {
+  const meta = META[row.provider];
+  const connected = row.status === 'connected';
+  const problem = row.status === 'invalid' || row.status === 'error';
 
-function labelFor(provider: Integration['provider']) {
-  if (provider === 'stripe') return 'Stripe';
-  if (provider === 'dodo') return 'Dodo Payments';
-  return 'RevenueCat';
-}
-
-function blurbFor(provider: Integration['provider']) {
-  if (provider === 'stripe') return 'Track revenue attribution from Stripe.';
-  if (provider === 'dodo') return 'Track revenue attribution from Dodo Payments.';
-  return 'Track subscription revenue from RevenueCat.';
-}
-
-function statusMeta(row: Integration) {
-  if (row.status === 'soon') return { text: 'Soon', className: 'status-pill', icon: 'clock' as const };
-  if (row.status === 'connected') return { text: 'Connected', className: 'status-pill received', icon: 'checkCircle' as const };
-  if (row.status === 'invalid') return { text: 'Invalid key', className: 'status-pill', icon: 'alert' as const };
-  if (row.status === 'error') return { text: 'Needs attention', className: 'status-pill', icon: 'alert' as const };
-  return { text: 'Not connected', className: 'status-pill', icon: 'link' as const };
+  return (
+    <article className={`set-int-tile${connected ? ' is-on' : ''}${problem ? ' is-warn' : ''}`}>
+      <span className="set-int-tile-mark"><BrandLogo slug={row.provider} /></span>
+      <h3>{meta.label}</h3>
+      <p>{meta.blurb}</p>
+      {connected ? (
+        <div className="set-int-tile-acts">
+          <span className="status-pill received"><Icon name="checkCircle" />Connected</span>
+          <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={onSync}>
+            <Icon name="rotate" />Sync
+          </button>
+          <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={onDisconnect}>
+            Disconnect
+          </button>
+        </div>
+      ) : (
+        <button type="button" className="btn btn-secondary btn-sm set-int-connect" disabled={busy} onClick={onConnect}>
+          Connect
+        </button>
+      )}
+      {row.lastError && problem ? <small className="set-int-err">{row.lastError}</small> : null}
+    </article>
+  );
 }
 
 export function ProjectIntegrations({ projectId }: { projectId: string }) {
   const [rows, setRows] = useState<Integration[] | null>(null);
-  const [apiKey, setApiKey] = useState('');
-  const [webhookSecret, setWebhookSecret] = useState('');
   const [busy, setBusy] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [focus, setFocus] = useState<'stripe' | null>('stripe');
+  const [modal, setModal] = useState<Provider | null>(null);
 
   const apply = (next: Integration[]) => setRows(next);
 
@@ -71,25 +194,19 @@ export function ProjectIntegrations({ projectId }: { projectId: string }) {
     void load().catch((error) => toast(error instanceof Error ? error.message : 'Could not load integrations', { kind: 'warn' }));
   }, [load]);
 
-  const stripe = rows?.find((r) => r.provider === 'stripe') || null;
-
-  const connect = async () => {
-    if (busy || !apiKey.trim()) return;
+  const connect = async (provider: Provider, apiKey: string) => {
+    if (busy) return;
     setBusy(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/integrations/stripe/connect`, {
+      const res = await fetch(`/api/projects/${projectId}/integrations/${provider}/connect`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          apiKey: apiKey.trim(),
-          webhookSecret: webhookSecret.trim() || undefined,
-        }),
+        body: JSON.stringify({ apiKey }),
       });
       const data = await res.json().catch(() => ({})) as { integrations?: Integration[]; synced?: number; error?: string };
       if (!res.ok || !data.integrations) throw new Error(data.error || 'Connect failed');
       apply(data.integrations);
-      setApiKey('');
-      setWebhookSecret('');
+      setModal(null);
       toast(typeof data.synced === 'number' ? `Connected · ${data.synced} payment${data.synced === 1 ? '' : 's'} synced` : 'Connected');
     } catch (error) {
       toast(error instanceof Error ? error.message : 'Connect failed', { kind: 'warn' });
@@ -99,11 +216,11 @@ export function ProjectIntegrations({ projectId }: { projectId: string }) {
     }
   };
 
-  const sync = async () => {
+  const sync = async (provider: Provider) => {
     if (busy) return;
     setBusy(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/integrations/stripe/sync`, { method: 'POST' });
+      const res = await fetch(`/api/projects/${projectId}/integrations/${provider}/sync`, { method: 'POST' });
       const data = await res.json().catch(() => ({})) as { integrations?: Integration[]; synced?: number; error?: string };
       if (!res.ok || !data.integrations) throw new Error(data.error || 'Sync failed');
       apply(data.integrations);
@@ -115,15 +232,15 @@ export function ProjectIntegrations({ projectId }: { projectId: string }) {
     }
   };
 
-  const disconnect = async () => {
+  const disconnect = async (provider: Provider) => {
     if (busy) return;
     setBusy(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/integrations/stripe/disconnect`, { method: 'POST' });
+      const res = await fetch(`/api/projects/${projectId}/integrations/${provider}/disconnect`, { method: 'POST' });
       const data = await res.json().catch(() => ({})) as { integrations?: Integration[]; error?: string };
       if (!res.ok || !data.integrations) throw new Error(data.error || 'Disconnect failed');
       apply(data.integrations);
-      toast('Stripe disconnected');
+      toast(`${META[provider].label} disconnected`);
     } catch (error) {
       toast(error instanceof Error ? error.message : 'Disconnect failed', { kind: 'warn' });
     } finally {
@@ -131,229 +248,64 @@ export function ProjectIntegrations({ projectId }: { projectId: string }) {
     }
   };
 
-  const saveWebhook = async () => {
-    if (busy || !webhookSecret.trim()) return;
-    setBusy(true);
-    try {
-      const res = await fetch(`/api/projects/${projectId}/integrations/stripe/webhook-secret`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ webhookSecret: webhookSecret.trim() }),
-      });
-      const data = await res.json().catch(() => ({})) as { integrations?: Integration[]; error?: string };
-      if (!res.ok || !data.integrations) throw new Error(data.error || 'Save failed');
-      apply(data.integrations);
-      setWebhookSecret('');
-      toast('Webhook secret saved');
-    } catch (error) {
-      toast(error instanceof Error ? error.message : 'Save failed', { kind: 'warn' });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (!rows || !stripe) {
+  if (!rows) {
     return (
       <div className="set-main solo">
-        <Row title="Integrations"><span className="omer-set-val">Loading…</span></Row>
+        <div className="set-int-tiles set-int-tiles-skel" aria-busy="true">
+          <div className="set-int-tile" /><div className="set-int-tile" /><div className="set-int-tile" />
+        </div>
       </div>
     );
   }
 
-  const pill = statusMeta(stripe);
-  const connected = stripe.status === 'connected';
-  const webhookUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}/v1/webhooks/stripe/${projectId}`
-    : `/v1/webhooks/stripe/${projectId}`;
-
   return (
     <>
-      <div className="set-main">
-        <Row title="Providers" wide>
-          <div className="set-int-grid">
-            {rows.map((row) => {
-              const meta = statusMeta(row);
-              const active = row.provider === 'stripe' && focus === 'stripe';
-              return (
-                <button
-                  key={row.provider}
-                  type="button"
-                  className={`set-int-card${active ? ' on' : ''}`}
-                  disabled={row.status === 'soon'}
-                  onClick={() => {
-                    if (row.provider === 'stripe') setFocus('stripe');
-                  }}
-                >
-                  <span className="set-int-mark"><BrandLogo slug={logoSlug(row.provider)} /></span>
-                  <span className="set-int-copy">
-                    <b>{labelFor(row.provider)}</b>
-                    <small>{blurbFor(row.provider)}</small>
-                  </span>
-                  <span className={meta.className}>{meta.text}</span>
-                </button>
-              );
-            })}
-          </div>
-        </Row>
-
-        {focus === 'stripe' ? (
-          <>
-            <Row title="Status">
-              <span className={pill.className}><Icon name={pill.icon} />{pill.text}</span>
-            </Row>
-
-            {!connected ? (
-              <>
-                <Row title="API key" wide>
-                  <input
-                    className="input"
-                    type="password"
-                    autoComplete="off"
-                    value={apiKey}
-                    placeholder="rk_live_… or sk_live_…"
-                    onChange={(e) => setApiKey(e.target.value)}
-                    disabled={busy}
-                  />
-                </Row>
-                <Row title="Connect">
-                  <span className="omer-set-acts">
-                    <button type="button" className="btn btn-secondary btn-sm" disabled={busy || !apiKey.trim()} onClick={() => void connect()}>
-                      <BrandLogo slug="stripe" />Connect
-                    </button>
-                  </span>
-                </Row>
-              </>
-            ) : (
-              <>
-                <Row title="Account">
-                  <span className="omer-set-val">{stripe.accountId || 'Connected'}</span>
-                </Row>
-                <Row title="Last sync">
-                  <span className="omer-set-val">
-                    {stripe.lastSyncAt ? new Date(stripe.lastSyncAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
-                  </span>
-                </Row>
-                <Row title="Actions">
-                  <span className="omer-set-acts">
-                    <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void sync()}>
-                      <Icon name="rotate" />Sync now
-                    </button>
-                    <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => void disconnect()}>
-                      Disconnect
-                    </button>
-                  </span>
-                </Row>
-              </>
-            )}
-
-            {stripe.lastError ? (
-              <Row title="Error" wide>
-                <span className="omer-set-note">{stripe.lastError}</span>
-              </Row>
-            ) : null}
-
-            <Row title="Realtime" wide>
-              <details className="set-send-fold" open={advancedOpen} onToggle={(e) => setAdvancedOpen((e.target as HTMLDetailsElement).open)}>
-                <summary>
-                  <Icon name="chevronRight" className="set-send-chevron" />
-                  <span>Webhook (optional)</span>
-                  <small>{stripe.hasWebhookSecret ? 'Secret saved' : 'For payments as they happen'}</small>
-                </summary>
-                <div className="set-int-adv">
-                  <p className="omer-set-note">In Stripe → Developers → Webhooks, add this endpoint and paste the signing secret.</p>
-                  <div className="su-code omer-set-snippet">
-                    <pre>{webhookUrl}</pre>
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => void navigator.clipboard.writeText(webhookUrl).then(() => toast('Copied')).catch(() => toast('Could not copy', { kind: 'warn' }))}
-                    >
-                      <Icon name="copy" />Copy
-                    </button>
-                  </div>
-                  <input
-                    className="input"
-                    type="password"
-                    autoComplete="off"
-                    value={webhookSecret}
-                    placeholder={stripe.hasWebhookSecret ? 'Saved — paste to replace' : 'whsec_…'}
-                    onChange={(e) => setWebhookSecret(e.target.value)}
-                    disabled={busy}
-                  />
-                  <span className="omer-set-acts">
-                    <button type="button" className="btn btn-ghost btn-sm" disabled={busy || !webhookSecret.trim() || !connected} onClick={() => void saveWebhook()}>
-                      Save secret
-                    </button>
-                  </span>
-                </div>
-              </details>
-            </Row>
-          </>
-        ) : null}
-      </div>
-
-      <aside className="set-side">
-        <div className="set-side-in">
-          <div className="set-side-k">Revenue</div>
-          <p className="set-send-lede">Connect Stripe and we match payments to visitors by email and sessions.</p>
-          <ul className="set-dns set-send-ticks">
-            <li className={connected ? undefined : 'warn'}>
-              <Icon name={connected ? 'check' : 'link'} />
-              <div><b>Stripe key</b><small>{connected ? 'Valid' : 'Paste a restricted key'}</small></div>
-            </li>
-            <li className={connected && stripe.lastSyncAt ? undefined : 'warn'}>
-              <Icon name={connected && stripe.lastSyncAt ? 'check' : 'rotate'} />
-              <div><b>Payments</b><small>{connected ? 'Syncing into analytics' : 'Connect to import'}</small></div>
-            </li>
-            <li className={connected ? undefined : 'warn'}>
-              <Icon name={connected ? 'check' : 'user'} />
-              <div><b>Visitor match</b><small>Email, then source from last visit</small></div>
-            </li>
-          </ul>
-          <p className="omer-set-note" style={{ marginTop: 14 }}>
-            Needs read access to Charges, PaymentIntents, Customers, and Invoices. No card numbers.
-          </p>
+      <div className="set-main solo">
+        <div className="set-int-tiles">
+          {rows.map((row) => (
+            <ProviderCard
+              key={row.provider}
+              row={row}
+              busy={busy}
+              onConnect={() => setModal(row.provider)}
+              onSync={() => void sync(row.provider)}
+              onDisconnect={() => void disconnect(row.provider)}
+            />
+          ))}
         </div>
-      </aside>
+      </div>
+      {modal ? (
+        <ConnectModal
+          provider={modal}
+          busy={busy}
+          onClose={() => { if (!busy) setModal(null); }}
+          onConnect={(apiKey) => void connect(modal, apiKey)}
+        />
+      ) : null}
     </>
   );
 }
 
 export function DemoIntegrations() {
+  const demo: Integration[] = [
+    { provider: 'stripe', status: 'connected', hasApiKey: true, hasWebhookSecret: false, accountId: 'acct_demo', lastSyncAt: new Date().toISOString(), lastError: null, available: true },
+    { provider: 'dodo', status: 'none', hasApiKey: false, hasWebhookSecret: false, accountId: null, lastSyncAt: null, lastError: null, available: true },
+    { provider: 'revenuecat', status: 'none', hasApiKey: false, hasWebhookSecret: false, accountId: null, lastSyncAt: null, lastError: null, available: true },
+  ];
   return (
-    <>
-      <div className="set-main">
-        <Row title="Providers" wide>
-          <div className="set-int-grid">
-            <div className="set-int-card on">
-              <span className="set-int-mark"><BrandLogo slug="stripe" /></span>
-              <span className="set-int-copy"><b>Stripe</b><small>Track revenue attribution from Stripe.</small></span>
-              <span className="status-pill received">Connected</span>
-            </div>
-            <div className="set-int-card" aria-disabled="true">
-              <span className="set-int-mark"><BrandLogo slug="dodo" /></span>
-              <span className="set-int-copy"><b>Dodo Payments</b><small>Track revenue attribution from Dodo Payments.</small></span>
-              <span className="status-pill">Soon</span>
-            </div>
-            <div className="set-int-card" aria-disabled="true">
-              <span className="set-int-mark"><BrandLogo slug="revenuecat" /></span>
-              <span className="set-int-copy"><b>RevenueCat</b><small>Track subscription revenue from RevenueCat.</small></span>
-              <span className="status-pill">Soon</span>
-            </div>
-          </div>
-        </Row>
+    <div className="set-main solo">
+      <div className="set-int-tiles">
+        {demo.map((row) => (
+          <ProviderCard
+            key={row.provider}
+            row={row}
+            busy={false}
+            onConnect={() => toast('Demo store — connect on a real project')}
+            onSync={() => {}}
+            onDisconnect={() => {}}
+          />
+        ))}
       </div>
-      <aside className="set-side">
-        <div className="set-side-in">
-          <div className="set-side-k">Revenue</div>
-          <p className="set-send-lede">Demo store · Stripe already connected.</p>
-          <ul className="set-dns set-send-ticks">
-            <li><Icon name="check" /><div><b>Stripe key</b><small>Valid</small></div></li>
-            <li><Icon name="check" /><div><b>Payments</b><small>Syncing into analytics</small></div></li>
-            <li><Icon name="check" /><div><b>Visitor match</b><small>Email + sessions</small></div></li>
-          </ul>
-        </div>
-      </aside>
-    </>
+    </div>
   );
 }

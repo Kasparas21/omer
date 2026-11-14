@@ -25,19 +25,24 @@ export const DOCK_MODES: { id: DockMode; label: string }[] = [
 ];
 
 const CURRENCY_OPTIONS = [
-  { value: 'auto', label: 'Auto' },
-  { value: 'usd', label: 'USD' },
-  { value: 'eur', label: 'EUR' },
-  { value: 'gbp', label: 'GBP' },
-  { value: 'cad', label: 'CAD' },
-  { value: 'aud', label: 'AUD' },
-  { value: 'sek', label: 'SEK' },
-  { value: 'nok', label: 'NOK' },
-  { value: 'dkk', label: 'DKK' },
-  { value: 'pln', label: 'PLN' },
-  { value: 'chf', label: 'CHF' },
-  { value: 'jpy', label: 'JPY' },
+  { value: 'auto', label: 'Auto', flag: null as string | null },
+  { value: 'usd', label: 'USD', flag: 'us' },
+  { value: 'eur', label: 'EUR', flag: 'eu' },
+  { value: 'gbp', label: 'GBP', flag: 'gb' },
+  { value: 'cad', label: 'CAD', flag: 'ca' },
+  { value: 'aud', label: 'AUD', flag: 'au' },
+  { value: 'sek', label: 'SEK', flag: 'se' },
+  { value: 'nok', label: 'NOK', flag: 'no' },
+  { value: 'dkk', label: 'DKK', flag: 'dk' },
+  { value: 'pln', label: 'PLN', flag: 'pl' },
+  { value: 'chf', label: 'CHF', flag: 'ch' },
+  { value: 'jpy', label: 'JPY', flag: 'jp' },
 ];
+
+function currencyFlag(code: string | null | undefined): string | null {
+  const hit = CURRENCY_OPTIONS.find((o) => o.value === (code || '').toLowerCase());
+  return hit?.flag ?? null;
+}
 
 type Usage = {
   pageviews: number;
@@ -210,25 +215,35 @@ export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab
                   </div>
                 </Row>
                 <Row title="Currency">
-                  <span className="cpe-select-wrap">
-                    <select
-                      className="select"
-                      aria-label="Display currency"
-                      value={currencyChoice}
-                      disabled={storeBusy || demo}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setCurrencyChoice(value);
-                        void patchStore({ displayCurrency: value === 'auto' ? null : value });
-                      }}
-                    >
-                      {CURRENCY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
-                    <Icon name="chevronDown" />
+                  <span className="set-currency">
+                    {(() => {
+                      const flag = currencyChoice === 'auto'
+                        ? currencyFlag(project.currency)
+                        : currencyFlag(currencyChoice);
+                      return flag
+                        ? <span className="flag" aria-hidden="true"><img src={`/assets/flags/${flag}.svg`} alt="" draggable={false} /></span>
+                        : null;
+                    })()}
+                    <span className="cpe-select-wrap">
+                      <select
+                        className="select"
+                        aria-label="Display currency"
+                        value={currencyChoice}
+                        disabled={storeBusy || demo}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setCurrencyChoice(value);
+                          void patchStore({ displayCurrency: value === 'auto' ? null : value });
+                        }}
+                      >
+                        {CURRENCY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                      <Icon name="chevronDown" />
+                    </span>
+                    {currencyChoice === 'auto' ? (
+                      <span className="set-currency-hint">{(project.currency || 'usd').toUpperCase()}</span>
+                    ) : null}
                   </span>
-                </Row>
-                <Row title="Showing as">
-                  <span className="omer-set-val">{(project.currency || 'usd').toUpperCase()}</span>
                 </Row>
                 <Row title="Tracking">
                   <span className={`status-pill ${project.firstEventAt ? 'received' : ''}`}><span className="lvp-dot" aria-hidden="true" />{project.firstEventAt ? 'Live' : 'Not installed'}</span>
