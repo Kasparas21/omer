@@ -378,10 +378,7 @@ body,table,td,a{-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%}
 table,td{mso-table-lspace:0pt;mso-table-rspace:0pt}
 img{-ms-interpolation-mode:bicubic;border:0;outline:none;text-decoration:none}
 a{text-decoration:none}
-@media (prefers-color-scheme: dark) {
-  .ml-shell { background-color: #1C1C1E !important; }
-  .ml-card { background-color: #2C2C2E !important; }
-}
+/* color-scheme meta above asks clients not to force-invert; keep light chrome stable. */
 </style>
 </head>
 <body style="margin:0;padding:0;background:${esc(bg)};-webkit-text-size-adjust:100%;">
