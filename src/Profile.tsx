@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createDotGlobe, preloadDotGlobe } from './globe/dotglobe.js';
 import { Icon } from './ui/Icon';
 import { Orb } from './ui/Orb';
+import { BrandLogo } from './ui/brandLogos';
 import { SourceMark, sourceKind, sourceLabel } from './ui/sources';
 import { ActivityHeatmap } from './ui/Activity';
 import { prefetchReplayPlayer, ReplayPlayer } from './ReplayPlayer';
@@ -99,10 +100,43 @@ type VisitorInsight = {
   error?: string | null;
 };
 
+type Enrichment = {
+  status: 'pending' | 'ready' | 'none' | 'failed';
+  email: string | null;
+  person: {
+    name: string | null;
+    title: string | null;
+    employer: string | null;
+    location: string | null;
+    headline: string | null;
+    summary: string | null;
+    linkedinUrl: string | null;
+    twitterUrl: string | null;
+    facebookUrl: string | null;
+    githubUrl: string | null;
+    likelihood: number | null;
+  } | null;
+  company: {
+    name: string | null;
+    domain: string | null;
+    industry: string | null;
+    size: string | null;
+    description: string | null;
+    linkedinUrl: string | null;
+    website: string | null;
+  } | null;
+  sources: { kind: string; label: string; url: string | null; logo: string }[];
+  provider: string | null;
+  generatedAt: string | null;
+  error: string | null;
+  enrichEnabled?: boolean;
+};
+
 type ProfileData = {
   seed: string;
   identity: { email: string; name: string | null } | null;
   visitorInsight?: VisitorInsight | null;
+  enrichment?: Enrichment | null;
   insightsEnabled?: boolean;
   place: { cc: string | null; city: string | null; place: string | null; lat: number | null; lng: number | null } | null;
   firstReferrer: string;
@@ -231,14 +265,19 @@ export function Profile({ projectId, seed, onLive, onName, currency = 'usd' }: {
     return () => { gone = true; instance?.destroy(); };
   }, [data?.place, seed]);
 
-  const title = data?.identity?.name || handle(seed);
+  const enrich = data?.enrichment;
+  const title = data?.identity?.name || enrich?.person?.name || handle(seed);
   useEffect(() => { if (data) onName?.(title); }, [data, onName, title]);
 
   if (replayId) {
     return <ReplayPlayer projectId={projectId} replayId={replayId} onBack={() => setReplayId(undefined)} />;
   }
   const email = data?.identity?.email;
-  const identity = !email ? 'Anonymous visitor' : data?.identity?.name ? 'Known visitor' : 'Email only';
+  const identity = !email
+    ? 'Anonymous visitor'
+    : (data?.identity?.name || enrich?.person?.name)
+      ? 'Known visitor'
+      : 'Email only';
   const country = data?.place?.cc ? (regions.of(data.place.cc.toUpperCase()) ?? data.place.cc.toUpperCase()) : null;
   const knownCity = data?.place?.city || data?.place?.place || '';
   const city = knownCity || country || 'Unknown';
@@ -248,11 +287,23 @@ export function Profile({ projectId, seed, onLive, onName, currency = 'usd' }: {
   const followUpOrders = data?.mail.sent ? data.mail.attributed : 0;
   const elig = !email
     ? { k: 'unverified', title: 'Email unavailable', detail: 'A recipient address is required to send a follow-up.' }
-    : !data?.identity?.name
+    : !(data?.identity?.name || enrich?.person?.name)
       ? { k: 'weak', title: 'Email known, name uncertain', detail: 'Only an email address is linked to this profile.' }
       : data.live
         ? { k: 'wait', title: 'Waiting for the session to end', detail: 'Follow-up is paused while they’re browsing.' }
         : { k: 'ok', title: data.mail.sent ? 'Has been emailed' : 'Eligible to email', detail: email };
+
+  const refreshEnrich = () => {
+    void fetch(`/api/projects/${projectId}/visitors/${encodeURIComponent(seed)}/enrich`, {
+      method: 'POST',
+      credentials: 'same-origin',
+    }).then(async (res) => {
+      const body = await res.json().catch(() => ({})) as { enrichment?: Enrichment };
+      if (body.enrichment) {
+        setData((prev) => prev ? { ...prev, enrichment: body.enrichment } : prev);
+      }
+    }).catch(() => undefined);
+  };
 
   return (
     <div className="profile people-page">
@@ -332,8 +383,75 @@ export function Profile({ projectId, seed, onLive, onName, currency = 'usd' }: {
             </div>
           </section>
 
-          <div className="profile-columns">
+            <div className="profile-columns">
             <div className="profile-left">
+              {email && enrich && enrich.enrichEnabled !== false && enrich.status !== 'none' ? (
+                <section className="profile-l v2-card profile-about-card" aria-label="About them">
+                  <header className="profile-summary-head profile-about-head">
+                    <h3>About them</h3>
+                    {enrich.status === 'ready' || enrich.status === 'failed' ? (
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={refreshEnrich}>Refresh</button>
+                    ) : null}
+                  </header>
+                  <div className="v2-in profile-about-in">
+                    {enrich.status === 'pending' ? (
+                      <p className="profile-about-pending" role="status">Looking up public context…</p>
+                    ) : enrich.status === 'failed' ? (
+                      <p className="profile-about-pending">{enrich.error || 'Could not load public context.'}</p>
+                    ) : enrich.status === 'ready' && enrich.person ? (
+                      <>
+                        <div className="profile-about-who">
+                          {enrich.person.title || enrich.person.employer ? (
+                            <b className="profile-about-role">
+                              {[enrich.person.title, enrich.person.employer].filter(Boolean).join(' · ')}
+                            </b>
+                          ) : null}
+                          {enrich.person.location ? (
+                            <span className="profile-about-loc"><Icon name="pin" />{enrich.person.location}</span>
+                          ) : null}
+                          {enrich.person.headline ? (
+                            <span className="profile-about-headline">{enrich.person.headline}</span>
+                          ) : null}
+                          {enrich.person.summary ? (
+                            <p className="profile-about-summary">{enrich.person.summary}</p>
+                          ) : enrich.company?.description ? (
+                            <p className="profile-about-summary">{enrich.company.description}</p>
+                          ) : null}
+                        </div>
+                        {(enrich.company?.industry || enrich.company?.size) ? (
+                          <div className="profile-insight-chips-row">
+                            {enrich.company.industry ? (
+                              <span className="profile-insight-chip">{enrich.company.industry}</span>
+                            ) : null}
+                            {enrich.company.size ? (
+                              <span className="profile-insight-chip">{enrich.company.size} people</span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        {enrich.sources.length > 0 ? (
+                          <ul className="profile-about-sources" aria-label="Sources">
+                            {enrich.sources.map((src) => (
+                              <li key={`${src.kind}-${src.url || src.label}`}>
+                                {src.url ? (
+                                  <a href={src.url} target="_blank" rel="noreferrer" className="profile-about-source">
+                                    <BrandLogo slug={src.logo} className="brand-logo profile-about-logo" />
+                                    <span>{src.label}</span>
+                                  </a>
+                                ) : (
+                                  <span className="profile-about-source is-muted">
+                                    <BrandLogo slug={src.logo} className="brand-logo profile-about-logo" />
+                                    <span>via {src.label}</span>
+                                  </span>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </div>
+                </section>
+              ) : null}
               <div className="profile-l v2-card profile-summary-card">
                 <header className="profile-summary-head"><h3>Activity</h3></header>
                 <div className="v2-in profile-activity-in">

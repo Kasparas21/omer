@@ -1,4 +1,6 @@
-/* Firecrawl client for Brand knowledge import — homepage + a few high-signal pages. */
+/* Firecrawl client: brand scrapes + Alexandria structured providers (people/company). */
+import { randomUUID } from 'node:crypto';
+
 const API = 'https://api.firecrawl.dev/v2';
 const MAX_FOLLOW = 3;
 const MAX_MD_PAGE = 24_000;
@@ -247,6 +249,85 @@ export async function scrapeMonitorPath(url: string): Promise<{ url: string; mar
 }
 
 /** Scrape the store origin for brand assets + grounded markdown. */
+export type AlexandriaCall = {
+  provider: string;
+  capability: string;
+  options: Record<string, unknown>;
+};
+
+export type AlexandriaResult = {
+  success: boolean;
+  provider: string;
+  capability: string;
+  creditsCost: number;
+  data: unknown;
+  error: string | null;
+};
+
+type AlexandriaScrapeResponse = {
+  success?: boolean;
+  data?: {
+    alexandria?: Array<{
+      success?: boolean;
+      provider?: string;
+      capability?: string;
+      creditsCost?: number;
+      data?: unknown;
+      error?: string | { message?: string };
+    }>;
+  };
+  alexandria?: Array<{
+    success?: boolean;
+    provider?: string;
+    capability?: string;
+    creditsCost?: number;
+    data?: unknown;
+    error?: string | { message?: string };
+  }>;
+  error?: string;
+};
+
+/** Run one Alexandria provider capability via Firecrawl scrape (no URL required). */
+export async function alexandriaCall(input: AlexandriaCall): Promise<AlexandriaResult> {
+  const requestId = randomUUID();
+  const res = await fetch(`${API}/scrape`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${key()}`,
+      'Content-Type': 'application/json',
+      'x-request-id': requestId,
+    },
+    body: JSON.stringify({ alexandria: input }),
+  });
+  const json = await res.json().catch(() => ({})) as AlexandriaScrapeResponse;
+  if (!res.ok) {
+    const msg = typeof json.error === 'string' ? json.error : JSON.stringify(json).slice(0, 280);
+    throw new Error(`Alexandria ${input.provider}/${input.capability} ${res.status}: ${msg}`);
+  }
+  const rows = json.data?.alexandria ?? json.alexandria ?? [];
+  const row = rows[0];
+  if (!row) {
+    return {
+      success: false,
+      provider: input.provider,
+      capability: input.capability,
+      creditsCost: 0,
+      data: null,
+      error: 'Empty Alexandria response.',
+    };
+  }
+  const err = row.error;
+  const errText = typeof err === 'string' ? err : err?.message || null;
+  return {
+    success: row.success !== false && !errText,
+    provider: row.provider || input.provider,
+    capability: row.capability || input.capability,
+    creditsCost: Number(row.creditsCost) || 0,
+    data: row.data ?? null,
+    error: errText,
+  };
+}
+
 export async function scrapeBrandSite(origin: string): Promise<BrandScrapeResult> {
   const home = await scrapeOne(origin, ['markdown', 'branding', 'links', 'images']);
   const follow = await discoverFollowUps(origin, home.links);

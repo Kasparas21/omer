@@ -27,6 +27,7 @@ import { draftOpportunityEmail, saveOpportunityDraft } from './email-draft';
 import { sendOpportunityEmail } from './email-send';
 import { kickPersonalFollowup } from './personal-followups';
 import { loadEmailContext } from './email-context';
+import { ensureVisitorEnrichment } from './visitor-enrich';
 import { mailProvidersAvailable } from './mail-transport';
 import { checkProjectSending, getProjectSending, upsertProjectSending } from './sending';
 import {
@@ -923,6 +924,10 @@ async function visitorProfile(request: Request, env: Env, projectId: string, vis
       .where(and(eq(visitorInsights.projectId, projectId), eq(visitorInsights.visitorId, visitorKey)))
       .limit(1);
 
+    const enrichment = identity?.email
+      ? await ensureVisitorEnrichment(db, projectId, visitorKey, { email: identity.email })
+      : await ensureVisitorEnrichment(db, projectId, visitorKey);
+
     const revenue = orderRows.reduce((sum, row) => sum + row.amountCents, 0) / 100;
     const opens = mail.filter((row) => row.type === 'email_open').length;
     const clicks = mail.filter((row) => row.type === 'email_click').length;
@@ -981,6 +986,7 @@ async function visitorProfile(request: Request, env: Env, projectId: string, vis
       seed: visitorKey,
       identity: identity ?? null,
       visitorInsight: visitorInsightRow ? publicVisitorInsight(visitorInsightRow) : null,
+      enrichment,
       insightsEnabled: openaiConfigured(),
       place: firstGeo ? {
         cc: firstGeo.cc, city: firstGeo.city, place: firstGeo.place, lat: firstGeo.lat, lng: firstGeo.lng,
@@ -1323,6 +1329,31 @@ async function summarizeReplay(request: Request, env: Env, projectId: string, re
         error: message,
       }) }, 502);
     }
+  });
+}
+
+async function refreshVisitorEnrichment(request: Request, env: Env, projectId: string, visitorKey: string) {
+  if (!uuid.test(projectId) || !visitorId.test(visitorKey)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Unauthorized' }, 401);
+  if (!firecrawlConfigured()) {
+    return json({ error: 'Firecrawl is not configured on this server.', enrichment: null }, 503);
+  }
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    const enrichment = await ensureVisitorEnrichment(db, projectId, visitorKey, { force: true });
+    return json({ enrichment });
+  });
+}
+
+async function getVisitorEnrichment(request: Request, env: Env, projectId: string, visitorKey: string) {
+  if (!uuid.test(projectId) || !visitorId.test(visitorKey)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Unauthorized' }, 401);
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    const enrichment = await ensureVisitorEnrichment(db, projectId, visitorKey);
+    return json({ enrichment });
   });
 }
 
@@ -2150,6 +2181,16 @@ export default {
       if (visitorInsightMatch) {
         if (request.method === 'POST') {
           return await summarizeVisitor(request, env, visitorInsightMatch[1], visitorInsightMatch[2]);
+        }
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const visitorEnrichMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/visitors\/([A-Za-z0-9_-]{8,80})\/enrich$/i);
+      if (visitorEnrichMatch) {
+        if (request.method === 'POST') {
+          return await refreshVisitorEnrichment(request, env, visitorEnrichMatch[1], visitorEnrichMatch[2]);
+        }
+        if (request.method === 'GET') {
+          return await getVisitorEnrichment(request, env, visitorEnrichMatch[1], visitorEnrichMatch[2]);
         }
         return json({ error: 'Method not allowed.' }, 405);
       }
