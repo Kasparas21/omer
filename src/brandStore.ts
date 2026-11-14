@@ -71,7 +71,7 @@ const DEMO: Brand = {
   ],
   fonts: [
     { id: 'f1', role: 'Headings', family: 'Georgia' },
-    { id: 'f2', role: 'Body', family: 'Inter' },
+    { id: 'f2', role: 'Body', family: 'Helvetica' },
   ],
   products: [
     { id: 'p1', name: 'Kitten Starter Pack', price: '$49.00', image: pic('starter', 'kitten-starter-pack.jpg'), image2: pic('pate', 'kitten-starter-pack-food.jpg') },

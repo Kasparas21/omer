@@ -39,7 +39,7 @@ export type MailDoc = {
   blocks: Record<string, BlockStyle>;
 };
 export type PageStyle = { bg: string; fill: string; text: string; accent: string; headFont: string; bodyFont: string; size: number; width: number; corners: number };
-export const PAGE_STYLE: PageStyle = { bg: '#F5F5F7', fill: '#FFFFFF', text: '#4D3E36', accent: STORE.color, headFont: 'Inter', bodyFont: 'Inter', size: 15, width: 520, corners: 12 };
+export const PAGE_STYLE: PageStyle = { bg: '#F6F6F6', fill: '#FFFFFF', text: '#111111', accent: STORE.color, headFont: 'Georgia', bodyFont: 'Helvetica', size: 16, width: 600, corners: 16 };
 
 type Draft = Omit<MailDoc, 'order' | 'blocks' | 'kind'> & { kind?: MailDoc['kind']; order?: string[] };
 function mail(d: Draft): MailDoc {

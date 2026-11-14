@@ -15,16 +15,17 @@ export function pageFromBrand(brand: StoredBrand): PageStyleLike {
     if (family) return 'Helvetica';
     return fallback;
   };
+  // Premium default pairing when the store has no fonts yet: Georgia head + Helvetica body (Emailify-style).
   return {
-    bg: secondary && /^#[0-9a-f]{6}$/i.test(secondary) ? secondary : '#F5F5F7',
+    bg: secondary && /^#[0-9a-f]{6}$/i.test(secondary) ? secondary : '#F6F6F6',
     fill: '#FFFFFF',
-    text: '#2B2D33',
-    accent: /^#[0-9a-f]{6}$/i.test(main) ? main : '#2B2D33',
-    headFont: fontOf('Headings', 'Inter'),
-    bodyFont: fontOf('Body', 'Inter'),
-    size: 15,
-    width: 520,
-    corners: 12,
+    text: '#111111',
+    accent: /^#[0-9a-f]{6}$/i.test(main) ? main : '#111111',
+    headFont: fontOf('Headings', 'Georgia'),
+    bodyFont: fontOf('Body', 'Helvetica'),
+    size: 16,
+    width: 600,
+    corners: 16,
   };
 }
 

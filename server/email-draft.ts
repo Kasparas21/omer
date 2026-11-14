@@ -11,10 +11,11 @@ import { projectOpportunities, projects } from './schema';
 const MODEL = 'gpt-6-luna';
 
 const RECIPES: Record<string, string[]> = {
-  personal_note: ['body.0', 'body.1', 'body.2', 'cta', 'body.3', 'sig', 'footer'],
-  product_nudge: ['headline', 'body.0', 'body.1', 'products', 'cta', 'sig', 'footer'],
-  compare: ['headline', 'body.0', 'body.1', 'products', 'cta', 'sig', 'footer'],
-  cart_rescue: ['headline', 'body.0', 'products', 'code', 'cta', 'perks', 'sig', 'footer'],
+  personal_note: ['body.0', 'body.1', 'body.2', 'products', 'cta', 'body.3', 'sig', 'footer'],
+  // Hero-led launch layout (Emailify / Behavly style): logo → hero → headline → copy → CTA.
+  product_nudge: ['hero', 'headline', 'body.0', 'body.1', 'products', 'cta', 'perks', 'sig', 'footer'],
+  compare: ['hero', 'headline', 'body.0', 'body.1', 'products', 'cta', 'sig', 'footer'],
+  cart_rescue: ['hero', 'headline', 'body.0', 'products', 'code', 'cta', 'perks', 'sig', 'footer'],
 };
 
 function pickRecipe(hooks: string[], summary: string | null): keyof typeof RECIPES {
@@ -108,7 +109,7 @@ function normalizeDoc(
     ctaUrl = origin;
   }
 
-  const heroSrc = brand.photos[0]?.src;
+  const heroSrc = products[0]?.img || brand.photos[0]?.src || brand.products[0]?.image?.src;
   const code = raw.code && typeof raw.code === 'object'
     ? { c: asString((raw.code as { c?: unknown }).c, 40), n: asString((raw.code as { n?: unknown }).n, 120) }
     : undefined;
