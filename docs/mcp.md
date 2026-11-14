@@ -3,6 +3,9 @@
 Omer runs a remote MCP server at `${APP_URL}/mcp` (Streamable HTTP, stateless JSON-RPC). Every tool wraps the
 same REST route the dashboard uses and runs as the signed-in owner, so an AI can do exactly what its owner can.
 
+For scripts, Codex, and Zapier without MCP, use the **REST API** with the same `omk_…` keys — see [api.md](./api.md),
+`GET /openapi.json`, and Settings → Integrations → **API**.
+
 | File | What it does |
 |------|--------------|
 | `server/mcp.ts` | `/mcp` endpoint, OAuth discovery + dynamic client registration + authorize + token, key management for Settings |
