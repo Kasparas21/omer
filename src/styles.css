@@ -102,7 +102,7 @@ body { background: var(--v2-page, var(--bg)); }
   overscroll-behavior: none;
   padding: 0;
 }
-/* Kit dock (.dock-host): fixed to the viewport here instead of the kit's browser frame. */
+/* App dock (.dock-host): fixed to the viewport here instead of the product's browser frame. */
 .app-dock.dock-host {
   position: fixed; z-index: 6; left: 0; right: 0; bottom: max(18px, env(safe-area-inset-bottom));
   display: flex; justify-content: center; pointer-events: none;

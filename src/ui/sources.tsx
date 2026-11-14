@@ -1,4 +1,4 @@
-/* Traffic sources: one label + mark everywhere (Dashboard, Live, People), as in the UI kit. */
+/* Traffic sources: one label + mark everywhere (Dashboard, Live, People), as in the product UI. */
 export type SourceKey =
   | 'direct'
   | 'google'

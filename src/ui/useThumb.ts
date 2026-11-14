@@ -1,4 +1,4 @@
-/* The kit's sliding highlight (kit.js placeDockThumb): one pill glides to whichever child is current.
+/* The kit's sliding highlight (dock thumb helper): one pill glides to whichever child is current.
    The thumb is rendered by React (pass `thumb` to a <span>); this hook only measures and moves it. */
 import { useLayoutEffect, useRef } from 'react';
 

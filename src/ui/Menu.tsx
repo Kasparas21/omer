@@ -1,4 +1,4 @@
-/* A button that opens a small menu (the kit's popover + menu). Closes on pick, outside click or Escape. */
+/* A button that opens a small menu (the product's popover + menu). Closes on pick, outside click or Escape. */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 export type MenuItem = { label: ReactNode; onPick: () => void; danger?: boolean } | 'sep';

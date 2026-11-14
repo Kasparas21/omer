@@ -42,7 +42,7 @@ const BLOCK: Record<string, { icon: IconName; name: string; hint: string }> = {
 const DEMO_PRODUCTS: Product[] = (Object.keys(PHOTOS) as (keyof typeof PHOTOS)[]).map((k) => ({ photo: k, name: k[0].toUpperCase() + k.slice(1), now: '' }));
 const KIT = [STORE.color, '#191B22', '#2F5FD0', '#1F7A5C', '#B23A6B', '#7A3FC8'];
 
-/** The way back lives in the app shelf crumb above the editor, as in the kit. */
+/** The way back lives in the app shelf crumb above the editor, as in the product UI. */
 export function MailEditor({ space, brand, published, onPublish }: {
   /** Where uploads go: the store's project id, or the demo store. */
   space: string;

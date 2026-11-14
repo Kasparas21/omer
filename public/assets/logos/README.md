@@ -1,6 +1,6 @@
 # Brand logos
 
-Every brand logo in the kit comes from [thesvg.org](https://thesvg.org) (MIT licensed) whenever the
+Every brand logo here comes from [thesvg.org](https://thesvg.org) (MIT licensed) whenever the
 brand is there. Download the `default` variant into this folder under the brand's slug:
 
 ```

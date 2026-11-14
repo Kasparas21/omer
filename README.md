@@ -79,4 +79,4 @@ For deployment verification set `APP_URL=https://app.tryomer.com` and `DEMO_ORIG
 
 ## Planning sources
 
-Sibling `followup-project-v0.2` handbook (revision 0.4), especially chapters 02–04, 08–10, 13, 17–19 and 26–27. UI reference: `unfairweekend-ui` kit / `brand/BRAND-DNA.md`.
+Sibling `followup-project-v0.2` handbook (revision 0.4), especially chapters 02–04, 08–10, 13, 17–19 and 26–27.

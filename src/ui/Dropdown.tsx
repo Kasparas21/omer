@@ -1,4 +1,4 @@
-/* The kit's own dropdown (public/ui/kit.js enhanceSelect) as a React listbox: no native select menu.
+/* The kit's own dropdown (shared icon set enhanceSelect) as a React listbox: no native select menu.
    The open list is drawn at the top of the app, next to its button, so no card or dialog can clip it. */
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';

@@ -1,4 +1,4 @@
-/* The kit's bottom dock (index.html #appDockHost + library.js dock hiding): a sliding highlight, and on
+/* The kit's bottom dock (app dock host): a sliding highlight, and on
    scroll the whole dock squeezes on a critically damped spring into a pill with the page's icon and name. */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Icon, type IconName } from './Icon';

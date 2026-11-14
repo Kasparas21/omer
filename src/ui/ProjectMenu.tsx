@@ -8,7 +8,7 @@ const DOTS = ['#C8471F', '#6360F0', '#0d9488', '#d97706', '#db2777', '#2563eb'];
 
 /** Each store keeps the same fallback colour wherever it shows. */
 export function storeColor(id: string, origin?: string) {
-  if (origin === DEMO_ORIGIN) return '#C8471F'; // the kit's Pawsome orange
+  if (origin === DEMO_ORIGIN) return '#C8471F'; // the product's Pawsome orange
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
   return DOTS[h % DOTS.length];

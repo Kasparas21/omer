@@ -345,8 +345,8 @@ export const TOOLS: Tool[] = [
     name: 'connect_integration',
     title: 'Connect a revenue provider',
     description: 'Connect Stripe, Dodo Payments or RevenueCat with an API key (stored encrypted, never shown again). Use a restricted/read-only key where the provider offers one.',
-    inputSchema: obj({ project_id: projectId, provider: PROVIDER, api_key: str('The provider API key.'), weomook_secret: str('Optional weomook signing secret.') }, ['project_id', 'provider', 'api_key']),
-    run: (a, call) => call('POST', `${base(a)}/integrations/${id(a, 'provider')}/connect`, { apiKey: text(a, 'api_key'), weomookSecret: optional(a, 'weomook_secret') }),
+    inputSchema: obj({ project_id: projectId, provider: PROVIDER, api_key: str('The provider API key.'), webhook_secret: str('Optional Stripe webhook signing secret.') }, ['project_id', 'provider', 'api_key']),
+    run: (a, call) => call('POST', `${base(a)}/integrations/${id(a, 'provider')}/connect`, { apiKey: text(a, 'api_key'), webhookSecret: optional(a, 'webhook_secret') }),
   }),
   write({
     name: 'sync_integration',
@@ -365,12 +365,12 @@ export const TOOLS: Tool[] = [
     run: (a, call) => call('POST', `${base(a)}/integrations/${id(a, 'provider')}/disconnect`),
   }),
   write({
-    name: 'set_stripe_weomook_secret',
-    title: 'Set the Stripe weomook secret',
-    description: 'Store the Stripe weomook signing secret so Stripe events are accepted at the store\'s Omer weomook URL (…/v1/weomooks/stripe/<project_id>).',
-    inputSchema: obj({ project_id: projectId, weomook_secret: str('Stripe signing secret (whsec_…).') }, ['project_id', 'weomook_secret']),
+    name: 'set_stripe_webhook_secret',
+    title: 'Set the Stripe webhook secret',
+    description: 'Store the Stripe webhook signing secret so Stripe events are accepted at the store\'s Omer webhook URL (…/v1/webhooks/stripe/<project_id>).',
+    inputSchema: obj({ project_id: projectId, webhook_secret: str('Stripe signing secret (whsec_…).') }, ['project_id', 'webhook_secret']),
     annotations: { idempotentHint: true },
-    run: (a, call) => call('PUT', `${base(a)}/integrations/stripe/weomook-secret`, { weomookSecret: text(a, 'weomook_secret') }),
+    run: (a, call) => call('PUT', `${base(a)}/integrations/stripe/webhook-secret`, { webhookSecret: text(a, 'webhook_secret') }),
   }),
 ];
 

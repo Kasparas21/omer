@@ -1,4 +1,4 @@
-/* Omer screens, styled to match the Unfair Weekend UI kit (V2 look).
+/* Omer screens, styled to match the Omer V2 dashboard look.
    Written for this app's own markup; tokens come from tokens.css and the shared shells from v2.css. */
 
 /* ---------- Page rhythm: the shelf is sticky (in flow), so pages only need the gap under it ---------- */
@@ -337,7 +337,7 @@
   .v2-card > header .v2-side { margin-left: 0; font-size: 12.5px; }
 }
 
-/* ---------- Live: the globe fills the window and the shelf floats over it, as in the kit ---------- */
+/* ---------- Live: the globe fills the window and the shelf floats over it, as in the product UI ---------- */
 .app.has-shelf.globe-mode .app-shelf { position: fixed; inset: 0 0 auto; }
 .app.globe-mode .app-body.globe-body { height: 100dvh; min-height: 0; overflow: hidden; }
 .app.globe-mode .globe-wrap.has-panel:not(.is-fs) { min-height: 0; height: 100%; }

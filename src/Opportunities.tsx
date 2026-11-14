@@ -1,5 +1,5 @@
 /* Opportunities: people worth a follow-up, a rail to pick one, why we think so, and the email we'd send.
-   Laid out like the UI kit. Demo store has full drafts; real projects draft via Luna into MailEditor and can send via SES. */
+   Laid out like the product UI. Demo store has full drafts; real projects draft via Luna into MailEditor and can send via SES. */
 import { useEffect, useState } from 'react';
 import { Icon } from './ui/Icon';
 import { Orb } from './ui/Orb';

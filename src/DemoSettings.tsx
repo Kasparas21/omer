@@ -1,4 +1,4 @@
-/* Settings for the demo store, as in the UI kit: the facts emails may use (shown in Brand knowledge's Store
+/* Settings for the demo store, as in the product UI: the facts emails may use (shown in Brand knowledge's Store
    facts folder); website changes with real choices; sending; privacy. Everything is clickable and stays changed while the
    app is open. Real projects see the plain Settings (what the product really does today). */
 import { useSyncExternalStore } from 'react';

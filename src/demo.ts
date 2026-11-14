@@ -1,5 +1,5 @@
 /* Example data for the demo project only (the "Pawsome" store at pawsome.shop).
-   Email and store data aren't connected yet, so this fills those cards the way the UI kit shows them.
+   Email and store data aren't connected yet, so this fills those cards the way the product UI shows them.
    Values are derived from the demo project's own traffic, so they move with its visitor curve.
    Real projects never use any of this. */
 

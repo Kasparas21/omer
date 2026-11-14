@@ -1,4 +1,4 @@
-/* People profile — ported from unfairweekend-ui kit */
+/* People profile — ported from Omer design system */
 
 .rp-page { width: var(--v2-rail); margin-inline: auto; padding-block: var(--page-start) 112px; display: grid; gap: 12px; }
 .rp-shell { overflow: hidden; }

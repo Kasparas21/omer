@@ -1,4 +1,4 @@
-/* unfairweekend UI — components
+/* Omer UI — components
    Depends on tokens.css. Class names are short and flat so they port cleanly
    to React/Tailwind components later. */
 
@@ -99,7 +99,7 @@ a:hover { text-decoration: underline; }
 .btn-group .btn:last-child { border-radius: 0 var(--r-btn) var(--r-btn) 0; }
 
 /* ============ Segmented control ============ */
-/* kit.js adds a .seg-thumb to every .seg: the selected pill slides from option to option.
+/* A .seg-thumb is added to every .seg: the selected pill slides from option to option.
    Without JS the selected button paints its own pill (same look, no slide). */
 .seg {
   position: relative; isolation: isolate;
@@ -162,7 +162,7 @@ a:hover { text-decoration: underline; }
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23858b98' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 6.5 3-3 3 3M5 9.5l3 3 3-3'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right 10px center;
 }
-/* Dropdown (kit.js turns every select.select into this; the native select stays hidden as the value) */
+/* Dropdown (select.select becomes this; the native select stays hidden as the value) */
 .dd { position: relative; display: inline-block; width: 100%; vertical-align: middle; }
 .dd-native { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; }
 .dd-btn { display: flex; align-items: center; gap: 8px; width: 100%; height: var(--ctl-h); padding: 0 10px 0 12px;
@@ -718,7 +718,7 @@ uf-loading-demo { display: grid; gap: 12px; width: 100%; max-width: 440px; }
 
 /* ============ Navigation hub variants (notch + cradle) ============ */
 /* Reversed "notch" navigation: it rises out of the bottom edge instead of hanging from the top.
-   kit.js (initNavHubs) slides the selection: .nh-thumb for the notch, --nx for the cradle. */
+   initNavHubs slides the selection: .nh-thumb for the notch, --nx for the cradle. */
 .navhub-grid { display: grid; gap: 20px; }
 .navhub { margin: 0; padding: 10px 10px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card); }
 .navhub figcaption { margin: 12px 4px 0; font-size: var(--fs-sm); color: var(--ink-2); }
