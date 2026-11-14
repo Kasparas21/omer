@@ -226,12 +226,10 @@ function buildSprutDraft(opts: {
     kind: 'personal',
     subject: 'Your Berry Bog can ship free',
     preview: `Add a Mini and the whole order ships free.`,
-    headline: 'Ship free with a Mini',
+    headline: 'Your Berry Bog | can ship free',
     body: [
       hi,
-      `Berry Bog Sugar-Free has ${sugarG} g of sugar and all ${ingredients} greens, and every batch is lab-tested by ${labName} for ${substances} substances.`,
-      'No subscription needed: one bag, delivered once.',
-      `Add a ${opts.offer.addOn.name} (${opts.offer.packs} packs, $${opts.offer.price.toFixed(2)}) and your whole order ships free.`,
+      `Berry Bog Sugar-Free has ${sugarG} g of sugar and all ${ingredients} greens, and every batch is lab-tested by ${labName} for ${substances} substances. No subscription needed: one bag, delivered once. Add a ${opts.offer.addOn.name} (${opts.offer.packs} packs, $${opts.offer.price.toFixed(2)}) and your whole order ships free.`,
     ],
     products: [{
       name: opts.offer.addOn.name,
@@ -240,7 +238,7 @@ function buildSprutDraft(opts: {
       img: pouch,
       url: opts.offer.cartUrl,
     }],
-    cta: 'Add it · complete my order',
+    cta: 'Complete my order',
     ctaUrl: opts.offer.cartUrl,
     perks: [
       `Free Standard shipping over $${opts.offer.threshold}`,

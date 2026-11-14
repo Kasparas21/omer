@@ -29,6 +29,47 @@ type RealOpp = {
   suppressed?: boolean;
 };
 
+function SprutPreviewFrame({
+  projectId,
+  opportunityId,
+  html,
+  onHtml,
+  refreshKey,
+}: {
+  projectId: string;
+  opportunityId: string;
+  html: string | null;
+  onHtml: (html: string | null) => void;
+  refreshKey: number;
+}) {
+  useEffect(() => {
+    let gone = false;
+    onHtml(null);
+    void fetch(`/api/projects/${projectId}/opportunities/${opportunityId}/preview`)
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({})) as { html?: string; error?: string };
+        if (gone) return;
+        if (!res.ok || !data.html) throw new Error(data.error || 'Preview failed');
+        onHtml(data.html);
+      })
+      .catch((error) => {
+        if (!gone) toast(error instanceof Error ? error.message : 'Preview failed', { kind: 'warn' });
+      });
+    return () => { gone = true; };
+  }, [projectId, opportunityId, onHtml, refreshKey]);
+
+  if (!html) {
+    return <p className="omer-empty-note" role="status">Loading Sprüt preview…</p>;
+  }
+  return (
+    <iframe
+      className="op-sprut-frame"
+      title="Sprüt email preview"
+      srcDoc={html}
+    />
+  );
+}
+
 type Tab = 'review' | 'hold' | 'approved' | 'replies';
 const REJECT = ['Wrong moment', 'Wrong offer', 'Doesn’t sound like us', 'Already talking to them', 'No reason'];
 const RL_LABEL: Record<ReplyState, string> = { open: 'Waiting for your answer', fyi: 'No answer needed', answered: 'You answered', done: 'Done', resumed: 'Still following up', ooo: 'Out of office', optout: 'Unsubscribed' };
@@ -82,6 +123,9 @@ export function Opportunities({ demo, projectId, storeName = '', host, editing, 
   const [realBusy, setRealBusy] = useState(false);
   const [sendOn, setSendOn] = useState(false);
   const [editOppId, setEditOppId] = useState<string | null>(null);
+  const [sprutHtml, setSprutHtml] = useState<string | null>(null);
+  const [sprutPreviewKey, setSprutPreviewKey] = useState(0);
+  const isSprut = /sprut-demo-store\.vercel\.app/i.test(host || '');
 
   useEffect(() => {
     if (demo || !projectId) return;
@@ -169,6 +213,8 @@ export function Opportunities({ demo, projectId, storeName = '', host, editing, 
           page,
         } : o)));
         setEditOppId(id);
+        setSprutHtml(null);
+        setSprutPreviewKey((n) => n + 1);
         onEdit(true);
         toast('Draft ready');
       } catch (error) {
@@ -207,6 +253,24 @@ export function Opportunities({ demo, projectId, storeName = '', host, editing, 
     };
 
     if (editing && editingOpp?.draft && projectId) {
+      if (isSprut) {
+        return (
+          <div className="op-real-editor op-sprut-preview">
+            <div className="op-real-editor-bar">
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => leave(() => { setEditOppId(null); setSprutHtml(null); onEdit(false); })}>
+                <Icon name="chevronLeft" />Opportunities
+              </button>
+              <span>{editingOpp.draft.subject || editingOpp.name || 'Sprüt email'}</span>
+              <button type="button" className="btn btn-ghost btn-sm" disabled={realBusy} onClick={() => void draft(editingOpp.id)}>Refresh copy</button>
+              <button type="button" className="btn btn-primary btn-sm" disabled={realBusy || !sendOn} title={sendOn ? 'Send email' : 'Email sending is not configured yet'} onClick={() => void send(editingOpp.id)}>
+                {sendOn ? 'Approve & send' : 'Send (off)'}
+              </button>
+            </div>
+            <p className="op-sprut-note">Exact Sprüt template (same HTML that Gmail gets). Logo sits on green so it stays visible.</p>
+            <SprutPreviewFrame projectId={projectId} opportunityId={editingOpp.id} html={sprutHtml} onHtml={setSprutHtml} refreshKey={sprutPreviewKey} />
+          </div>
+        );
+      }
       return (
         <div className="op-real-editor">
           <div className="op-real-editor-bar">

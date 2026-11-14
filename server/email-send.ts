@@ -12,6 +12,12 @@ import { loadSending, mailProvidersAvailable, sendViaTransport } from './mail-tr
 import { and as both, gte, or } from 'drizzle-orm';
 import { projectCampaigns, projectEmailMessages, projectOpportunities, projects, purchases } from './schema';
 import { isDemoSendAllowed, isSprutDemoOrigin } from './sprut-demo';
+import {
+  renderSprutFollowupHtml,
+  renderSprutFollowupText,
+  resolveSprutAssets,
+  slotsFromMailDoc,
+} from './sprut-email-template';
 
 export async function sendOpportunityEmail(
   db: NodePgDatabase,
@@ -99,13 +105,25 @@ export async function sendOpportunityEmail(
   }).returning();
 
   const urls = trackingUrls(projectId, queued.id, opp.visitorId, appURL);
-  const html = mailDocToHtml(doc, page, brand, {
-    openPixel: urls.openPixel,
-    unsubscribeUrl: urls.unsubscribe,
-    wrapClick: urls.click,
-    name: opp.name,
-  });
-  const text = mailDocToText(doc, brand, { name: opp.name, unsubscribeUrl: urls.unsubscribe });
+  const first = (opp.name ?? '').trim().split(/\s+/)[0] || null;
+  const sprut = isSprutDemoOrigin(project.origin);
+  const sprutSlots = sprut ? slotsFromMailDoc(doc, first) : null;
+  if (sprutSlots) sprutSlots.ctaUrl = urls.click(sprutSlots.ctaUrl || 'https://sprut-demo-store.vercel.app/#checkout');
+  const html = sprut && sprutSlots
+    ? renderSprutFollowupHtml(
+      sprutSlots,
+      resolveSprutAssets(brandFull),
+      { openPixel: urls.openPixel, unsubscribeUrl: urls.unsubscribe },
+    )
+    : mailDocToHtml(doc, page, brand, {
+      openPixel: urls.openPixel,
+      unsubscribeUrl: urls.unsubscribe,
+      wrapClick: urls.click,
+      name: opp.name,
+    });
+  const text = sprut && sprutSlots
+    ? renderSprutFollowupText(slotsFromMailDoc(doc, first), { unsubscribeUrl: urls.unsubscribe })
+    : mailDocToText(doc, brand, { name: opp.name, unsubscribeUrl: urls.unsubscribe });
 
   try {
     const { messageId, from } = await sendViaTransport({
