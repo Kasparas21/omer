@@ -30,6 +30,8 @@ export type StoredBrand = {
   facts?: { id: string; group: string; name: string; value: string; review?: boolean }[];
   changes?: { id: string; path: string; summary: string; at: string; seen?: boolean }[];
   importedAt?: string | null;
+  /** Cached dashboard Brand read (word + summary). */
+  read?: { word: string; summary: string; detail: string; generatedAt: string; importedAt: string | null };
 };
 
 const id = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;

@@ -8,6 +8,7 @@ import { Orb } from './ui/Orb';
 import { CAMPAIGN_COLORS, DEMO_CAMPAIGNS, DEMO_NEEDS, DEMO_PRODUCTS, DEMO_SCHEDULE, RETURNING, demoSeries, isDemo, type NeedRow } from './demo';
 import { useDemo } from './demoState';
 import { moneyFormatter } from './money';
+import { useBrand } from './brandStore';
 
 /** Where a Dashboard row takes you, as in the product UI. */
 export type Go =
@@ -151,7 +152,7 @@ type MailPulse = {
 /** Demo fills email/sales from the visitor curve; real projects use collected purchase/email events. */
 function withDemo<T extends {
   series: Series; back: Series; totals: Totals; prev: Totals; liveAt?: number;
-  returning?: number[]; opens?: number[];
+  returning?: number[]; returningPrev?: number; opens?: number[]; sents?: number[]; sentsPrev?: number;
 }>(demo: boolean, d: T, real?: {
   ordersTotal: number;
   campaigns: { name: string; revenue: number; count: number }[];
@@ -177,26 +178,26 @@ function withDemo<T extends {
       totals: { ...d.totals, clicked: sum(series.clicked), sales: sum(series.sales) },
       prev: { ...d.prev, clicked: before(was.clicked), sales: before(was.sales) },
       mail,
+      returningPrev: before(was.sales) * 0.36,
     };
   }
-  const hasCommerce = d.totals.sales > 0 || d.totals.clicked > 0 || (real?.ordersTotal ?? 0) > 0;
-  if (!hasCommerce) return { ...d, mail: null as MailPulse | null };
+  const n = d.series.people.length;
   const campaignRevenue = sum((real?.campaigns ?? []).map((c) => c.revenue)) || d.totals.sales || 1;
   const mail: MailPulse = {
-    sent: d.opens ?? zeros(d.series.people.length),
-    sentPrev: 0,
+    sent: d.sents ?? zeros(n),
+    sentPrev: d.sentsPrev ?? 0,
     customers: real?.ordersTotal ?? 0,
-    returning: d.returning,
+    returning: d.returning ?? zeros(n),
     campaigns: (real?.campaigns ?? []).map((c) => ({
       name: c.name,
-      share: c.revenue / campaignRevenue,
+      share: campaignRevenue ? c.revenue / campaignRevenue : 0,
       revenue: c.revenue,
     })),
     products: real?.products ?? [],
     sourceRevenue: new Map((real?.sourceRevenue ?? []).map((row) => [row.name, row.revenue])),
     pageRevenue: new Map((real?.pageRevenue ?? []).map((row) => [row.path, row.revenue])),
   };
-  return { ...d, mail };
+  return { ...d, mail, returningPrev: d.returningPrev ?? 0 };
 }
 
 /** Half ring split by campaign share; each arc draws in after the one before. */
@@ -338,7 +339,8 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
     returning: byDay(project.returningSales, 'count'),
     clicked: byDay(project.clicked, 'count'),
     opens: byDay(project.emailOpens, 'count'),
-  }), [project.pageViews, project.visitors, project.dwell, project.sales, project.orders, project.returningSales, project.clicked, project.emailOpens]);
+    sents: byDay(project.emailSents, 'count'),
+  }), [project.pageViews, project.visitors, project.dwell, project.sales, project.orders, project.returningSales, project.clicked, project.emailOpens, project.emailSents]);
 
   const today = new Date(end).toISOString().slice(0, 10);
   const yesterday = new Date(end - dayMs).toISOString().slice(0, 10);
@@ -346,18 +348,129 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
 
   // One shape for both modes: n points now, n points before, labels, totals and the comparison.
   const demo = isDemo(project);
+  const brand = useBrand(demo ? 'demo' : project.id);
   const [need, setNeed] = useState(DEMO_NEEDS[0].id);
+  const [brandReadBusy, setBrandReadBusy] = useState(false);
+  const [liveRead, setLiveRead] = useState<{ word: string; summary: string; detail: string } | null>(null);
+  const [opps, setOpps] = useState<{
+    id: string; visitorId: string; status: string; reason: string | null;
+    email: string | null; name: string | null; updatedAt: string;
+  }[] | null>(null);
   const demoState = useDemo();
   const who = (p: { name: string | null; email: string | null }) => p.name || p.email || 'Unknown visitor';
-  const needs: { id: string; label: string; go: string; rows: NeedRow[] }[] = [
+  const relativeWhen = (iso: string) => {
+    const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
+    if (m < 60) return `${Math.max(1, m)}m`;
+    if (m < 1440) return `${Math.round(m / 60)}h`;
+    return `${Math.round(m / 1440)}d`;
+  };
+
+  useEffect(() => {
+    if (demo) return;
+    let cancelled = false;
+    void fetch(`/api/projects/${project.id}/opportunities`, { cache: 'no-store' })
+      .then(async (res) => {
+        const body = await res.json().catch(() => ({})) as { opportunities?: typeof opps };
+        if (!cancelled && res.ok && Array.isArray(body.opportunities)) setOpps(body.opportunities);
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [demo, project.id]);
+
+  useEffect(() => {
+    if (demo) return;
+    const hasContent = Boolean(brand.importedAt)
+      || (brand.docs?.voice || '').trim().length > 40
+      || (brand.docs?.product || '').trim().length > 40;
+    if (!hasContent) { setLiveRead(null); return; }
+    const cached = brand.read;
+    const fresh = cached?.generatedAt
+      && Date.now() - Date.parse(cached.generatedAt) < 7 * 86_400_000
+      && (cached.importedAt || null) === (brand.importedAt || null);
+    if (fresh && cached) {
+      setLiveRead({ word: cached.word, summary: cached.summary, detail: cached.detail });
+      return;
+    }
+    let cancelled = false;
+    setBrandReadBusy(true);
+    void fetch(`/api/projects/${project.id}/brand/read`, { method: 'POST', credentials: 'same-origin' })
+      .then(async (res) => {
+        const body = await res.json().catch(() => ({})) as {
+          status?: string;
+          read?: { word: string; summary: string; detail: string };
+        };
+        if (cancelled) return;
+        if (body.read) setLiveRead(body.read);
+        else if (body.status === 'none') setLiveRead(null);
+      })
+      .catch(() => undefined)
+      .finally(() => { if (!cancelled) setBrandReadBusy(false); });
+    return () => { cancelled = true; };
+  }, [demo, project.id, brand.importedAt, brand.docs?.voice, brand.docs?.product, brand.read?.generatedAt, brand.read?.importedAt]);
+
+  const demoNeeds: { id: string; label: string; go: string; rows: NeedRow[] }[] = [
     { id: 'review', label: 'To approve', go: 'Opportunities', rows: demoState.people.filter((p) => !p.skipped && p.status === 'review').map((p) => ({ seed: p.id, who: who(p), what: p.offer, when: p.time })) },
     { id: 'hold', label: 'On hold', go: 'Opportunities', rows: demoState.people.filter((p) => !p.skipped && p.status === 'hold').map((p) => ({ seed: p.id, who: who(p), what: p.offer, when: p.time })) },
     { id: 'replies', label: 'Replies', go: 'Replies', rows: demoState.replies.filter((r) => r.state === 'open').map((r) => ({ seed: r.id, who: who(r), what: `“${r.text[0]}”`, when: r.time, icon: 'reply' as const })) },
     ...DEMO_NEEDS.filter((t) => t.id === 'facts' || t.id === 'changes').map((t) => ({ ...t, go: t.id === 'facts' ? 'Company' : 'Website changes' })),
   ];
+  const liveNeeds: { id: string; label: string; go: string; rows: NeedRow[] }[] = [
+    {
+      id: 'review',
+      label: 'To approve',
+      go: 'Opportunities',
+      rows: (opps || [])
+        .filter((o) => o.status === 'review' || o.status === 'ready_for_draft' || o.status === 'drafted')
+        .map((o) => ({
+          seed: o.visitorId,
+          who: who({ name: o.name, email: o.email }),
+          what: o.reason || 'Follow-up ready',
+          when: relativeWhen(o.updatedAt),
+        })),
+    },
+    {
+      id: 'hold',
+      label: 'On hold',
+      go: 'Opportunities',
+      rows: (opps || [])
+        .filter((o) => o.status === 'hold')
+        .map((o) => ({
+          seed: o.visitorId,
+          who: who({ name: o.name, email: o.email }),
+          what: o.reason || 'On hold',
+          when: relativeWhen(o.updatedAt),
+        })),
+    },
+    {
+      id: 'facts',
+      label: 'Facts',
+      go: 'Brand knowledge',
+      rows: (brand.facts || [])
+        .filter((f) => f.review)
+        .map((f) => ({ who: f.name, what: f.value, icon: 'alert' as const })),
+    },
+    {
+      id: 'changes',
+      label: 'Site changes',
+      go: 'Website changes',
+      rows: (brand.changes || [])
+        .filter((c) => !c.seen)
+        .map((c) => ({ who: c.path, what: c.summary, when: relativeWhen(c.at), icon: 'alert' as const })),
+    },
+  ];
+  const needs = demo ? demoNeeds : liveNeeds;
   const needGo = (id: string, seed?: string): Go => (id === 'facts' ? { to: 'settings', tab: 'brand' }
     : id === 'changes' ? { to: 'settings', tab: 'changes' }
     : { to: 'inbox', tab: id === 'replies' ? 'replies' : id === 'hold' ? 'hold' : 'review', id: seed });
+  const scheduled = demo
+    ? DEMO_SCHEDULE.map((row) => ({ seed: row.seed, name: row.name, when: row.when }))
+    : (opps || [])
+      .filter((o) => o.status === 'scheduled')
+      .map((o) => ({
+        seed: o.visitorId,
+        name: who({ name: o.name, email: o.email }),
+        when: relativeWhen(o.updatedAt),
+      }));
   const data = useMemo(() => withDemo(demo, (() => {
     if (range === 1) {
       const hourly = { views: Array(24).fill(0), people: Array(24).fill(0) };
@@ -418,7 +531,10 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
         tip: (i: number) => (i === nowHour ? `Today, ${hourLabel(i)} so far` : `Today, ${hourLabel(i)}`),
         at: hourLabel, earlier: 'Yesterday', last: hourLabel(nowHour),
         returning: spread(maps.returning.get(today) ?? 0, 24, nowHour),
+        returningPrev: Math.round((maps.returning.get(yesterday) ?? 0) * ((nowHour + 1) / 24)),
         opens: spread(maps.opens.get(today) ?? 0, 24, nowHour),
+        sents: spread(maps.sents.get(today) ?? 0, 24, nowHour),
+        sentsPrev: Math.round((maps.sents.get(yesterday) ?? 0) * ((nowHour + 1) / 24)),
       };
     }
     const now = {
@@ -429,6 +545,7 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
       clicked: days(range, end, maps.clicked),
       returning: days(range, end, maps.returning),
       opens: days(range, end, maps.opens),
+      sents: days(range, end, maps.sents),
     };
     const before = {
       views: days(range, end - range * dayMs, maps.views),
@@ -436,6 +553,8 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
       dwell: days(range, end - range * dayMs, maps.dwell),
       sales: days(range, end - range * dayMs, maps.sales),
       clicked: days(range, end - range * dayMs, maps.clicked),
+      returning: days(range, end - range * dayMs, maps.returning),
+      sents: days(range, end - range * dayMs, maps.sents),
     };
     const values = (rows: { value: number }[]) => rows.map((row) => row.value);
     const dates = now.people.map((row) => row.date);
@@ -474,7 +593,10 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
       at: (i: number) => dayLabel.format(dates[i]),
       earlier: `${range} days earlier`, last: 'Today',
       returning: values(now.returning),
+      returningPrev: sum(values(before.returning)),
       opens: values(now.opens),
+      sents: values(now.sents),
+      sentsPrev: sum(values(before.sents)),
     };
   })(), {
     ordersTotal: sum((project.orders ?? []).map((row) => row.count)),
@@ -646,17 +768,32 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
     <div className="v2-rest">
       <div className="v2-row v2-two">
         <Card icon="ghost" title="Brand read" extra={<Link label="Brand knowledge" onClick={() => onGo({ to: 'settings', tab: 'brand' })} />}>
-          {demo && data.mail ? (
+          {demo ? (
             <div className="v2-brand-read">
               <b className="v2-brand-word">Credible</b>
               <p>Emails match {project.name}’s Brand DNA.</p>
-              <p className="v2-brand-ind">Conversion vs pet-store average · <em>Decent</em></p>
+              <p className="v2-brand-ind">Voice guide · product info · demo store</p>
+            </div>
+          ) : liveRead ? (
+            <div className="v2-brand-read">
+              <b className="v2-brand-word">{liveRead.word}</b>
+              <p>{liveRead.summary}</p>
+              <p className="v2-brand-ind">{liveRead.detail}</p>
+            </div>
+          ) : brandReadBusy ? (
+            <div className="v2-brand-read">
+              <b className="v2-brand-word">Reading…</b>
+              <p>Checking {project.name}’s brand knowledge.</p>
             </div>
           ) : (
             <div className="v2-brand-read">
-              <b className="v2-brand-word">Not read yet</b>
-              <p>Import {project.name}’s Brand DNA to see how emails match it.</p>
-              <p className="v2-brand-ind">Conversion vs store average · <em>Waiting for sales</em></p>
+              <b className="v2-brand-word">Not imported</b>
+              <p>Import {project.name}’s brand from the website to ground follow-up emails.</p>
+              <p className="v2-brand-ind">
+                <button type="button" className="v2-brand-cta" onClick={() => onGo({ to: 'settings', tab: 'brand' })}>
+                  Open Brand knowledge
+                </button>
+              </p>
             </div>
           )}
         </Card>
@@ -670,17 +807,23 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
       <div className="v2-row v2-two">
         <Card icon="clock" title="Schedule" extra={<Link label="Opportunities" onClick={() => onGo({ to: 'inbox', tab: 'review' })} />}>
           <div className="v2-sched">
-            {demo && data.mail ? <b className="v2-val">{DEMO_SCHEDULE.length} <span>sends lined up</span></b> : null}
-            {demo && data.mail ? (
-              <ul>{DEMO_SCHEDULE.map((row) => (
-                <li key={row.seed}><button type="button" onClick={() => onGo({ to: 'inbox', tab: 'review', id: row.seed })}><Orb seed={row.seed} size={22} /><span><b>{row.name}</b><small>{row.when}</small></span></button></li>
+            {scheduled.length ? <b className="v2-val">{scheduled.length} <span>sends lined up</span></b> : null}
+            {scheduled.length ? (
+              <ul>{scheduled.slice(0, 5).map((row) => (
+                <li key={row.seed}><button type="button" onClick={() => onGo({ to: 'inbox', tab: 'approved', id: row.seed })}><Orb seed={row.seed} size={22} /><span><b>{row.name}</b><small>{row.when}</small></span></button></li>
               ))}</ul>
-            ) : <CardEmpty icon="clock" title="Nothing scheduled" text="Follow-ups you approve get a send time and wait here." />}
+            ) : <CardEmpty icon="clock" title="Nothing scheduled" text="Campaign follow-ups that send on their own wait here." />}
           </div>
         </Card>
         <Card icon="send" title="Emails">
           <div className="v2-head"><b className="v2-val">{countFmt.format(data.mail ? sum(data.mail.sent) : 0)}</b>{data.mail && <Chip now={sum(data.mail.sent)} prev={data.mail.sentPrev} />}</div>
-          <p className="v2-m-s v2-card-sub">{data.mail && sum(data.mail.sent) ? Math.round((data.totals.clicked / Math.max(1, sum(data.mail.sent))) * 100) : 0}% clicked · {countFmt.format(data.totals.clicked)} people</p>
+          <p className="v2-m-s v2-card-sub">
+            {data.mail && sum(data.mail.sent)
+              ? `${Math.round((data.totals.clicked / Math.max(1, sum(data.mail.sent))) * 100)}% clicked · ${countFmt.format(data.totals.clicked)} people`
+              : data.totals.clicked
+                ? `${countFmt.format(data.totals.clicked)} clicks tracked`
+                : 'No emails sent yet'}
+          </p>
           <Area values={data.mail ? (day ? data.mail.sent.slice(0, nowHour + 1) : data.mail.sent) : zeros(n)} color="#4F4BE0" />
         </Card>
       </div>
@@ -688,9 +831,9 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
       <div className="v2-row v2-two">
         <Card icon="megaphone" title="Sales by campaign" className="v2-gauge-card">
           {(() => {
-            const camps = demo && data.mail
+            const camps = demo
               ? DEMO_CAMPAIGNS.map((c, i) => ({ name: c.name, share: c.share, revenue: Math.round(data.totals.sales * c.share), color: CAMPAIGN_COLORS[i] }))
-              : (data.mail?.campaigns ?? []).map((c, i) => ({ ...c, color: CAMPAIGN_COLORS[i % CAMPAIGN_COLORS.length] }));
+              : (data.mail?.campaigns ?? []).filter((c) => c.revenue > 0).map((c, i) => ({ ...c, color: CAMPAIGN_COLORS[i % CAMPAIGN_COLORS.length] }));
             const parts = camps.length ? camps : [];
             return <>
               <div className="v2-gauge-wrap">
@@ -707,7 +850,7 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
         </Card>
         <Card icon="star" title="Top products">
           {(() => {
-            const products = demo && data.mail
+            const products = demo
               ? DEMO_PRODUCTS.map((item) => {
                 const amount = Math.round(data.totals.sales * item.share);
                 return { name: item.name, revenue: amount, count: Math.max(1, Math.round(amount / item.price)), tint: item.tint };
@@ -736,23 +879,23 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
           const sales = day ? data.series.sales.slice(0, nowHour + 1) : data.series.sales;
           const returningSeries = data.mail?.returning ?? (demo ? sales.map((v, i) => v * RETURNING(i)) : sales.map(() => 0));
           const back = sum(day ? returningSeries.slice(0, nowHour + 1) : returningSeries);
-          const backWas = data.prev.sales * (demo ? 0.36 : 0.3);
+          const backWas = demo ? data.prev.sales * 0.36 : (data.returningPrev ?? 0);
           const delta = backWas ? Math.round(((back - backWas) / backWas) * 100) : 0;
           const tallest = Math.max(...sales, 1);
           return (
-            <Card icon="chart" title="Sales mix" className="v2-wide" extra={!(data.mail && data.totals.sales > 0) ? undefined :
+            <Card icon="chart" title="Sales mix" className="v2-wide" extra={!(data.totals.sales > 0) ? undefined :
               <span className="v2-side">Bought before <b>{money.format(Math.round(back))}</b>
-                {data.mail && data.totals.sales > 0 && <b className={`v2-up-s ${delta >= 0 ? 'up' : 'down'}`}><svg viewBox="0 0 10 8" aria-hidden="true"><path d={delta >= 0 ? 'M5 0 10 8H0z' : 'M5 8 0 0h10z'} /></svg>{delta > 0 ? '+' : ''}{delta}%</b>}
+                {backWas > 0 && <b className={`v2-up-s ${delta >= 0 ? 'up' : 'down'}`}><svg viewBox="0 0 10 8" aria-hidden="true"><path d={delta >= 0 ? 'M5 0 10 8H0z' : 'M5 8 0 0h10z'} /></svg>{delta > 0 ? '+' : ''}{delta}%</b>}
               </span>}>
-              {data.mail && data.totals.sales > 0 ? <>
+              {data.totals.sales > 0 ? <>
               <div className="v2-head"><b className="v2-val v2-big">{money.format(data.totals.sales)}</b><Chip now={data.totals.sales} prev={data.prev.sales} /></div>
               <div className="v2-bars-wrap">
                 <div className="v2-key" aria-hidden="true"><span><i style={{ ['--c' as string]: '#6360F0' }} />New customers</span><span><i style={{ ['--c' as string]: '#4F4BE0' }} />Bought before</span></div>
-                <div className={`v2-bars${data.mail && data.totals.sales > 0 ? '' : ' omer-bars-empty'}`} aria-hidden="true">
-                  {(data.mail && data.totals.sales > 0 ? sales : zeros(n)).map((v, i) => {
+                <div className="v2-bars" aria-hidden="true">
+                  {sales.map((v, i) => {
                     const ret = Math.min(v, returningSeries[i] ?? 0);
                     return (
-                      <span key={i} className="v2-col" style={{ ['--i' as string]: i }} title={data.mail ? `${data.tip(i)}: ${money.format(v)}` : undefined}>
+                      <span key={i} className="v2-col" style={{ ['--i' as string]: i }} title={`${data.tip(i)}: ${money.format(v)}`}>
                         <i className="v2-new" style={{ ['--h' as string]: `${(((v - ret) / tallest) * 100).toFixed(2)}%` }} />
                         <i className="v2-ret" style={{ ['--h' as string]: `${((ret / tallest) * 100).toFixed(2)}%` }} />
                       </span>
@@ -816,30 +959,7 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
 
       <div className="v2-row">
         <Card icon="inbox" title="Needs you" className="v2-wide">
-          {demo && data.mail ? (() => {
-            const tabs = needs;
-            const tab = tabs.find((t) => t.id === need) ?? tabs[0];
-            return (
-              <section className="ho-needs" aria-label="What needs you">
-                <header className="ho-needs-h">
-                  <nav className="ib-tabs" aria-label="What needs you">
-                    {tabs.map((t) => <button key={t.id} type="button" className="ib-tab" aria-pressed={t.id === tab.id} onClick={() => setNeed(t.id)}>{t.label}<span>{t.rows.length}</span></button>)}
-                  </nav>
-                  <Link label={tab.go} onClick={() => onGo(needGo(tab.id))} />
-                </header>
-                <div className="ho-need-rows">
-                  {tab.rows.slice(0, 3).map((row) => (
-                    <button key={row.who} type="button" className="ho-need" onClick={() => onGo(needGo(tab.id, row.seed))}>
-                      {row.seed ? <Orb seed={row.seed} size={26} /> : <span className="ho-need-ic"><Icon name={row.icon ?? 'alert'} /></span>}
-                      <b>{row.who}</b><span>{row.what}</span><time>{row.when ?? ''}</time>
-                    </button>
-                  ))}
-                </div>
-              </section>
-            );
-          })() : project.firstEventAt ? (
-            <section className="ho-needs" aria-label="What needs you"><CardEmpty icon="check" title="Nothing needs you right now" text="Emails to approve, replies and anything that needs a decision show up here." /></section>
-          ) : (
+          {!demo && !project.firstEventAt ? (
             <section className="ho-needs" aria-label="What needs you">
               <header className="ho-needs-h">
                 <nav className="ib-tabs" aria-label="What needs you">
@@ -853,7 +973,36 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
                 </button>
               </div>
             </section>
-          )}
+          ) : (() => {
+            const tabs = needs.filter((t) => demo || t.rows.length > 0 || t.id === 'review');
+            const visible = tabs.some((t) => t.rows.length) ? tabs : tabs.slice(0, 1);
+            const tab = visible.find((t) => t.id === need) ?? visible[0];
+            if (!tab.rows.length && !demo) {
+              return (
+                <section className="ho-needs" aria-label="What needs you">
+                  <CardEmpty icon="check" title="Nothing needs you right now" text="Follow-ups to approve, brand facts, and site changes show up here." />
+                </section>
+              );
+            }
+            return (
+              <section className="ho-needs" aria-label="What needs you">
+                <header className="ho-needs-h">
+                  <nav className="ib-tabs" aria-label="What needs you">
+                    {visible.map((t) => <button key={t.id} type="button" className="ib-tab" aria-pressed={t.id === tab.id} onClick={() => setNeed(t.id)}>{t.label}<span>{t.rows.length}</span></button>)}
+                  </nav>
+                  <Link label={tab.go} onClick={() => onGo(needGo(tab.id))} />
+                </header>
+                <div className="ho-need-rows">
+                  {tab.rows.slice(0, 3).map((row) => (
+                    <button key={`${tab.id}-${row.seed || row.who}`} type="button" className="ho-need" onClick={() => onGo(needGo(tab.id, row.seed))}>
+                      {row.seed ? <Orb seed={row.seed} size={26} /> : <span className="ho-need-ic"><Icon name={row.icon ?? 'alert'} /></span>}
+                      <b>{row.who}</b><span>{row.what}</span><time>{row.when ?? ''}</time>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            );
+          })()}
         </Card>
       </div>
     </div>

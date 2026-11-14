@@ -30,6 +30,8 @@ export type Project = {
   returningSales?: DayCount[];
   clicked?: DayCount[];
   emailOpens?: DayCount[];
+  /** Real outbound emails from Omer (project_email_messages). */
+  emailSents?: DayCount[];
   products?: ProductStat[];
   campaigns?: CampaignStat[];
   sourceRevenue?: NamedRevenue[];

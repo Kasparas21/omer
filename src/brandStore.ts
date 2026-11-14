@@ -40,6 +40,8 @@ export type Brand = {
   facts: StoreFact[];
   changes?: BrandChange[];
   importedAt?: string | null;
+  /** Cached dashboard Brand read. */
+  read?: { word: string; summary: string; detail: string; generatedAt: string; importedAt: string | null };
 };
 export type FolderId = 'identity' | 'products' | 'brand' | 'docs' | 'facts';
 
