@@ -27,6 +27,8 @@ type RealOpp = {
   draft?: MailDoc | null;
   page?: PageStyle | null;
   suppressed?: boolean;
+  autoSendAt?: string | null;
+  sendError?: string | null;
 };
 
 function SprutPreviewFrame({
@@ -364,9 +366,12 @@ export function Opportunities({ demo, projectId, storeName = '', host, editing, 
                   : o.status === 'sent' ? <span className="op-real-auto"><Icon name="mail" />Sent</span>
                   : o.status === 'scheduled' ? <span className="op-real-auto" title="Its campaign sends by itself, outside their quiet hours"><Icon name="zap" />Sends by itself</span>
                   : o.status === 'hold' ? <span className="op-real-auto is-hold"><Icon name="pause" />On hold</span>
+                  : o.sendError ? <span className="op-real-auto is-hold" title={o.sendError}>Send failed</span>
+                  : o.autoSendAt && Date.parse(o.autoSendAt) > Date.now() - 60_000 ? <span className="op-real-auto" title="Sends on its own in a few seconds">Sending…</span>
                   : o.status === 'drafted' ? <span className="op-real-auto"><Icon name="zap" />Draft ready</span> : null}
               </div>
               <p>{o.reason || o.insightSummary || 'Ready for a personal follow-up'}</p>
+              {o.sendError ? <p className="omer-empty-note" role="status">{o.sendError}</p> : null}
               {o.hooks?.length ? (
                 <div className="op-real-hooks">
                   {o.hooks.slice(0, 3).map((h) => <span key={h}>{h}</span>)}
@@ -379,12 +384,14 @@ export function Opportunities({ demo, projectId, storeName = '', host, editing, 
                   ) : null
                 ) : isSprut && (o.status === 'drafted' || o.status === 'ready_for_draft' || o.status === 'review') ? (
                   <>
-                    <span className="op-real-auto" title="Sends on its own in a few seconds">Sending…</span>
+                    {o.autoSendAt && !o.sendError && Date.parse(o.autoSendAt) > Date.now() - 60_000 ? (
+                      <span className="op-real-auto" title="Sends on its own in a few seconds">Sending…</span>
+                    ) : null}
                     {o.hasDraft || o.draft ? (
                       <>
                         <button type="button" className="btn btn-ghost btn-sm" disabled={realBusy} onClick={() => void openDraft(o)}>View</button>
                         <button type="button" className="btn btn-secondary btn-sm" disabled={realBusy || !sendOn} onClick={() => void send(o.id)}>
-                          Send now
+                          {o.sendError ? 'Retry' : 'Send now'}
                         </button>
                       </>
                     ) : null}
