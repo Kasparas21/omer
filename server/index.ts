@@ -15,6 +15,7 @@ import { runCampaigns } from './campaign-runner';
 import { checkProducts } from './signals';
 import { PIXEL_GIF, recordEmailEvent, suppressVisitor, verifyTrackingToken } from './email-tracking';
 import { sesConfigured } from './ses';
+import { createMcpApp } from './mcp';
 
 // Single-server demo limits; bounded memory, no visitor IP persisted in project data.
 function limiter(max: number) {
@@ -146,6 +147,8 @@ app.post('/t/u/:token', async (c) => {
   }
   return c.text('OK');
 });
+// MCP for Claude, ChatGPT and Cursor: the endpoint, OAuth for connectors, and key management for Settings.
+app.route('/', createMcpApp((request) => projects.fetch(request, env), limiter(120)));
 app.get('/health', async (c) => { await pool.query('select 1'); return c.json({ status: 'ready' }); });
 app.all('/api/*', (c) => c.json({ error: 'Not found' }, 404));
 app.all('/v1/*', (c) => c.json({ error: 'Not found' }, 404));

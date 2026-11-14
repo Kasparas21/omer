@@ -337,3 +337,35 @@ export const projectProducts = pgTable('project_products', {
   primaryKey({ name: 'project_products_pk', columns: [table.projectId, table.path] }),
   index('project_products_checked_idx').on(table.checkedAt),
 ]);
+
+/** Personal API keys ("bhv_…") and OAuth access tokens for the MCP server. Only a SHA-256 hash is stored. */
+export const mcpTokens = pgTable('mcp_tokens', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: text('user_id').notNull(),
+  kind: text('kind').$type<'api' | 'oauth' | 'refresh'>().notNull(),
+  name: text('name').notNull(),
+  prefix: text('prefix').notNull(),
+  tokenHash: text('token_hash').notNull(),
+  clientId: text('client_id'),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [uniqueIndex('mcp_tokens_hash_idx').on(table.tokenHash), index('mcp_tokens_user_idx').on(table.userId)]);
+
+/** Clients that registered themselves (Claude, ChatGPT, …) through OAuth dynamic client registration. */
+export const mcpOauthClients = pgTable('mcp_oauth_clients', {
+  clientId: text('client_id').primaryKey(),
+  name: text('name').notNull(),
+  redirectUris: jsonb('redirect_uris').$type<string[]>().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+/** Short-lived, single-use authorization codes (PKCE). */
+export const mcpOauthCodes = pgTable('mcp_oauth_codes', {
+  codeHash: text('code_hash').primaryKey(),
+  userId: text('user_id').notNull(),
+  clientId: text('client_id').notNull(),
+  redirectUri: text('redirect_uri').notNull(),
+  codeChallenge: text('code_challenge').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+});
