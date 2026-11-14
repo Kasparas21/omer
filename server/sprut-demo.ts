@@ -15,8 +15,8 @@ import {
 
 export const SPRUT_DEMO_HOST = 'sprut-demo-store.vercel.app';
 export const SPRUT_CATALOG_URL = `https://${SPRUT_DEMO_HOST}/omer-catalog.json`;
-/** Primary on-camera inbox + teammates can extend via DEMO_EMAIL_ALLOWLIST. */
-const DEFAULT_ALLOWLIST = ['joris263@gmail.com'];
+/** Known filming inboxes; DEMO_EMAIL_ALLOWLIST adds more. Sprüt demo store allows any recipient unless DEMO_EMAIL_ALLOWLIST_STRICT=1. */
+const DEFAULT_ALLOWLIST = ['joris263@gmail.com', 'freecardsbf2@gmail.com'];
 const EXIT_WINDOW_MS = 20_000;
 const AUTO_SEND_MS = 60_000;
 const inFlight = new Set<string>();
@@ -41,7 +41,12 @@ export function demoEmailAllowlist(): Set<string> {
 
 export function isDemoSendAllowed(origin: string, email: string) {
   if (!isSprutDemoOrigin(origin)) return true;
-  return demoEmailAllowlist().has(email.trim().toLowerCase());
+  if (!email.trim()) return false;
+  // Filming store is fictional — allow any inbox unless explicitly locked down.
+  if (process.env.DEMO_EMAIL_ALLOWLIST_STRICT === '1') {
+    return demoEmailAllowlist().has(email.trim().toLowerCase());
+  }
+  return true;
 }
 
 type Catalog = {
@@ -333,7 +338,8 @@ async function upsertSprutInsight(
   });
 }
 
-function scheduleAutoSend(db: NodePgDatabase, projectId: string, opportunityId: string) {
+/** Schedule Approve-less send for Sprüt demo (~60s). Drafts first if needed. */
+export function scheduleSprutAutoSend(db: NodePgDatabase, projectId: string, opportunityId: string, delayMs = AUTO_SEND_MS) {
   const key = `${projectId}:${opportunityId}`;
   const prev = autoSendTimers.get(key);
   if (prev) clearTimeout(prev);
@@ -345,14 +351,16 @@ function scheduleAutoSend(db: NodePgDatabase, projectId: string, opportunityId: 
           .where(and(eq(projectOpportunities.id, opportunityId), eq(projectOpportunities.projectId, projectId)))
           .limit(1);
         if (!opp || opp.status === 'sent' || opp.status === 'converted' || opp.status === 'dismissed') return;
-        if (!opp.draftJson) return;
+        // Always refresh Sprüt copy before auto-send so surveillance-style insight drafts get rewritten.
+        const { draftOpportunityEmail } = await import('./email-draft');
+        await draftOpportunityEmail(db, projectId, opportunityId);
         const { sendOpportunityEmail } = await import('./email-send');
         await sendOpportunityEmail(db, projectId, opportunityId);
       } catch (error) {
         console.error('sprut auto-send', error instanceof Error ? error.message : error);
       }
     })();
-  }, AUTO_SEND_MS);
+  }, delayMs);
   autoSendTimers.set(key, timer);
 }
 
@@ -374,7 +382,7 @@ export async function kickSprutLeaveFollowup(db: NodePgDatabase, projectId: stri
       .limit(1);
     if (!identity?.email) return;
     if (!isDemoSendAllowed(project.origin, identity.email)) {
-      console.warn('sprut demo: email not on allowlist', identity.email);
+      console.warn('sprut demo: send blocked for', identity.email);
       return;
     }
 
@@ -397,7 +405,7 @@ export async function kickSprutLeaveFollowup(db: NodePgDatabase, projectId: stri
 
     await upsertSprutInsight(db, projectId, visitorId, leave);
     const opp = await upsertSprutOpportunity(db, projectId, visitorId, identity, leave, draft, page);
-    if (opp?.id) scheduleAutoSend(db, projectId, opp.id);
+    if (opp?.id) scheduleSprutAutoSend(db, projectId, opp.id);
   } finally {
     inFlight.delete(key);
   }

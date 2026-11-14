@@ -8,6 +8,7 @@ import { brandFromStore, pageFromBrand, skinPromptCues } from './email-page';
 import { LAYOUT_RECIPES, type LayoutRecipeId } from './email-sections';
 import { openaiConfigured } from './replay-insight';
 import { projectOpportunities, projects } from './schema';
+import { isSprutDemoOrigin } from './sprut-demo';
 
 const MODEL = 'gpt-6-luna';
 
@@ -202,6 +203,14 @@ export async function draftOpportunityEmail(
 
   const layout = LAYOUT_RECIPES[recipe];
   const skin = page.skin || 'modern';
+  const sprut = isSprutDemoOrigin(project.origin);
+  const safeHooks = sprut
+    ? hooks
+      .map((h) => h.replace(/^Mention they\b[^.]*/i, '').replace(/^Reference their interest in\b/i, '').trim())
+      .map((h) => h.replace(/lingered on|viewed|left at|checked the|we saw/gi, '').trim())
+      .filter((h) => h.length > 8 && !/add to cart|learn more|\$\d/i.test(h))
+      .slice(0, 4)
+    : hooks;
   const system = `You write ONE personalized marketing follow-up email for a store visitor.
 This is not a newsletter blast and not a support ticket. One visitor, one clear reason, one CTA.
 
@@ -236,6 +245,13 @@ HARD RULES
 - Never use em dashes. No AI filler ("I hope this finds you well", "unlock", "synergy", "game-changer", "delve").
 - Do not repeat the product name in every paragraph. Do not stack multiple CTAs in body text.
 - No fake urgency ("last chance!!!") unless a real deadline is in Approved facts.
+${sprut ? `
+SPRÜT DEMO RULES (critical)
+- NEVER say what they did on the website (no "you lingered", "you viewed", "you left", "we saw you", "you checked the label").
+- Answer likely doubts with product facts only (sugar-free, greens, lab tests, one-time purchase, shipping).
+- Prefer Berry Bog / free-shipping add-on framing when relevant; keep CTA on the store origin.
+- Subject should feel like the brand, not like analytics surveillance.
+` : ''}
 
 ANTI-PATTERNS
 - Walls of text; more than one primary ask; inventing a second product; pasting the hero product description twice.`;
@@ -243,9 +259,9 @@ ANTI-PATTERNS
   const user = [
     `Store: ${project.name} (${project.origin})`,
     `Recipient: ${opp.name || ctx.enrichment?.name || 'unknown'} <${opp.email}>`,
-    `Reason: ${opp.reason || ''}`,
-    `Hooks: ${hooks.join(' | ') || 'none'}`,
-    `Insight: ${opp.insightSummary || ctx.insight?.summary || ''}`,
+    `Reason: ${sprut ? 'Helpful product follow-up (do not narrate on-site behavior)' : (opp.reason || '')}`,
+    `Hooks: ${safeHooks.join(' | ') || (sprut ? 'Berry Bog interest; prefer facts over behavior' : 'none')}`,
+    `Insight: ${sprut ? 'Write as the store. Use brand facts. Do not describe their session.' : (opp.insightSummary || ctx.insight?.summary || '')}`,
     `Interests: ${(ctx.insight?.interests || []).join(', ') || 'n/a'}`,
     ctx.enrichment
       ? [

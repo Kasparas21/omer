@@ -288,13 +288,15 @@ export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab
                         className="btn btn-secondary btn-sm"
                         disabled={demo || storeBusy}
                         onClick={() => {
-                          if (!window.confirm('Clear joris263@gmail.com opportunities, drafts, and signals for a clean retake?')) return;
+                          const email = window.prompt('Email to reset for a clean retake', 'freecardsbf2@gmail.com')?.trim();
+                          if (!email) return;
+                          if (!window.confirm(`Clear opportunities, drafts, and signals for ${email}?`)) return;
                           void (async () => {
                             try {
                               const res = await fetch(`/api/projects/${project.id}/demo-reset`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ email: 'joris263@gmail.com' }),
+                                body: JSON.stringify({ email }),
                               });
                               const data = await res.json().catch(() => ({})) as { error?: string; reset?: number };
                               if (!res.ok) throw new Error(data.error || 'Reset failed');

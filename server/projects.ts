@@ -51,6 +51,7 @@ import {
   kickSprutLeaveFollowup,
   markSprutWonBack,
   resetSprutDemoVisitor,
+  scheduleSprutAutoSend,
 } from './sprut-demo';
 
 /** An IANA zone like Europe/Vilnius, or null. */
@@ -1560,7 +1561,13 @@ async function summarizeVisitor(request: Request, env: Env, projectId: string, v
           emailReadyConfidence: saved.emailReadyConfidence,
         });
         if (opp?.id) {
-          kickPersonalFollowup(db, projectId, opp.id, saved.emailReadyConfidence);
+          const [proj] = await db.select({ origin: projects.origin }).from(projects).where(eq(projects.id, projectId)).limit(1);
+          if (proj && isSprutDemoOrigin(proj.origin)) {
+            // Filming: always queue auto-send after insight (drafts if needed). Don't wait on cool-down alone.
+            scheduleSprutAutoSend(db, projectId, opp.id, 45_000);
+          } else {
+            kickPersonalFollowup(db, projectId, opp.id, saved.emailReadyConfidence);
+          }
         }
         await refreshCampaignSuggestions(db, projectId);
       } catch (hookError) {
@@ -1847,6 +1854,10 @@ async function draftOpportunityRoute(request: Request, env: Env, projectId: stri
     if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
     try {
       const result = await draftOpportunityEmail(db, projectId, opportunityId);
+      const [proj] = await db.select({ origin: projects.origin }).from(projects).where(eq(projects.id, projectId)).limit(1);
+      if (proj && isSprutDemoOrigin(proj.origin) && result.opportunity?.id) {
+        scheduleSprutAutoSend(db, projectId, result.opportunity.id, 45_000);
+      }
       return json({
         draft: result.draft,
         page: result.page,
@@ -1914,7 +1925,7 @@ async function demoResetRoute(request: Request, env: Env, projectId: string) {
     if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
     try {
       const result = await resetSprutDemoVisitor(db, projectId, {
-        email: body?.email || 'joris263@gmail.com',
+        email: body?.email || null,
         visitorId: body?.visitorId || null,
       });
       return json({ ok: true, ...result });
