@@ -5,6 +5,7 @@ import { createContext, Fragment, useContext, type CSSProperties, type FocusEven
 import { Icon } from './ui/Icon';
 import { Orb } from './ui/Orb';
 import { PAGE_STYLE, PHOTOS, STORE, photo, type MailDoc, type PageStyle } from './storeData';
+import { FIELDS } from '../server/trigger-library';
 
 export const FONTS = ['Inter', 'Arial', 'Helvetica', 'Georgia', 'Times New Roman', 'Verdana', 'Tahoma', 'Trebuchet MS'];
 const STACK: Record<string, string> = {
@@ -42,12 +43,15 @@ export function Paw({ color = 'currentColor' }: { color?: string }) {
   );
 }
 
-/** {{first_name}} shows as a chip: filled in for each customer when it sends. */
+/** {{first_name}} shows as a chip named "First name": filled in for each person when their email is made. The
+    chip keeps the {{token}} as its text (shrunk away), so typing around it saves the token, not the label. */
 function words(text: string) {
-  return text.split(/(\{\{\w+\}\})/).map((part, i) =>
-    /^\{\{\w+\}\}$/.test(part)
-      ? <span key={i} className="ml-var" contentEditable={false} title="Filled in for each customer when it sends">{part}</span>
-      : <Fragment key={i}>{part}</Fragment>);
+  return text.split(/(\{\{\w+\}\})/).map((part, i) => {
+    if (!/^\{\{\w+\}\}$/.test(part)) return <Fragment key={i}>{part}</Fragment>;
+    const key = part.slice(2, -2);
+    const label = FIELDS.find((f) => f.key === key)?.name ?? key.replace(/_/g, ' ');
+    return <span key={i} className="ml-var" contentEditable={false} data-label={label} title="Filled in for each person">{part}</span>;
+  });
 }
 
 export type MailEdit = {
@@ -65,7 +69,7 @@ export function MailBody({ doc, edit, typing = true, onText }: { doc: MailDoc; e
   const personal = doc.kind === 'personal';
   const brand = useMailBrand();
   const style = (k: string) => doc.blocks[k] ?? {};
-  const align = (k: string): CSSProperties | undefined => (style(k).align === 'center' ? { textAlign: 'center' } : undefined);
+  const align = (k: string): CSSProperties | undefined => (style(k).align ? { textAlign: style(k).align } : undefined);
   // Typed text is read back on blur. The key changes with the text so undo/redo redraws it.
   const write = edit?.onText ?? onText;
   const editable = (k: string, text: string) => (write && typing && TEXT_KEYS.test(k)
@@ -98,7 +102,7 @@ export function MailBody({ doc, edit, typing = true, onText }: { doc: MailDoc; e
     if (t === 'cta') {
       if (!doc.cta && !edit) return null;
       if (personal) return <p className="ml-link"><span key={doc.cta} {...editable(k, doc.cta)}>{doc.cta}</span> →</p>;
-      return <div className={`ml-cta-row${style(k).width === 'fit' ? ' fit' : ''}`}><span key={doc.cta} className="ml-cta" {...editable(k, doc.cta)}>{doc.cta}</span></div>;
+      return <div className={`ml-cta-row${style(k).width === 'full' ? ' full' : ''}`}><span key={doc.cta} className="ml-cta" {...editable(k, doc.cta)}>{doc.cta}</span></div>;
     }
     if (t === 'hero') {
       if (!doc.hero) return null;
@@ -189,7 +193,7 @@ export const senderName = (doc: MailDoc) => (doc.kind === 'personal' ? `Marc fro
 export function MailInbox({ doc, page }: { doc: MailDoc; page?: PageStyle }) {
   return (
     <div className="ml-inbox">
-      <div className="ml-subject"><span>{doc.subject} <span className="ml-tag">Inbox</span></span><Icon name="star" /></div>
+      <div className="ml-subject"><span>{words(doc.subject)} <span className="ml-tag">Inbox</span></span><Icon name="star" /></div>
       <div className="ml-from">
         <Sender doc={doc} />
         <div><b><SenderName doc={doc} /></b> {useMailBrand().paw ? <span className="ml-addr">&lt;{STORE.from}&gt;</span> : null}<small>to {doc.to ?? 'me'}</small></div>
@@ -213,7 +217,7 @@ export function MailPhone({ doc, page, children, subject }: { doc: MailDoc; page
         <div className="iph-status"><b>9:41</b><i className="iph-island" /><span className="iph-sys"><Icon name="pulse" /><span className="iph-bat" /></span></div>
         <div className="gm-bar"><Icon name="arrowLeft" /><span /><Icon name="archive" /><Icon name="trash" /><Icon name="mail" /><Icon name="more" /></div>
         <div className="gm-scroll">
-          <div className="gm-subj">{subject ?? <span>{doc.subject}</span>}<span className="ml-tag">Inbox</span><Icon name="star" /></div>
+          <div className="gm-subj">{subject ?? <span>{words(doc.subject)}</span>}<span className="ml-tag">Inbox</span><Icon name="star" /></div>
           <div className="gm-from"><Sender doc={doc} size={34} /><div><p><b><SenderName doc={doc} /></b><span>9:41 AM</span></p><p className="gm-to">to me</p></div><Icon name="reply" /><Icon name="more" /></div>
           <div className="ml-skin is-mobile" style={pageVars(page)}>{children ?? <MailBody doc={doc} />}</div>
           <div className="gm-acts"><span><Icon name="reply" />Reply</span><span><Icon name="arrowRight" />Forward</span></div>

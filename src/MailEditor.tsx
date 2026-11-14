@@ -12,6 +12,7 @@ import { PHOTOS, STORE, photo, type BlockStyle, type MailDoc, type PageStyle, ty
 import { useSlidingPill } from './ui/useSlidingPill';
 import type { Brand, BrandFile } from './brandStore';
 import { lastingSrc, uploadImage } from './campaignMail';
+import { FIELDS, FIELD_RE } from '../server/trigger-library';
 
 export type Draft = { doc: MailDoc; page: PageStyle };
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -24,7 +25,7 @@ const ADD: { type: string; icon: IconName; label: string }[] = [
 const BLOCK: Record<string, { icon: IconName; name: string; hint: string }> = {
   logo: { icon: 'image', name: 'Logo', hint: 'From Brand knowledge.' },
   headline: { icon: 'heading', name: 'Heading', hint: 'Click it in the email to type.' },
-  body: { icon: 'list', name: 'Text', hint: 'Click it in the email to type. {{first_name}} becomes their name.' },
+  body: { icon: 'list', name: 'Text', hint: 'Click it in the email to type. Add a personal field from the bottom bar.' },
   products: { icon: 'cart', name: 'Products', hint: '' },
   code: { icon: 'tag', name: 'Discount code', hint: '' },
   cta: { icon: 'pointer', name: 'Button', hint: '' },
@@ -81,6 +82,57 @@ export function MailEditor({ space, brand, published, onPublish }: {
   const [, bump] = useState(0);
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(published), [draft, published]);
   const doc = draft.doc;
+  // Personal fields go where you were last typing: subject, preview, or text in the email.
+  const lastText = useRef<{ el: HTMLElement; range?: Range } | null>(null);
+  useEffect(() => {
+    const remember = () => {
+      const active = document.activeElement as HTMLElement | null;
+      if (!active?.closest('.cpe')) return;
+      if (active.matches('.cpe-subject')) { lastText.current = { el: active }; return; }
+      if (active.isContentEditable) {
+        const selection = document.getSelection();
+        lastText.current = { el: active, range: selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : undefined };
+      }
+    };
+    document.addEventListener('selectionchange', remember);
+    document.addEventListener('focusin', remember);
+    return () => { document.removeEventListener('selectionchange', remember); document.removeEventListener('focusin', remember); };
+  }, []);
+  function insertField(key: string) {
+    const token = `{{${key}}}`;
+    const target = lastText.current;
+    if (!target?.el.isConnected) { toast('Click into the text first, then add a field', { kind: 'warn' }); return; }
+    if (target.el instanceof HTMLInputElement) {
+      const input = target.el;
+      const at = input.selectionStart ?? input.value.length;
+      const end = input.selectionEnd ?? at;
+      const next = input.value.slice(0, at) + token + input.value.slice(end);
+      const which = input.classList.contains('cpe-preview') ? 'preview' : 'subject';
+      change((d) => { d.doc[which] = next; });
+      window.setTimeout(() => { input.focus(); input.setSelectionRange(at + token.length, at + token.length); });
+      return;
+    }
+    target.el.focus();
+    const selection = document.getSelection();
+    if (target.range && selection) { selection.removeAllRanges(); selection.addRange(target.range); }
+    document.execCommand('insertText', false, token);
+  }
+  const usedFields = useMemo(() => {
+    const d = draft.doc;
+    const text = [d.subject, d.preview ?? '', d.headline, d.cta, ...d.body].join(' ');
+    return FIELDS.filter((f) => [...text.matchAll(FIELD_RE)].some((m) => m[1] === f.key));
+  }, [draft.doc]);
+  const [fieldsOpen, setFieldsOpen] = useState(false);
+  const fieldsRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!fieldsOpen) return;
+    const away = (e: PointerEvent) => { if (!fieldsRef.current?.contains(e.target as Node)) setFieldsOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setFieldsOpen(false); };
+    document.addEventListener('pointerdown', away);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc); };
+  }, [fieldsOpen]);
+
 
   /** Every change goes through here so it can be undone. */
   function change(next: (d: Draft) => void, keepSel?: string) {
@@ -153,7 +205,7 @@ export function MailEditor({ space, brand, published, onPublish }: {
       const at = sel === 'page' || sel === 'logo' ? Math.max(-1, end - 1) : o.indexOf(sel);
       if (type === 'body') { d.doc.body.push(''); key = `body.${d.doc.body.length - 1}`; }
       else if (type === 'div') key = `div.${Date.now()}`;
-      else if (type === 'header') { if (!d.doc.headline) d.doc.headline = 'A short heading'; key = 'headline'; }
+      else if (type === 'header') { key = 'headline'; }
       else if (type === 'image') { d.doc.hero ??= {}; key = 'hero'; }
       else if (type === 'button') { if (!d.doc.cta) d.doc.cta = 'Shop now'; key = 'cta'; }
       else if (type === 'product') { if (!d.doc.products?.length) d.doc.products = []; key = 'products'; }
@@ -170,6 +222,18 @@ export function MailEditor({ space, brand, published, onPublish }: {
     <>
       <header><Icon name="sliders" /><h3>Style</h3></header>
       <div className="v2-in cpe-panel-in">
+        {usedFields.length ? (
+          <section className="cpe-sec"><h4>Personal fields</h4>
+            <p className="cpe-hint">What each one says when we don’t know it for someone.</p>
+            {usedFields.map((f) => (
+              <label key={f.key} className="cpe-fallback">
+                <span className="ml-var" data-label={f.name} aria-hidden="true">{`{{${f.key}}}`}</span>
+                <input className="input cpe-text" value={draft.doc.vars?.[f.key] ?? f.fallback} placeholder="Leave it out" aria-label={`${f.name} if unknown`}
+                  onChange={(e) => change((d) => { d.doc.vars = { ...(d.doc.vars ?? {}), [f.key]: e.target.value }; })} />
+              </label>
+            ))}
+          </section>
+        ) : null}
         <section className="cpe-sec"><h4>Colours</h4>
           <div className="cpe-grid">
             <Color label="Background" value={draft.page.bg} onChange={(v) => setPage('bg', v)} />
@@ -204,7 +268,7 @@ export function MailEditor({ space, brand, published, onPublish }: {
         <div className="seg cpe-seg" role="group" aria-label={label}>{opts.map(([v, l]) => <button key={v} type="button" aria-pressed={cur === v} onClick={() => setBlock(prop, v)}>{l}</button>)}</div>
       </div>
     );
-    const alignSeg = seg('Align', 'align', s.align ?? 'left', [['left', 'Left'], ['center', 'Center']]);
+    const alignSeg = seg('Align', 'align', s.align ?? (doc.kind === 'personal' ? 'left' : 'center'), [['left', 'Left'], ['center', 'Center']]);
     const heroSrc = doc.hero?.src || (doc.hero?.photo ? photo(PHOTOS[doc.hero.photo], 400) : '');
     const setHero = (src: string | null) => { if (src) change((d) => { d.doc.hero = { src }; }); };
     const productSrc = (p: Product) => p.img || (p.photo ? photo(PHOTOS[p.photo], 200) : '');
@@ -224,7 +288,7 @@ export function MailEditor({ space, brand, published, onPublish }: {
             {type === 'cta' && <>
               <label className="cpe-f"><span>Button text</span><input className="input cpe-text" value={doc.cta} onChange={(e) => change((d) => { d.doc.cta = e.target.value; })} /></label>
               <label className="cpe-f"><span>Link</span><input className="input cpe-text" value={doc.ctaUrl ?? ''} placeholder="https://… (your store if empty)" inputMode="url" onChange={(e) => change((d) => { d.doc.ctaUrl = e.target.value.trim(); })} /></label>
-              {seg('Width', 'width', s.width ?? 'full', [['full', 'Full width'], ['fit', 'Fit text']])}
+              {seg('Width', 'width', s.width ?? 'fit', [['fit', 'Fit text'], ['full', 'Full width']])}
             </>}
             {type === 'hero' && <>
               {heroSrc ? <div className="cpe-img-now"><img src={heroSrc} alt="" /></div> : null}
@@ -314,12 +378,28 @@ export function MailEditor({ space, brand, published, onPublish }: {
           <i className="cpe-dock-sep" />
           <button type="button" className="cpe-ib" aria-label="Undo" title="Undo" disabled={!undo.current.length} onClick={() => step(undo, redo)}><Icon name="undo" /></button>
           <button type="button" className="cpe-ib" aria-label="Redo" title="Redo" disabled={!redo.current.length} onClick={() => step(redo, undo)}><Icon name="redo" /></button>
+          <i className="cpe-dock-sep" />
+          <span ref={fieldsRef} className={`cpe-fields${fieldsOpen ? ' open' : ''}`}>
+            <button type="button" className="cpe-fields-btn" aria-haspopup="menu" aria-expanded={fieldsOpen}
+              onMouseDown={(e) => e.preventDefault()} onClick={() => setFieldsOpen((o) => !o)}><Icon name="user" />Personal field</button>
+            {fieldsOpen ? (
+              <span className="cpe-fields-menu menu" role="menu">
+                <span className="menu-label">Filled in for each person</span>
+                {FIELDS.map((f) => (
+                  <button key={f.key} type="button" role="menuitem" className="menu-item" onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => { insertField(f.key); setFieldsOpen(false); }}>
+                    <span className="cpe-fields-name">{f.name}</span><small>{f.example}</small>
+                  </button>
+                ))}
+              </span>
+            ) : null}
+          </span>
         </div>
         <div className="cpe-side">
           <aside className="cpe-panel v2-card" aria-label="Style">{panel}</aside>
           <div className="cpe-pubrow">
-            <span className="cpe-state">{dirty ? 'Unsaved changes' : 'Saved'}</span>
-            <button type="button" className="btn btn-primary cpe-pub" disabled={!dirty || uploading} onClick={() => onPublish(clone(draft))}>Save</button>
+            <span className={`cpe-state${dirty ? ' is-dirty' : ''}`}><i />{dirty ? 'Not saved yet' : 'All saved'}</span>
+            <button type="button" className="btn btn-primary btn-sm cpe-pub" disabled={!dirty || uploading} onClick={() => onPublish(clone(draft))}>Save</button>
           </div>
         </div>
       </div>

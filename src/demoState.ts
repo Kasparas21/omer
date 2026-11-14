@@ -3,7 +3,7 @@
    back (one campaign at a time, a moment after you stop typing). */
 import { useSyncExternalStore } from 'react';
 import { toast } from './ui/toast';
-import type { TriggerRef } from '../server/trigger-library';
+import { cleanTrigger, type CampaignTrigger } from '../server/trigger-library';
 import { CAMPAIGNS, PAGE_STYLE, PEOPLE, PICKS, REPLIES, type Campaign, type MailDoc, type PageStyle, type Person, type Reply, type Status } from './storeData';
 
 export type CampaignSettings = { limit: string; who: string; freq: string; quiet: string; expires: string; from: string; goal: string };
@@ -15,7 +15,7 @@ export type CampaignState = Campaign & {
   published: { doc: MailDoc; page: PageStyle } | null;
   dismissed?: boolean;
   /** What starts it (stores' own campaigns). Demo examples use flow + picks instead. */
-  trigger?: TriggerRef | null;
+  trigger?: CampaignTrigger | null;
 };
 export type PersonState = Person & { status: Status; skipped?: boolean; snoozed?: string; page?: PageStyle };
 
@@ -60,6 +60,8 @@ async function load(id: string) {
     const res = await fetch(api(id), { cache: 'no-store' });
     if (!res.ok) throw new Error(String(res.status));
     let campaigns = ((await res.json()) as { campaigns?: CampaignState[] }).campaigns ?? [];
+    // Campaigns from the first trigger library become steps.
+    campaigns = campaigns.map((c) => (c.trigger ? { ...c, trigger: cleanTrigger(c.trigger) } : c));
     // Campaigns made before they were saved on the server were kept in this browser: move them up once.
     if (!campaigns.length) {
       try {
@@ -125,17 +127,14 @@ export const demo = {
   /** Turning a suggestion or draft on makes it a normal running campaign. */
   start(id: string) { demo.updateCampaign(id, { on: true, draft: false, suggested: false }); },
   remove(id: string) { setFor(id, (s) => ({ ...s, campaigns: s.campaigns.filter((c) => c.id !== id) })); },
-  add(where: string = DEMO_SPACE, from?: string): string {
+  add(where: string = DEMO_SPACE, from?: string, name = 'New campaign'): string {
     const id = `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const settings = from ? { ...DEFAULT_SETTINGS, from } : { ...DEFAULT_SETTINGS };
-    setIn(where, (s) => ({ ...s, campaigns: [...s.campaigns, { id, name: 'New campaign', flow: null, icon: 'megaphone', mode: 'review', on: false, draft: true, mail: null, picks: {}, settings, page: { ...PAGE_STYLE }, published: null, trigger: null }] }));
+    setIn(where, (s) => ({ ...s, campaigns: [...s.campaigns, { id, name, flow: null, icon: 'megaphone', mode: 'review', on: false, draft: true, mail: null, picks: {}, settings, page: { ...PAGE_STYLE }, published: null, trigger: null }] }));
     return id;
   },
-  setTrigger(id: string, trigger: TriggerRef, patch: Partial<CampaignState> = {}) {
+  setTrigger(id: string, trigger: CampaignTrigger, patch: Partial<CampaignState> = {}) {
     demo.updateCampaign(id, { ...patch, trigger, flow: null });
-  },
-  setTriggerParam(id: string, key: string, value: string) {
-    setFor(id, (s) => ({ ...s, campaigns: s.campaigns.map((c) => (c.id === id && c.trigger ? { ...c, trigger: { ...c.trigger, params: { ...c.trigger.params, [key]: value } } } : c)) }));
   },
   /** A new campaign picks what starts it; it borrows the email of the campaign that starts the same way. */
   setFlow(id: string, flow: string) {

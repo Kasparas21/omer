@@ -6,12 +6,12 @@ import { Orb } from './ui/Orb';
 import { Dropdown } from './ui/Dropdown';
 import { Menu } from './ui/Menu';
 import { toast } from './ui/toast';
-import { MailBody, MailPhone, Sender, pageVars, senderName } from './Mail';
+import { MailBody, MailBrandProvider, MailPhone, Sender, pageVars, senderName } from './Mail';
 import { MailEditor } from './MailEditor';
 import { PAGE_STYLE, PEOPLE, STORE, type JourneyDay, type MailDoc, type PageStyle, type Person, type Reply, type ReplyState } from './storeData';
 import { demo as store, useDemo, type PersonState, DEMO_SPACE } from './demoState';
 import { DEMO_BRAND_SPACE, useBrand } from './brandStore';
-import { storePage } from './campaignMail';
+import { storeMailBrand, storePage } from './campaignMail';
 
 type RealOpp = {
   id: string;
@@ -55,8 +55,11 @@ function whenLine(p: PersonState) {
 }
 
 export type OpTab = Tab;
-export function Opportunities({ demo, projectId, editing, onEdit, onPeople, onBack, start }: {
+export function Opportunities({ demo, projectId, storeName = '', host, editing, onEdit, onPeople, onBack, start }: {
   demo: boolean;
+  /** Real store name and host, so drafts show the store as the sender. */
+  storeName?: string;
+  host?: string;
   /** Real store id — loads the email-ready follow-up queue. */
   projectId?: string;
   /** Opened from the Dashboard: a tab, and who to show. */
@@ -182,6 +185,7 @@ export function Opportunities({ demo, projectId, editing, onEdit, onPeople, onBa
               {sesOn ? 'Send' : 'Send (SES off)'}
             </button>
           </div>
+          <MailBrandProvider value={storeMailBrand(storeName, realBrand, undefined, host)}>
           <MailEditor
             key={editingOpp.id}
             space={projectId}
@@ -200,6 +204,7 @@ export function Opportunities({ demo, projectId, editing, onEdit, onPeople, onBa
               })();
             }}
           />
+          </MailBrandProvider>
         </div>
       );
     }

@@ -39,8 +39,7 @@
 .ml-cta-row { margin: 18px 0 14px; display: flex; justify-content: center; }
 .ml.personal .ml-cta-row { justify-content: flex-start; }
 .ml-cta { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 28px; border-radius: 999px; background: var(--ml-accent); color: #fff; font-weight: 600; font-size: 15px; letter-spacing: 0.01em; }
-.ml-cta-row.fit { display: flex; justify-content: center; }
-.ml-cta-row.fit .ml-cta { display: inline-flex; }
+.ml-cta-row.full .ml-cta { display: flex; flex: 1; }
 .ml-link { font-weight: 500; color: var(--ml-accent) !important; }
 .ml-link span { text-decoration: underline; text-underline-offset: 3px; }
 .ml-hero { position: relative; margin: 0 -40px 8px; }

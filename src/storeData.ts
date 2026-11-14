@@ -36,6 +36,8 @@ export type MailDoc = {
   hero?: { photo?: PhotoKey; src?: string; tag?: string };
   cart?: { photo: PhotoKey; item: string; price: string; lines: [string, string][]; total: string };
   footer?: string;
+  /** What a personal field says when we don't know it for someone, e.g. { first_name: 'there' }. */
+  vars?: Record<string, string>;
   /** Block keys in order: headline, body.N, products, code, cta, perks, features, social, hero, cart, sig, div.N, footer. */
   order: string[];
   blocks: Record<string, BlockStyle>;
