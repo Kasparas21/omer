@@ -1,4 +1,5 @@
-/* Settings → Integrations → AI assistants: same card → Connect modal pattern as Stripe. */
+/* Settings → Integrations → AI assistants: one-click open into Claude / Cursor (prefilled),
+   guided ChatGPT (no install deeplink yet). Same card language as Payments. */
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { BrandLogo } from './ui/brandLogos';
 import { Icon } from './ui/Icon';
@@ -14,6 +15,22 @@ const ASSISTANTS: { id: Assistant; name: string; blurb: string; logo: string }[]
   { id: 'chatgpt', name: 'ChatGPT', blurb: 'Ask ChatGPT about your stores.', logo: 'chatgpt' },
   { id: 'cursor', name: 'Cursor', blurb: 'Use Omer inside Cursor.', logo: 'cursor' },
 ];
+
+/** Claude opens Add custom connector with name + URL already filled. */
+function claudeInstallUrl(mcpUrl: string) {
+  const q = new URLSearchParams({
+    modal: 'add-custom-connector',
+    connectorName: 'Omer',
+    connectorUrl: mcpUrl,
+  });
+  return `https://claude.ai/customize/connectors?${q.toString()}`;
+}
+
+/** Cursor install link (HTTPS → app). Config is OAuth-only — no API key in the URL. */
+function cursorInstallUrl(mcpUrl: string) {
+  const config = btoa(JSON.stringify({ url: mcpUrl }));
+  return `https://cursor.com/install-mcp?name=${encodeURIComponent('omer')}&config=${encodeURIComponent(config)}`;
+}
 
 function matchesAssistant(row: Access, id: Assistant) {
   if (id === 'chatgpt') return /chatgpt|openai/i.test(row.name);
@@ -50,142 +67,70 @@ function logoForAccess(row: Access): string | null {
   return null;
 }
 
-function ConnectModal({
-  id,
+function openExternal(href: string) {
+  window.open(href, '_blank', 'noopener,noreferrer');
+}
+
+/** ChatGPT has no prefill deeplink yet — copy URL and open ChatGPT. */
+function ChatGptModal({
   url,
-  busy,
-  freshKey,
   onClose,
-  onCreateKey,
   onDone,
 }: {
-  id: Assistant;
   url: string;
-  busy: boolean;
-  freshKey: string | null;
   onClose: () => void;
-  onCreateKey: () => void;
   onDone: () => void;
 }) {
   const titleId = useId();
-  const meta = ASSISTANTS.find((a) => a.id === id)!;
-  const cursorJson = freshKey
-    ? JSON.stringify({ mcpServers: { omer: { url, headers: { Authorization: `Bearer ${freshKey}` } } } }, null, 2)
-    : null;
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [busy, onClose]);
+  }, [onClose]);
+
+  const start = async () => {
+    await copy(url);
+    openExternal('https://chatgpt.com/');
+    onDone();
+  };
 
   return (
     <div className="cc-modal set-int-modal ai-modal" role="presentation">
-      <button type="button" className="cc-scrim" aria-label="Close" disabled={busy} onClick={onClose} />
+      <button type="button" className="cc-scrim" aria-label="Close" onClick={onClose} />
       <section className="cc-card" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <div className="cc-inner">
-          <button type="button" className="cc-x set-int-modal-x" aria-label="Close" disabled={busy} onClick={onClose}>
+          <button type="button" className="cc-x set-int-modal-x" aria-label="Close" onClick={onClose}>
             <Icon name="x" />
           </button>
           <div className="cc-slide">
             <div className="cc-screen">
               <header className="cc-head">
                 <span className="cc-chip">Connect assistant</span>
-                <span className="set-int-modal-mark"><BrandLogo slug={meta.logo} /></span>
-                <h2 id={titleId}>Connect {meta.name}</h2>
-                <p>
-                  {id === 'cursor'
-                    ? 'Create a key, paste one config into Cursor, done.'
-                    : `Add Omer as a connector in ${meta.name}, then Allow when Omer opens.`}
-                </p>
+                <span className="set-int-modal-mark"><BrandLogo slug="chatgpt" /></span>
+                <h2 id={titleId}>Connect ChatGPT</h2>
+                <p>We’ll copy the Omer URL and open ChatGPT. Paste it as a custom connector (OAuth).</p>
               </header>
-
-              {(id === 'claude' || id === 'chatgpt') && (
-                <>
-                  <label className="set-int-field">
-                    <span>Server URL</span>
-                    <div className="ai-modal-url">
-                      <code>{url}</code>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => void copy(url)}>
-                        <Icon name="copy" />Copy
-                      </button>
-                    </div>
-                  </label>
-                  <ol className="ai-modal-steps">
-                    {id === 'claude' ? (
-                      <>
-                        <li>In Claude: <b>Settings → Connectors → Add custom connector</b></li>
-                        <li>Name it <b>Omer</b>, paste the URL, click <b>Connect</b></li>
-                        <li>Sign in to Omer and press <b>Allow</b></li>
-                      </>
-                    ) : (
-                      <>
-                        <li>Turn on <b>Developer mode</b> in ChatGPT Apps &amp; Connectors</li>
-                        <li>Create a connector named <b>Omer</b> with this URL (OAuth)</li>
-                        <li>Sign in to Omer and press <b>Allow</b></li>
-                      </>
-                    )}
-                  </ol>
-                  <div className="cc-actions">
-                    <button type="button" className="cc-btn" disabled={busy} onClick={onClose}>Cancel</button>
-                    <button
-                      type="button"
-                      className="cc-btn is-primary"
-                      disabled={busy}
-                      onClick={() => { void copy(url); onDone(); }}
-                    >
-                      Copy URL & continue
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {id === 'cursor' && !freshKey && (
-                <>
-                  <p className="set-int-tip">We’ll create a key and copy a ready-made Cursor config for you.</p>
-                  <div className="cc-actions">
-                    <button type="button" className="cc-btn" disabled={busy} onClick={onClose}>Cancel</button>
-                    <button type="button" className="cc-btn is-primary" disabled={busy} onClick={onCreateKey}>
-                      {busy ? 'Creating…' : 'Create key & connect'}
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {id === 'cursor' && freshKey && cursorJson && (
-                <>
-                  <div className="ai-fresh ai-modal-fresh" role="status">
-                    <div className="ai-fresh-head">
-                      <span className="status-pill received"><Icon name="checkCircle" />Key ready</span>
-                      <b>Copy once — it won’t be shown again.</b>
-                    </div>
-                    <div className="ai-modal-url">
-                      <code className="ai-modal-key">{freshKey}</code>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => void copy(freshKey)}>
-                        <Icon name="copy" />Copy key
-                      </button>
-                    </div>
-                  </div>
-                  <label className="set-int-field">
-                    <span>Paste into Cursor Settings → Tools &amp; MCP</span>
-                    <div className="ai-modal-code">
-                      <pre><code>{cursorJson}</code></pre>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => void copy(cursorJson)}>
-                        <Icon name="copy" />Copy config
-                      </button>
-                    </div>
-                  </label>
-                  <div className="cc-actions">
-                    <button
-                      type="button"
-                      className="cc-btn is-primary"
-                      onClick={() => { void copy(cursorJson); onDone(); }}
-                    >
-                      Copy config & done
-                    </button>
-                  </div>
-                </>
-              )}
+              <label className="set-int-field">
+                <span>Server URL (copied for you)</span>
+                <div className="ai-modal-url">
+                  <code>{url}</code>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => void copy(url)}>
+                    <Icon name="copy" />Copy
+                  </button>
+                </div>
+              </label>
+              <ol className="ai-modal-steps">
+                <li>In ChatGPT: enable <b>Developer mode</b> under Connectors → Advanced</li>
+                <li>Create a connector named <b>Omer</b>, paste the URL, auth = <b>OAuth</b></li>
+                <li>When Omer opens, sign in and press <b>Allow</b></li>
+              </ol>
+              <div className="cc-actions">
+                <button type="button" className="cc-btn" onClick={onClose}>Cancel</button>
+                <button type="button" className="cc-btn is-primary" onClick={() => void start()}>
+                  Open ChatGPT
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -233,8 +178,7 @@ export function ConnectAI() {
   const [url, setUrl] = useState(FALLBACK_URL);
   const [access, setAccess] = useState<Access[] | null>(null);
   const [busy, setBusy] = useState(false);
-  const [modal, setModal] = useState<Assistant | null>(null);
-  const [fresh, setFresh] = useState<string | null>(null);
+  const [chatgptOpen, setChatgptOpen] = useState(false);
   const knownIds = useRef<Set<string> | null>(null);
 
   const load = useCallback(async (opts?: { quiet?: boolean }) => {
@@ -274,25 +218,18 @@ export function ConnectAI() {
     };
   }, [load]);
 
-  const createKey = async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const res = await fetch('/api/mcp/keys', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'Cursor' }),
-      });
-      const data = await res.json().catch(() => ({})) as { token?: string; error?: string };
-      if (!res.ok || !data.token) throw new Error(data.error || 'Could not create a key');
-      setFresh(data.token);
-      await load({ quiet: true });
-      toast('Key created — copy the config', { kind: 'ok' });
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Could not create a key', { kind: 'warn' });
-    } finally {
-      setBusy(false);
+  const startConnect = (id: Assistant) => {
+    if (id === 'claude') {
+      openExternal(claudeInstallUrl(url));
+      toast('In Claude: confirm Omer, then Allow on Omer', { kind: 'ok' });
+      return;
     }
+    if (id === 'cursor') {
+      openExternal(cursorInstallUrl(url));
+      toast('In Cursor: install Omer, then Connect / Allow', { kind: 'ok' });
+      return;
+    }
+    setChatgptOpen(true);
   };
 
   const disconnectAssistant = async (id: Assistant) => {
@@ -349,7 +286,7 @@ export function ConnectAI() {
   return (
     <>
       <div className="set-main solo ai-connect">
-        <header className="ai-section-head">
+        <header className="set-int-section-head">
           <h3>AI assistants</h3>
           <p>Connect Claude, ChatGPT or Cursor — same access you have in Omer.</p>
         </header>
@@ -361,7 +298,7 @@ export function ConnectAI() {
               id={a.id}
               connected={linked(a.id)}
               busy={busy}
-              onConnect={() => { setFresh(null); setModal(a.id); }}
+              onConnect={() => startConnect(a.id)}
               onDisconnect={() => void disconnectAssistant(a.id)}
             />
           ))}
@@ -401,18 +338,13 @@ export function ConnectAI() {
         ) : null}
       </div>
 
-      {modal ? (
-        <ConnectModal
-          id={modal}
+      {chatgptOpen ? (
+        <ChatGptModal
           url={url}
-          busy={busy}
-          freshKey={fresh}
-          onClose={() => { if (!busy) { setModal(null); setFresh(null); } }}
-          onCreateKey={() => void createKey()}
+          onClose={() => setChatgptOpen(false)}
           onDone={() => {
-            setModal(null);
-            setFresh(null);
-            toast(modal === 'cursor' ? 'Paste the config in Cursor' : `Finish Allow in ${ASSISTANTS.find((a) => a.id === modal)!.name}`, { kind: 'ok' });
+            setChatgptOpen(false);
+            toast('Paste the URL in ChatGPT, then Allow on Omer', { kind: 'ok' });
             void load({ quiet: true });
           }}
         />
