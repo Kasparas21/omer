@@ -242,11 +242,29 @@ ANTI-PATTERNS
 
   const user = [
     `Store: ${project.name} (${project.origin})`,
-    `Recipient: ${opp.name || 'unknown'} <${opp.email}>`,
+    `Recipient: ${opp.name || ctx.enrichment?.name || 'unknown'} <${opp.email}>`,
     `Reason: ${opp.reason || ''}`,
     `Hooks: ${hooks.join(' | ') || 'none'}`,
     `Insight: ${opp.insightSummary || ctx.insight?.summary || ''}`,
     `Interests: ${(ctx.insight?.interests || []).join(', ') || 'n/a'}`,
+    ctx.enrichment
+      ? [
+        '## Public profile (from Alexandria — verified professional context only; do not invent beyond this)',
+        [
+          ctx.enrichment.title && ctx.enrichment.employer
+            ? `Role: ${ctx.enrichment.title} at ${ctx.enrichment.employer}`
+            : ctx.enrichment.title || ctx.enrichment.employer
+              ? `Role: ${ctx.enrichment.title || ctx.enrichment.employer}`
+              : null,
+          ctx.enrichment.location ? `Location: ${ctx.enrichment.location}` : null,
+          ctx.enrichment.headline ? `Headline: ${ctx.enrichment.headline}` : null,
+          ctx.enrichment.company?.industry ? `Company industry: ${ctx.enrichment.company.industry}` : null,
+          ctx.enrichment.company?.size ? `Company size: ${ctx.enrichment.company.size}` : null,
+          ctx.enrichment.summary ? `Notes: ${ctx.enrichment.summary.slice(0, 400)}` : null,
+          ctx.enrichment.linkedinUrl ? `LinkedIn: ${ctx.enrichment.linkedinUrl}` : null,
+        ].filter(Boolean).join('\n') || 'No extra public fields',
+      ].join('\n')
+      : null,
     `Visual skin: ${skin}`,
     `Recipe: ${recipe}`,
     `Section order: ${layout.order.join(' → ')}`,
@@ -263,7 +281,7 @@ ANTI-PATTERNS
     '',
     '## Products on file',
     products || '(none — do not invent product cards)',
-  ].join('\n');
+  ].filter((line): line is string => line != null).join('\n');
 
   const raw = await lunaDraftJson(system, user);
   const first = (opp.name || '').trim().split(/\s+/)[0] || null;

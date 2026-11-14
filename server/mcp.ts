@@ -17,6 +17,7 @@ import {
   bearerFrom, createApiKey, exchangeCode, getClient, issueCode, listAccess, refreshTokens, registerClient, revokeAccess, userFromToken,
 } from './mcp-auth';
 import { ArgError, INSTRUCTIONS, TOOLS, TOOLS_BY_NAME, type Caller } from './mcp-tools';
+import { API_MARKDOWN, OPENAPI } from './openapi';
 
 type Fetcher = (request: Request) => Promise<Response>;
 type Limiter = { limit(input: { key: string }): Promise<{ success: boolean }> };
@@ -268,11 +269,28 @@ export function createMcpApp(projectsFetch: Fetcher, limiter: Limiter) {
     return reply ? c.json(reply, 200, CORS_OPEN) : c.body(null, 202, CORS_OPEN);
   });
 
+  // ---------- Public API docs (no auth)
+  app.get('/openapi.json', (c) => c.json(OPENAPI, 200, {
+    'Cache-Control': 'public, max-age=300',
+    'Access-Control-Allow-Origin': '*',
+  }));
+  app.get('/docs/api.md', (c) => c.text(API_MARKDOWN, 200, {
+    'Content-Type': 'text/markdown; charset=utf-8',
+    'Cache-Control': 'public, max-age=300',
+    'Access-Control-Allow-Origin': '*',
+  }));
+
   // ---------- Settings: keys and connected apps (signed-in session only; a token can never mint tokens)
   app.get('/api/mcp/access', async (c) => {
     const user = await sessionUser(c);
     if (!user) return c.json({ error: 'Sign in first.' }, 401);
-    return c.json({ endpoint: MCP_URL, access: await listAccess(user.id) });
+    return c.json({
+      endpoint: MCP_URL,
+      apiBase: ISSUER,
+      openapi: `${ISSUER}/openapi.json`,
+      docs: `${ISSUER}/docs/api.md`,
+      access: await listAccess(user.id),
+    });
   });
   app.post('/api/mcp/keys', async (c) => {
     if (c.req.header('origin') !== ISSUER) return c.json({ error: 'Open the dashboard and try again.' }, 403);

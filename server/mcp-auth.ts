@@ -39,7 +39,7 @@ export async function userFromRequest(request: Request) {
   return token ? userFromToken(token) : null;
 }
 
-// ---------- Personal API keys (Settings → Integrations)
+// ---------- Personal API keys (Settings → Integrations → API)
 export async function createApiKey(userId: string, name: string) {
   const [{ count }] = await db().select({ count: sql<number>`count(*)::int` }).from(mcpTokens)
     .where(and(eq(mcpTokens.userId, userId), eq(mcpTokens.kind, 'api')));

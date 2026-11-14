@@ -208,6 +208,25 @@ export const visitorInsights = pgTable('project_visitor_insights', {
   index('project_visitor_insights_project_idx').on(table.projectId),
 ]);
 
+/** Public person/company context from Firecrawl Alexandria (email lookup). */
+export const visitorEnrichments = pgTable('project_visitor_enrichments', {
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  visitorId: text('visitor_id').notNull(),
+  email: text('email').notNull(),
+  status: text('status').default('pending').notNull(),
+  personJson: jsonb('person_json').$type<Record<string, unknown>>(),
+  companyJson: jsonb('company_json').$type<Record<string, unknown>>(),
+  sourcesJson: jsonb('sources_json').$type<Array<Record<string, unknown>>>(),
+  provider: text('provider'),
+  creditsUsed: integer('credits_used').default(0).notNull(),
+  error: text('error'),
+  generatedAt: timestamp('generated_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  primaryKey({ name: 'project_visitor_enrichments_pk', columns: [table.projectId, table.visitorId] }),
+  index('project_visitor_enrichments_email_idx').on(table.projectId, table.email),
+]);
+
 /** Brand knowledge (logo, colors, fonts, products, photos, voice, docs) per project. */
 export const projectBrand = pgTable('project_brand', {
   projectId: uuid('project_id').primaryKey().references(() => projects.id, { onDelete: 'cascade' }),
