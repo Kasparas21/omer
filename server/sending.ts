@@ -72,10 +72,10 @@ export async function getProjectSending(db: NodePgDatabase, projectId: string): 
   if (!row) return base;
   const provider = asProvider(row.provider);
   const hint = provider === 'ses'
-    ? 'Uses Omer’s Amazon SES. Add DNS so we can send as your domain.'
+    ? 'Omer sends for you. Add DNS to use your domain.'
     : provider === 'resend'
-      ? 'Uses your Resend account. Paste your Resend API key, then add the DNS Resend shows.'
-      : 'Uses your Postmark server token. Verify the sender/domain in Postmark, then Check DNS.';
+      ? 'Your Resend account. Paste an API key, then add DNS.'
+      : 'Your Postmark account. Paste a server token, then confirm the sender.';
   return {
     ...base,
     fromName: row.fromName || '',
@@ -175,7 +175,7 @@ export async function upsertProjectSending(
       } catch (error) {
         const msg = error instanceof Error ? error.message : '';
         if (/not authorized|AccessDenied|GetEmailIdentity|CreateEmailIdentity/i.test(msg)) {
-          throw new Error('Omer SES cannot verify domains yet — IAM needs ses:CreateEmailIdentity and ses:GetEmailIdentity. Until then use Resend or Postmark with your own key, or ask us to update SES permissions.');
+          throw new Error('Omer domain verify isn’t available yet. Use Custom with Resend or Postmark for now.');
         }
         throw error;
       }
@@ -257,7 +257,7 @@ export async function checkProjectSending(db: NodePgDatabase, projectId: string)
     } catch (error) {
       const msg = error instanceof Error ? error.message : '';
       if (/not authorized|AccessDenied|GetEmailIdentity/i.test(msg)) {
-        throw new Error('Omer SES cannot check domains yet — IAM needs ses:GetEmailIdentity. Use Resend or Postmark, or update SES permissions.');
+        throw new Error('Omer domain check isn’t available yet. Use Custom with Resend or Postmark for now.');
       }
       throw error;
     }
