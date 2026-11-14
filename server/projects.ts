@@ -47,11 +47,13 @@ import { campaignQueueCounts, previewTrigger, runCampaigns, triggerOptions } fro
 import { cleanTrigger } from './trigger-library';
 import { recordSignal, recordTrack } from './signals';
 import {
+  AUTO_SEND_MS,
+  ensureSprutDraftAndSchedule,
   isSprutDemoOrigin,
   kickSprutLeaveFollowup,
+  kickSprutPrestage,
   markSprutWonBack,
   resetSprutDemoVisitor,
-  scheduleSprutAutoSend,
 } from './sprut-demo';
 
 /** An IANA zone like Europe/Vilnius, or null. */
@@ -658,8 +660,15 @@ async function receiveEvent(request: Request, env: Env) {
 
   if (accepted && origin && isSprutDemoOrigin(origin)) {
     const trackName = type === 'track' && typeof body?.name === 'string' ? body.name.trim() : '';
+    if (trackName === 'shipping_options_shown') {
+      void withDatabase(env, (db) => kickSprutPrestage(db, accepted, vid!)).catch((error) => {
+        console.error('sprut prestage', error instanceof Error ? error.message : error);
+      });
+    }
     if (trackName === 'page_exit' || type === 'dwell') {
-      void withDatabase(env, (db) => kickSprutLeaveFollowup(db, accepted, vid!)).catch((error) => {
+      void withDatabase(env, (db) => kickSprutLeaveFollowup(db, accepted, vid!, {
+        fromDwell: type === 'dwell',
+      })).catch((error) => {
         console.error('sprut leave followup', error instanceof Error ? error.message : error);
       });
     }
@@ -1563,8 +1572,10 @@ async function summarizeVisitor(request: Request, env: Env, projectId: string, v
         if (opp?.id) {
           const [proj] = await db.select({ origin: projects.origin }).from(projects).where(eq(projects.id, projectId)).limit(1);
           if (proj && isSprutDemoOrigin(proj.origin)) {
-            // Filming: always queue auto-send after insight (drafts if needed). Don't wait on cool-down alone.
-            scheduleSprutAutoSend(db, projectId, opp.id, 45_000);
+            // Filming: rewrite to Sprüt leave draft if needed, then send ~10s later.
+            void ensureSprutDraftAndSchedule(db, projectId, opp.id, AUTO_SEND_MS).catch((error) => {
+              console.error('sprut insight ensure', error instanceof Error ? error.message : error);
+            });
           } else {
             kickPersonalFollowup(db, projectId, opp.id, saved.emailReadyConfidence);
           }
@@ -1856,7 +1867,9 @@ async function draftOpportunityRoute(request: Request, env: Env, projectId: stri
       const result = await draftOpportunityEmail(db, projectId, opportunityId);
       const [proj] = await db.select({ origin: projects.origin }).from(projects).where(eq(projects.id, projectId)).limit(1);
       if (proj && isSprutDemoOrigin(proj.origin) && result.opportunity?.id) {
-        scheduleSprutAutoSend(db, projectId, result.opportunity.id, 45_000);
+        void ensureSprutDraftAndSchedule(db, projectId, result.opportunity.id, AUTO_SEND_MS).catch((error) => {
+          console.error('sprut draft ensure', error instanceof Error ? error.message : error);
+        });
       }
       return json({
         draft: result.draft,
@@ -1894,23 +1907,38 @@ async function saveOpportunityDraftRoute(request: Request, env: Env, projectId: 
 }
 
 async function previewOpportunityHtmlRoute(request: Request, env: Env, projectId: string, opportunityId: string) {
-  if (!uuid.test(projectId) || !uuid.test(opportunityId)) return json({ error: 'Not found.' }, 404);
+  if (!uuid.test(projectId) || !uuid.test(opportunityId)) {
+    return json({ error: 'Invalid opportunity id.' }, 404);
+  }
   const owner = await ownerID(request);
   if (!owner) return json({ error: 'Sign in to preview.' }, 401);
+  let bodyDraft: Record<string, unknown> | null = null;
+  if (request.method === 'POST') {
+    const raw = await readText(request, 200_000);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as { draft?: Record<string, unknown> };
+        if (parsed?.draft && typeof parsed.draft === 'object') bodyDraft = parsed.draft;
+      } catch { /* ignore — fall back to stored draft */ }
+    }
+  }
   return withDatabase(env, async (db) => {
-    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    if (!(await ownedProject(db, projectId, owner))) {
+      return json({ error: 'Project not found.' }, 404);
+    }
     const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
-    if (!project) return json({ error: 'Not found.' }, 404);
+    if (!project) return json({ error: 'Project not found.' }, 404);
     if (!isSprutDemoOrigin(project.origin)) return json({ error: 'Sprüt preview only.' }, 400);
     const [opp] = await db.select().from(projectOpportunities)
       .where(and(eq(projectOpportunities.id, opportunityId), eq(projectOpportunities.projectId, projectId)))
       .limit(1);
-    if (!opp?.draftJson) return json({ error: 'Draft this email first.' }, 400);
-    const brandFull = await loadBrand(db, projectId);
-    const doc = opp.draftJson as {
+    if (!opp && !bodyDraft) return json({ error: 'Opportunity not found.' }, 404);
+    const doc = (bodyDraft || opp?.draftJson) as {
       subject?: string; preview?: string; headline?: string; body?: string[]; cta?: string; ctaUrl?: string;
-    };
-    const first = (opp.name ?? '').trim().split(/\s+/)[0] || null;
+    } | null;
+    if (!doc || typeof doc !== 'object') return json({ error: 'Draft this email first.' }, 400);
+    const brandFull = await loadBrand(db, projectId);
+    const first = (opp?.name ?? '').trim().split(/\s+/)[0] || null;
     const { renderSprutFollowupHtml, resolveSprutAssets, slotsFromMailDoc } = await import('./sprut-email-template');
     const html = renderSprutFollowupHtml(slotsFromMailDoc(doc, first), resolveSprutAssets(brandFull));
     return json({ html, subject: doc.subject || 'Sprüt' });
@@ -2363,7 +2391,9 @@ export default {
       }
       const opportunityPreview = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/opportunities\/([0-9a-f-]{36})\/preview$/i);
       if (opportunityPreview) {
-        if (request.method === 'GET') return await previewOpportunityHtmlRoute(request, env, opportunityPreview[1], opportunityPreview[2]);
+        if (request.method === 'GET' || request.method === 'POST') {
+          return await previewOpportunityHtmlRoute(request, env, opportunityPreview[1], opportunityPreview[2]);
+        }
         return json({ error: 'Method not allowed.' }, 405);
       }
       const opportunitySend = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/opportunities\/([0-9a-f-]{36})\/send$/i);

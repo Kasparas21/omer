@@ -32,12 +32,14 @@ type RealOpp = {
 function SprutPreviewFrame({
   projectId,
   opportunityId,
+  draft,
   html,
   onHtml,
   refreshKey,
 }: {
   projectId: string;
   opportunityId: string;
+  draft?: MailDoc | null;
   html: string | null;
   onHtml: (html: string | null) => void;
   refreshKey: number;
@@ -45,18 +47,38 @@ function SprutPreviewFrame({
   useEffect(() => {
     let gone = false;
     onHtml(null);
-    void fetch(`/api/projects/${projectId}/opportunities/${opportunityId}/preview`)
-      .then(async (res) => {
+    void (async () => {
+      try {
+        const res = await fetch(`/api/projects/${projectId}/opportunities/${opportunityId}/preview`, {
+          credentials: 'same-origin',
+        });
         const data = await res.json().catch(() => ({})) as { html?: string; error?: string };
         if (gone) return;
-        if (!res.ok || !data.html) throw new Error(data.error || 'Preview failed');
-        onHtml(data.html);
-      })
-      .catch((error) => {
+        if (res.ok && data.html) {
+          onHtml(data.html);
+          return;
+        }
+        // Fallback: render from the draft we already have in the list (avoids empty “Not found” mid-take).
+        if (draft) {
+          const retry = await fetch(`/api/projects/${projectId}/opportunities/${opportunityId}/preview`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ draft }),
+          });
+          const again = await retry.json().catch(() => ({})) as { html?: string; error?: string };
+          if (gone) return;
+          if (!retry.ok || !again.html) throw new Error(again.error || data.error || 'Preview failed');
+          onHtml(again.html);
+          return;
+        }
+        throw new Error(data.error || 'Preview failed');
+      } catch (error) {
         if (!gone) toast(error instanceof Error ? error.message : 'Preview failed', { kind: 'warn' });
-      });
+      }
+    })();
     return () => { gone = true; };
-  }, [projectId, opportunityId, onHtml, refreshKey]);
+  }, [projectId, opportunityId, draft, onHtml, refreshKey]);
 
   if (!html) {
     return <p className="omer-empty-note" role="status">Loading Sprüt preview…</p>;
@@ -267,7 +289,7 @@ export function Opportunities({ demo, projectId, storeName = '', host, editing, 
               </button>
             </div>
             <p className="op-sprut-note">Exact Sprüt template (same HTML that Gmail gets). Logo sits on green so it stays visible.</p>
-            <SprutPreviewFrame projectId={projectId} opportunityId={editingOpp.id} html={sprutHtml} onHtml={setSprutHtml} refreshKey={sprutPreviewKey} />
+            <SprutPreviewFrame projectId={projectId} opportunityId={editingOpp.id} draft={editingOpp.draft} html={sprutHtml} onHtml={setSprutHtml} refreshKey={sprutPreviewKey} />
           </div>
         );
       }
@@ -355,6 +377,19 @@ export function Opportunities({ demo, projectId, storeName = '', host, editing, 
                   o.hasDraft || o.draft ? (
                     <button type="button" className="btn btn-ghost btn-sm" disabled={realBusy} onClick={() => void openDraft(o)}>View</button>
                   ) : null
+                ) : isSprut && (o.status === 'drafted' || o.status === 'ready_for_draft' || o.status === 'review') ? (
+                  <>
+                    <span className="op-real-auto" title="Sends on its own in a few seconds">Sending…</span>
+                    {o.hasDraft || o.draft ? (
+                      <>
+                        <button type="button" className="btn btn-ghost btn-sm" disabled={realBusy} onClick={() => void openDraft(o)}>View</button>
+                        <button type="button" className="btn btn-secondary btn-sm" disabled={realBusy || !sendOn} onClick={() => void send(o.id)}>
+                          Send now
+                        </button>
+                      </>
+                    ) : null}
+                    <button type="button" className="btn btn-ghost btn-sm" disabled={realBusy} onClick={() => void patch(o.id, 'dismissed')}>Dismiss</button>
+                  </>
                 ) : (
                   <>
                     <button type="button" className="btn btn-primary btn-sm" disabled={realBusy} onClick={() => void openDraft(o)}>
