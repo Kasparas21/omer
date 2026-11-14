@@ -29,13 +29,15 @@ import { loadEmailContext } from './email-context';
 import { mailProvidersAvailable } from './mail-transport';
 import { checkProjectSending, getProjectSending, upsertProjectSending } from './sending';
 import {
-  connectStripe,
-  disconnectStripe,
+  connectIntegration,
+  disconnectIntegration,
   handleStripeWebhook,
+  isProvider,
   listProjectIntegrations,
   saveStripeWebhookSecret,
-  syncProjectStripe,
+  syncProjectIntegration,
   reattachStripePurchasesByEmail,
+  type IntegrationProvider,
 } from './integrations';
 import { CAMPAIGN_ID, MAX_IMAGE_BYTES, deleteCampaign, imageStorageReady, listCampaigns, saveCampaign, storeImage } from './campaigns';
 import { campaignQueueCounts, previewTrigger, runCampaigns, triggerOptions } from './campaign-runner';
@@ -1776,54 +1778,60 @@ async function getIntegrationsRoute(request: Request, env: Env, projectId: strin
   });
 }
 
-async function connectStripeRoute(request: Request, env: Env, projectId: string) {
+async function connectIntegrationRoute(request: Request, env: Env, projectId: string, providerRaw: string) {
   if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  if (!isProvider(providerRaw)) return json({ error: 'Unknown provider.' }, 404);
+  const provider = providerRaw as IntegrationProvider;
   const owner = await ownerID(request);
-  if (!owner) return json({ error: 'Sign in to connect Stripe.' }, 401);
+  if (!owner) return json({ error: 'Sign in to connect.' }, 401);
   const raw = await readText(request, 8_000);
   if (raw === null) return json({ error: 'Payload too large.' }, 413);
   let body: { apiKey?: string; webhookSecret?: string } | null;
   try { body = JSON.parse(raw); } catch { return json({ error: 'Invalid JSON.' }, 400); }
-  if (!body?.apiKey?.trim()) return json({ error: 'Paste a Stripe API key.' }, 400);
+  if (!body?.apiKey?.trim()) return json({ error: 'Paste an API key.' }, 400);
   return withDatabase(env, async (db) => {
     if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
     try {
-      const result = await connectStripe(db, projectId, {
+      const result = await connectIntegration(db, projectId, provider, {
         apiKey: body!.apiKey!,
         webhookSecret: body?.webhookSecret,
       });
       return json(result);
     } catch (error) {
-      console.error('stripe connect failed', error);
+      console.error(`${provider} connect failed`, error);
       return json({ error: error instanceof Error ? error.message.slice(0, 240) : 'Connect failed' }, 400);
     }
   });
 }
 
-async function syncStripeRoute(request: Request, env: Env, projectId: string) {
+async function syncIntegrationRoute(request: Request, env: Env, projectId: string, providerRaw: string) {
   if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  if (!isProvider(providerRaw)) return json({ error: 'Unknown provider.' }, 404);
+  const provider = providerRaw as IntegrationProvider;
   const owner = await ownerID(request);
-  if (!owner) return json({ error: 'Sign in to sync Stripe.' }, 401);
+  if (!owner) return json({ error: 'Sign in to sync.' }, 401);
   return withDatabase(env, async (db) => {
     if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
     try {
-      const synced = await syncProjectStripe(db, projectId);
+      const synced = await syncProjectIntegration(db, projectId, provider);
       const integrations = await listProjectIntegrations(db, projectId);
       return json({ synced, integrations });
     } catch (error) {
-      console.error('stripe sync failed', error);
+      console.error(`${provider} sync failed`, error);
       return json({ error: error instanceof Error ? error.message.slice(0, 240) : 'Sync failed' }, 502);
     }
   });
 }
 
-async function disconnectStripeRoute(request: Request, env: Env, projectId: string) {
+async function disconnectIntegrationRoute(request: Request, env: Env, projectId: string, providerRaw: string) {
   if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  if (!isProvider(providerRaw)) return json({ error: 'Unknown provider.' }, 404);
+  const provider = providerRaw as IntegrationProvider;
   const owner = await ownerID(request);
-  if (!owner) return json({ error: 'Sign in to disconnect Stripe.' }, 401);
+  if (!owner) return json({ error: 'Sign in to disconnect.' }, 401);
   return withDatabase(env, async (db) => {
     if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
-    const integrations = await disconnectStripe(db, projectId);
+    const integrations = await disconnectIntegration(db, projectId, provider);
     return json({ integrations });
   });
 }
@@ -2147,19 +2155,19 @@ export default {
         if (request.method === 'PUT') return await putSendingRoute(request, env, sendingMatch[1]);
         return json({ error: 'Method not allowed.' }, 405);
       }
-      const stripeConnect = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/integrations\/stripe\/connect$/i);
-      if (stripeConnect) {
-        if (request.method === 'POST') return await connectStripeRoute(request, env, stripeConnect[1]);
+      const providerConnect = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/integrations\/(stripe|dodo|revenuecat)\/connect$/i);
+      if (providerConnect) {
+        if (request.method === 'POST') return await connectIntegrationRoute(request, env, providerConnect[1], providerConnect[2].toLowerCase());
         return json({ error: 'Method not allowed.' }, 405);
       }
-      const stripeSync = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/integrations\/stripe\/sync$/i);
-      if (stripeSync) {
-        if (request.method === 'POST') return await syncStripeRoute(request, env, stripeSync[1]);
+      const providerSync = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/integrations\/(stripe|dodo|revenuecat)\/sync$/i);
+      if (providerSync) {
+        if (request.method === 'POST') return await syncIntegrationRoute(request, env, providerSync[1], providerSync[2].toLowerCase());
         return json({ error: 'Method not allowed.' }, 405);
       }
-      const stripeDisconnect = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/integrations\/stripe\/disconnect$/i);
-      if (stripeDisconnect) {
-        if (request.method === 'POST') return await disconnectStripeRoute(request, env, stripeDisconnect[1]);
+      const providerDisconnect = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/integrations\/(stripe|dodo|revenuecat)\/disconnect$/i);
+      if (providerDisconnect) {
+        if (request.method === 'POST') return await disconnectIntegrationRoute(request, env, providerDisconnect[1], providerDisconnect[2].toLowerCase());
         return json({ error: 'Method not allowed.' }, 405);
       }
       const stripeWebhookSecret = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/integrations\/stripe\/webhook-secret$/i);

@@ -1,7 +1,9 @@
-/* Project revenue integrations: Stripe connect + sync into project_purchases. */
+/* Project revenue integrations: Stripe / Dodo / RevenueCat → project_purchases. */
 import { and, desc, eq, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { cleanCurrency, cleanEmail } from './commerce';
+import { dodoListRecentPayments, dodoValidateKey, type DodoPayment } from './dodo';
+import { revenuecatListRecentPayments, revenuecatValidateKey, type RevenueCatPayment } from './revenuecat';
 import { identities, projectIntegrations, purchases, visits } from './schema';
 import { openSecret, sealSecret } from './secret-box';
 import {
@@ -17,7 +19,7 @@ export type IntegrationProvider = 'stripe' | 'dodo' | 'revenuecat';
 
 export type PublicIntegration = {
   provider: IntegrationProvider;
-  status: 'none' | 'connected' | 'invalid' | 'error' | 'soon';
+  status: 'none' | 'connected' | 'invalid' | 'error';
   hasApiKey: boolean;
   hasWebhookSecret: boolean;
   accountId: string | null;
@@ -26,20 +28,35 @@ export type PublicIntegration = {
   available: boolean;
 };
 
+type NormalizedPayment = {
+  id: string;
+  amountCents: number;
+  currency: string;
+  created: number;
+  email: string | null;
+  customerId: string | null;
+  description: string | null;
+  metadataVid?: string | null;
+  products?: { name: string; price?: number; qty?: number }[] | null;
+};
+
 const CATALOG: IntegrationProvider[] = ['stripe', 'dodo', 'revenuecat'];
 
 function emptyPublic(provider: IntegrationProvider): PublicIntegration {
-  const soon = provider !== 'stripe';
   return {
     provider,
-    status: soon ? 'soon' : 'none',
+    status: 'none',
     hasApiKey: false,
     hasWebhookSecret: false,
     accountId: null,
     lastSyncAt: null,
     lastError: null,
-    available: provider === 'stripe',
+    available: true,
   };
+}
+
+function isProvider(value: string): value is IntegrationProvider {
+  return CATALOG.includes(value as IntegrationProvider);
 }
 
 export async function listProjectIntegrations(db: NodePgDatabase, projectId: string): Promise<PublicIntegration[]> {
@@ -48,7 +65,7 @@ export async function listProjectIntegrations(db: NodePgDatabase, projectId: str
   return CATALOG.map((provider) => {
     const base = emptyPublic(provider);
     const row = byProvider.get(provider);
-    if (!row || provider !== 'stripe') return base;
+    if (!row) return base;
     const status = (['none', 'connected', 'invalid', 'error'].includes(row.status) ? row.status : 'none') as PublicIntegration['status'];
     return {
       ...base,
@@ -62,9 +79,13 @@ export async function listProjectIntegrations(db: NodePgDatabase, projectId: str
   });
 }
 
-async function readStripeKey(db: NodePgDatabase, projectId: string): Promise<{ key: string; webhookSecret: string | null; row: typeof projectIntegrations.$inferSelect } | null> {
+async function readProviderKey(
+  db: NodePgDatabase,
+  projectId: string,
+  provider: IntegrationProvider,
+): Promise<{ key: string; webhookSecret: string | null; row: typeof projectIntegrations.$inferSelect } | null> {
   const [row] = await db.select().from(projectIntegrations)
-    .where(and(eq(projectIntegrations.projectId, projectId), eq(projectIntegrations.provider, 'stripe')))
+    .where(and(eq(projectIntegrations.projectId, projectId), eq(projectIntegrations.provider, provider)))
     .limit(1);
   if (!row?.apiKeySealed) return null;
   try {
@@ -79,7 +100,8 @@ async function readStripeKey(db: NodePgDatabase, projectId: string): Promise<{ k
 async function resolveVisitorId(
   db: NodePgDatabase,
   projectId: string,
-  payment: StripePayment,
+  provider: IntegrationProvider,
+  payment: NormalizedPayment,
 ): Promise<{ visitorId: string; email: string | null }> {
   const email = payment.email ? cleanEmail(payment.email) : null;
   if (payment.metadataVid) {
@@ -92,8 +114,8 @@ async function resolveVisitorId(
       .limit(1);
     if (hit?.visitorId) return { visitorId: hit.visitorId, email };
   }
-  if (payment.customerId) return { visitorId: `stripe:${payment.customerId}`, email };
-  return { visitorId: `unmatched:stripe:${payment.id}`, email };
+  if (payment.customerId) return { visitorId: `${provider}:${payment.customerId}`, email };
+  return { visitorId: `unmatched:${provider}:${payment.id}`, email };
 }
 
 async function attributionForVisitor(
@@ -102,7 +124,8 @@ async function attributionForVisitor(
   visitorId: string,
   seenAt: Date,
 ): Promise<{ path: string | null; referrer: string | null }> {
-  if (visitorId.startsWith('stripe:') || visitorId.startsWith('unmatched:')) {
+  if (visitorId.includes(':') && (visitorId.startsWith('stripe:') || visitorId.startsWith('dodo:')
+    || visitorId.startsWith('revenuecat:') || visitorId.startsWith('unmatched:'))) {
     return { path: null, referrer: null };
   }
   const [visit] = await db.select({ path: visits.path, referrer: visits.referrer }).from(visits)
@@ -116,18 +139,59 @@ async function attributionForVisitor(
   return { path: visit?.path ?? null, referrer: visit?.referrer ?? null };
 }
 
-export async function ingestStripePayment(
+function fromStripe(payment: StripePayment): NormalizedPayment {
+  return {
+    id: payment.id,
+    amountCents: payment.amountCents,
+    currency: payment.currency,
+    created: payment.created,
+    email: payment.email,
+    customerId: payment.customerId,
+    description: payment.products?.[0]?.name || 'Stripe payment',
+    metadataVid: payment.metadataVid,
+    products: payment.products,
+  };
+}
+
+function fromDodo(payment: DodoPayment): NormalizedPayment {
+  return {
+    id: payment.id,
+    amountCents: payment.amountCents,
+    currency: payment.currency,
+    created: payment.created,
+    email: payment.email,
+    customerId: payment.customerId,
+    description: payment.description,
+    products: payment.description ? [{ name: payment.description }] : null,
+  };
+}
+
+function fromRevenueCat(payment: RevenueCatPayment): NormalizedPayment {
+  return {
+    id: payment.id,
+    amountCents: payment.amountCents,
+    currency: payment.currency,
+    created: payment.created,
+    email: payment.email,
+    customerId: payment.customerId,
+    description: payment.description,
+    products: payment.description ? [{ name: payment.description }] : null,
+  };
+}
+
+async function ingestPayment(
   db: NodePgDatabase,
   projectId: string,
-  payment: StripePayment,
+  provider: IntegrationProvider,
+  payment: NormalizedPayment,
   apiKey?: string,
 ): Promise<'inserted' | 'exists'> {
   let email = payment.email;
-  if (!email && payment.customerId && apiKey) {
+  if (!email && payment.customerId && apiKey && provider === 'stripe') {
     email = await stripeGetCustomerEmail(apiKey, payment.customerId);
   }
   const enriched = { ...payment, email: email || payment.email };
-  const { visitorId, email: matchedEmail } = await resolveVisitorId(db, projectId, enriched);
+  const { visitorId, email: matchedEmail } = await resolveVisitorId(db, projectId, provider, enriched);
   const seenAt = new Date(enriched.created * 1000);
   const attr = await attributionForVisitor(db, projectId, visitorId, seenAt);
 
@@ -147,7 +211,7 @@ export async function ingestStripePayment(
       products: enriched.products,
       campaign: null,
       isReturning: Boolean(prior),
-      provider: 'stripe',
+      provider,
       providerPaymentId: enriched.id,
       customerEmail: matchedEmail,
       seenAt,
@@ -158,7 +222,16 @@ export async function ingestStripePayment(
   }
 }
 
-/** When a visitor identifies with email, attach prior unmatched Stripe purchases. */
+export async function ingestStripePayment(
+  db: NodePgDatabase,
+  projectId: string,
+  payment: StripePayment,
+  apiKey?: string,
+): Promise<'inserted' | 'exists'> {
+  return ingestPayment(db, projectId, 'stripe', fromStripe(payment), apiKey);
+}
+
+/** When a visitor identifies with email, attach prior unmatched provider purchases. */
 export async function reattachStripePurchasesByEmail(
   db: NodePgDatabase,
   projectId: string,
@@ -169,30 +242,54 @@ export async function reattachStripePurchasesByEmail(
   if (!email || !visitorId) return;
   await db.update(purchases).set({ visitorId }).where(and(
     eq(purchases.projectId, projectId),
-    eq(purchases.provider, 'stripe'),
     eq(purchases.customerEmail, email),
-    sql`(${purchases.visitorId} like 'stripe:%' or ${purchases.visitorId} like 'unmatched:%')`,
+    sql`(${purchases.visitorId} like 'stripe:%' or ${purchases.visitorId} like 'dodo:%' or ${purchases.visitorId} like 'revenuecat:%' or ${purchases.visitorId} like 'unmatched:%')`,
   ));
 }
 
-export async function connectStripe(
+async function validateAndAccount(provider: IntegrationProvider, apiKey: string): Promise<{ accountId: string }> {
+  if (provider === 'stripe') {
+    if (!apiKey.startsWith('sk_') && !apiKey.startsWith('rk_')) {
+      throw new Error('Use a Stripe secret or restricted key (sk_… or rk_…)');
+    }
+    return stripeValidateKey(apiKey);
+  }
+  if (provider === 'dodo') {
+    return dodoValidateKey(apiKey);
+  }
+  if (!apiKey.startsWith('sk_')) {
+    throw new Error('Use a RevenueCat secret API key (sk_…)');
+  }
+  return revenuecatValidateKey(apiKey);
+}
+
+async function listRecent(provider: IntegrationProvider, apiKey: string, sinceUnix: number): Promise<NormalizedPayment[]> {
+  if (provider === 'stripe') {
+    return (await stripeListRecentPayments(apiKey, sinceUnix)).map(fromStripe);
+  }
+  if (provider === 'dodo') {
+    return (await dodoListRecentPayments(apiKey, sinceUnix)).map(fromDodo);
+  }
+  return (await revenuecatListRecentPayments(apiKey, sinceUnix)).map(fromRevenueCat);
+}
+
+export async function connectIntegration(
   db: NodePgDatabase,
   projectId: string,
+  provider: IntegrationProvider,
   input: { apiKey: string; webhookSecret?: string },
 ): Promise<{ integrations: PublicIntegration[]; synced: number }> {
+  if (!isProvider(provider)) throw new Error('Unknown provider');
   const apiKey = input.apiKey.trim();
-  if (!apiKey.startsWith('sk_') && !apiKey.startsWith('rk_')) {
-    throw new Error('Use a Stripe secret or restricted key (sk_… or rk_…)');
-  }
   let accountId = '';
   try {
-    const account = await stripeValidateKey(apiKey);
+    const account = await validateAndAccount(provider, apiKey);
     accountId = account.accountId;
   } catch (error) {
-    const msg = error instanceof Error ? error.message : 'Invalid Stripe key';
+    const msg = error instanceof Error ? error.message : 'Invalid API key';
     await db.insert(projectIntegrations).values({
       projectId,
-      provider: 'stripe',
+      provider,
       status: 'invalid',
       apiKeySealed: null,
       stripeAccountId: null,
@@ -207,22 +304,24 @@ export async function connectStripe(
         updatedAt: new Date(),
       },
     });
-    throw new Error(msg.includes('Stripe') ? msg : `Invalid Stripe key: ${msg}`);
+    throw new Error(msg);
   }
 
   const sealed = sealSecret(apiKey);
-  const webhookSealed = input.webhookSecret?.trim() ? sealSecret(input.webhookSecret.trim()) : null;
+  const webhookSealed = provider === 'stripe' && input.webhookSecret?.trim()
+    ? sealSecret(input.webhookSecret.trim())
+    : null;
   const [existing] = await db.select().from(projectIntegrations)
-    .where(and(eq(projectIntegrations.projectId, projectId), eq(projectIntegrations.provider, 'stripe')))
+    .where(and(eq(projectIntegrations.projectId, projectId), eq(projectIntegrations.provider, provider)))
     .limit(1);
 
   await db.insert(projectIntegrations).values({
     projectId,
-    provider: 'stripe',
+    provider,
     status: 'connected',
     apiKeySealed: sealed,
     stripeAccountId: accountId,
-    webhookSecretSealed: webhookSealed ?? existing?.webhookSecretSealed ?? null,
+    webhookSecretSealed: webhookSealed ?? (provider === 'stripe' ? existing?.webhookSecretSealed ?? null : null),
     lastError: null,
     updatedAt: new Date(),
   }).onConflictDoUpdate({
@@ -231,17 +330,26 @@ export async function connectStripe(
       status: 'connected',
       apiKeySealed: sealed,
       stripeAccountId: accountId,
-      webhookSecretSealed: webhookSealed ?? existing?.webhookSecretSealed ?? null,
+      webhookSecretSealed: webhookSealed ?? (provider === 'stripe' ? existing?.webhookSecretSealed ?? null : null),
       lastError: null,
       updatedAt: new Date(),
     },
   });
 
-  const synced = await syncProjectStripe(db, projectId);
+  const synced = await syncProjectIntegration(db, projectId, provider);
   return { integrations: await listProjectIntegrations(db, projectId), synced };
 }
 
-export async function disconnectStripe(db: NodePgDatabase, projectId: string) {
+export async function connectStripe(
+  db: NodePgDatabase,
+  projectId: string,
+  input: { apiKey: string; webhookSecret?: string },
+) {
+  return connectIntegration(db, projectId, 'stripe', input);
+}
+
+export async function disconnectIntegration(db: NodePgDatabase, projectId: string, provider: IntegrationProvider) {
+  if (!isProvider(provider)) throw new Error('Unknown provider');
   await db.update(projectIntegrations).set({
     status: 'none',
     apiKeySealed: null,
@@ -249,8 +357,12 @@ export async function disconnectStripe(db: NodePgDatabase, projectId: string) {
     webhookSecretSealed: null,
     lastError: null,
     updatedAt: new Date(),
-  }).where(and(eq(projectIntegrations.projectId, projectId), eq(projectIntegrations.provider, 'stripe')));
+  }).where(and(eq(projectIntegrations.projectId, projectId), eq(projectIntegrations.provider, provider)));
   return listProjectIntegrations(db, projectId);
+}
+
+export async function disconnectStripe(db: NodePgDatabase, projectId: string) {
+  return disconnectIntegration(db, projectId, 'stripe');
 }
 
 export async function saveStripeWebhookSecret(db: NodePgDatabase, projectId: string, secret: string) {
@@ -266,15 +378,20 @@ export async function saveStripeWebhookSecret(db: NodePgDatabase, projectId: str
   return listProjectIntegrations(db, projectId);
 }
 
-export async function syncProjectStripe(db: NodePgDatabase, projectId: string): Promise<number> {
-  const creds = await readStripeKey(db, projectId);
-  if (!creds) throw new Error('Stripe is not connected');
+export async function syncProjectIntegration(
+  db: NodePgDatabase,
+  projectId: string,
+  provider: IntegrationProvider,
+): Promise<number> {
+  if (!isProvider(provider)) throw new Error('Unknown provider');
+  const creds = await readProviderKey(db, projectId, provider);
+  if (!creds) throw new Error(`${provider} is not connected`);
   const since = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
   let inserted = 0;
   try {
-    const payments = await stripeListRecentPayments(creds.key, since);
+    const payments = await listRecent(provider, creds.key, since);
     for (const payment of payments) {
-      const result = await ingestStripePayment(db, projectId, payment, creds.key);
+      const result = await ingestPayment(db, projectId, provider, payment, creds.key);
       if (result === 'inserted') inserted += 1;
     }
     await db.update(projectIntegrations).set({
@@ -282,17 +399,21 @@ export async function syncProjectStripe(db: NodePgDatabase, projectId: string): 
       lastSyncAt: new Date(),
       lastError: null,
       updatedAt: new Date(),
-    }).where(and(eq(projectIntegrations.projectId, projectId), eq(projectIntegrations.provider, 'stripe')));
+    }).where(and(eq(projectIntegrations.projectId, projectId), eq(projectIntegrations.provider, provider)));
   } catch (error) {
     const msg = error instanceof Error ? error.message.slice(0, 240) : 'Sync failed';
     await db.update(projectIntegrations).set({
       status: 'error',
       lastError: msg,
       updatedAt: new Date(),
-    }).where(and(eq(projectIntegrations.projectId, projectId), eq(projectIntegrations.provider, 'stripe')));
+    }).where(and(eq(projectIntegrations.projectId, projectId), eq(projectIntegrations.provider, provider)));
     throw error;
   }
   return inserted;
+}
+
+export async function syncProjectStripe(db: NodePgDatabase, projectId: string): Promise<number> {
+  return syncProjectIntegration(db, projectId, 'stripe');
 }
 
 export async function handleStripeWebhook(
@@ -301,7 +422,7 @@ export async function handleStripeWebhook(
   rawBody: string,
   signature: string | null,
 ): Promise<{ ok: boolean; inserted?: boolean }> {
-  const creds = await readStripeKey(db, projectId);
+  const creds = await readProviderKey(db, projectId, 'stripe');
   if (!creds?.webhookSecret) return { ok: false };
   if (!stripeVerifyWebhook(rawBody, signature, creds.webhookSecret)) return { ok: false };
   let event: Record<string, unknown>;
@@ -315,3 +436,5 @@ export async function handleStripeWebhook(
   }).where(and(eq(projectIntegrations.projectId, projectId), eq(projectIntegrations.provider, 'stripe')));
   return { ok: true, inserted: result === 'inserted' };
 }
+
+export { isProvider };
