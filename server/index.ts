@@ -48,6 +48,7 @@ app.get('/api/config', (c) => c.json({
   replayStorage: objectStoreConfigured(),
   replayInsights: openaiConfigured(),
   firecrawl: firecrawlConfigured(),
+  visitorEnrich: firecrawlConfigured(),
   brandImport: brandImportReady(),
   ses: sesConfigured(),
   // BYO Resend / Postmark are always available in Settings (merchant pastes their key).
@@ -77,6 +78,7 @@ app.all('/api/projects/:id/campaigns/*', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/assets', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/visitors/:vid', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/visitors/:vid/insight', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/visitors/:vid/enrich', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/visitors/:vid/email-context', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/replays/:rid/summary', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/replays/:rid', (c) => projects.fetch(c.req.raw, env));
