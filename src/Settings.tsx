@@ -280,6 +280,36 @@ export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab
                     <button className="btn btn-secondary btn-sm" type="button" onClick={() => onCopy('script')}><Icon name="copy" />Copy</button>
                   </div>
                 </Row>
+                {/sprut-demo-store\.vercel\.app/i.test(project.origin) ? (
+                  <Row title="Demo reset" wide>
+                    <span className="omer-set-acts">
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        disabled={demo || storeBusy}
+                        onClick={() => {
+                          if (!window.confirm('Clear joris263@gmail.com opportunities, drafts, and signals for a clean retake?')) return;
+                          void (async () => {
+                            try {
+                              const res = await fetch(`/api/projects/${project.id}/demo-reset`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ email: 'joris263@gmail.com' }),
+                              });
+                              const data = await res.json().catch(() => ({})) as { error?: string; reset?: number };
+                              if (!res.ok) throw new Error(data.error || 'Reset failed');
+                              toast(`Reset ${data.reset || 0} visitor(s)`, { kind: 'ok' });
+                            } catch (error) {
+                              toast(error instanceof Error ? error.message : 'Reset failed', { kind: 'warn' });
+                            }
+                          })();
+                        }}
+                      >
+                        Reset filming visitor
+                      </button>
+                    </span>
+                  </Row>
+                ) : null}
               </div>
               <aside className="set-side">
                 <div className="set-side-in">

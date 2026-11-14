@@ -84,6 +84,41 @@ export async function noteProduct(tx: Tx, projectId: string, path: string, p: Pr
     .where(and(eq(projectProducts.projectId, projectId), eq(projectProducts.path, path)));
 }
 
+const TRACK_NAME_MAX = 80;
+const TRACK_PROPS_MAX = 8_000;
+
+/** Store a named custom track() event (Sprüt demo + general store instrumentation). */
+export async function recordTrack(
+  tx: Tx,
+  projectId: string,
+  visitorId: string,
+  body: Record<string, unknown>,
+  path: string,
+) {
+  const name = typeof body.name === 'string' ? body.name.trim().slice(0, TRACK_NAME_MAX) : '';
+  if (!name) return false;
+  const propsRaw = body.props && typeof body.props === 'object' && !Array.isArray(body.props)
+    ? body.props as Record<string, unknown>
+    : {};
+  let props = propsRaw;
+  try {
+    const encoded = JSON.stringify(propsRaw);
+    if (encoded.length > TRACK_PROPS_MAX) {
+      props = { _truncated: true };
+    }
+  } catch {
+    props = {};
+  }
+  await tx.insert(projectSignals).values({
+    projectId,
+    visitorId,
+    kind: 'track',
+    path,
+    data: { name, ...props },
+  });
+  return true;
+}
+
 /** Store one tracker signal. Returns false when it doesn't hold anything usable. */
 export async function recordSignal(tx: Tx, projectId: string, visitorId: string, kind: 'cart' | 'code' | 'product', body: Record<string, unknown>, path: string) {
   if (kind === 'cart') {

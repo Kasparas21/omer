@@ -29,6 +29,8 @@
 .op-real-auto { display: inline-flex; align-items: center; gap: 5px; justify-self: start; margin-top: 4px; padding: 3px 9px; border-radius: 99px; background: var(--accent-soft); font-size: 12px; font-weight: 500; color: var(--accent); }
 .op-real-auto .ico { width: 12px; height: 12px; }
 .op-real-auto.is-hold { background: var(--v2-shell, var(--surface-2)); color: var(--ink-2); }
+.op-real-auto.is-won { background: color-mix(in srgb, var(--success, #22A06B) 18%, transparent); color: var(--success, #22A06B); }
+.op-real-card.is-won { border-color: color-mix(in srgb, var(--success, #22A06B) 35%, var(--v2-line)); }
 .op-real-card > p { margin: 0; font-size: 14px; line-height: 1.45; color: var(--ink-2); }
 .op-real-hooks { display: flex; flex-wrap: wrap; gap: 6px; }
 .op-real-hooks span {
