@@ -8,7 +8,8 @@ same REST route the dashboard uses and runs as the signed-in owner, so an AI can
 | `server/mcp.ts` | `/mcp` endpoint, OAuth discovery + dynamic client registration + authorize + token, key management for Settings |
 | `server/mcp-tools.ts` | The 37 tools (analytics, people, replays, brand, opportunities, drafting and sending, campaigns, sending setup, integrations) |
 | `server/mcp-auth.ts` | API keys and OAuth tokens (SHA-256 hashed at rest), PKCE codes, refresh rotation |
-| `src/ConnectAI.tsx` | Settings → Integrations: per-assistant setup steps, API keys, connected apps |
+| `src/ConnectAI.tsx` | Settings → Integrations: Connect cards (opens sticky `/connect/…` pages) |
+| `server/connect-assist.ts` | Sticky Claude / ChatGPT / Cursor handoff pages that survive vanishing install tabs |
 | `drizzle/0021_mcp_access.sql` | `mcp_tokens`, `mcp_oauth_clients`, `mcp_oauth_codes` |
 
 ## Auth
@@ -18,7 +19,7 @@ same REST route the dashboard uses and runs as the signed-in owner, so an AI can
 
 ## Deploy checklist
 1. Run `npm run db:migrate` (migration 0021).
-2. `APP_URL` must be the public HTTPS origin (ChatGPT and Claude.ai call it from their servers). The reverse proxy must pass `/mcp`, `/oauth/*` and `/.well-known/*` to the app.
+2. `APP_URL` must be the public HTTPS origin (ChatGPT and Claude.ai call it from their servers). The reverse proxy must pass `/mcp`, `/oauth/*`, `/connect/*` and `/.well-known/*` to the app.
 
 ## Safety
 Tools that email real customers (`send_opportunity_email`, `run_campaigns`, auto-mode campaigns, `set_personal_followups`) are annotated destructive, so clients ask for confirmation, and the server instructions tell the model to show drafts and get explicit approval first.

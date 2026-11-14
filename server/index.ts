@@ -16,6 +16,7 @@ import { checkProducts } from './signals';
 import { PIXEL_GIF, recordEmailEvent, suppressVisitor, verifyTrackingToken } from './email-tracking';
 import { sesConfigured } from './ses';
 import { createMcpApp } from './mcp';
+import { createConnectAssistApp } from './connect-assist';
 
 // Single-server demo limits; bounded memory, no visitor IP persisted in project data.
 function limiter(max: number) {
@@ -149,6 +150,8 @@ app.post('/t/u/:token', async (c) => {
 });
 // MCP for Claude, ChatGPT and Cursor: the endpoint, OAuth for connectors, and key management for Settings.
 app.route('/', createMcpApp((request) => projects.fetch(request, env), limiter(120)));
+// Sticky connect pages (survive Cursor/Claude tabs that close after handoff).
+app.route('/', createConnectAssistApp());
 app.get('/health', async (c) => { await pool.query('select 1'); return c.json({ status: 'ready' }); });
 app.all('/api/*', (c) => c.json({ error: 'Not found' }, 404));
 app.all('/v1/*', (c) => c.json({ error: 'Not found' }, 404));
