@@ -17,8 +17,10 @@ export const SPRUT_DEMO_HOST = 'sprut-demo-store.vercel.app';
 export const SPRUT_CATALOG_URL = `https://${SPRUT_DEMO_HOST}/omer-catalog.json`;
 /** Known filming inboxes; DEMO_EMAIL_ALLOWLIST adds more. Sprüt demo store allows any recipient unless DEMO_EMAIL_ALLOWLIST_STRICT=1. */
 const DEFAULT_ALLOWLIST = ['joris263@gmail.com', 'freecardsbf2@gmail.com'];
-const EXIT_WINDOW_MS = 20_000;
-const AUTO_SEND_MS = 60_000;
+/** Shipping → leave window for the free-ship story (was 20s; too tight for Live pan). */
+const EXIT_WINDOW_MS = 3 * 60_000;
+/** After leave: short beat so he can pan Live, then Gmail. */
+export const AUTO_SEND_MS = 10_000;
 const inFlight = new Set<string>();
 const autoSendTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -91,6 +93,15 @@ export async function loadSprutCatalog(): Promise<Catalog> {
 
 type TrackRow = { name: string; at: number; data: Record<string, unknown> };
 
+export type SprutLeave = {
+  reasonCode: 'shipping_cost';
+  reason: string;
+  hooks: string[];
+  summary: string;
+  subtotal: number;
+  exitAt: number;
+};
+
 async function recentTracks(db: NodePgDatabase, projectId: string, visitorId: string): Promise<TrackRow[]> {
   const rows = await db.select({
     data: projectSignals.data,
@@ -111,37 +122,74 @@ async function recentTracks(db: NodePgDatabase, projectId: string, visitorId: st
   }).filter((r) => r.name);
 }
 
-export function evaluateShippingCostLeave(tracks: TrackRow[], now = Date.now()) {
-  const exit = tracks.find((t) => t.name === 'page_exit');
-  const shippingShown = tracks.find((t) => t.name === 'shipping_options_shown');
-  const methodSelected = tracks.find((t) => t.name === 'shipping_method_selected');
-  if (!exit || !shippingShown) return null;
-  if (methodSelected && methodSelected.at >= shippingShown.at) return null;
-  if (exit.at < shippingShown.at) return null;
-  if (exit.at - shippingShown.at > EXIT_WINDOW_MS) return null;
-  // Ignore stale exits from a previous take if shipping was much earlier — still ok within 20s.
-  if (now - exit.at > 5 * 60_000) return null;
-
+function shippingSubtotal(shippingShown: TrackRow) {
   const subtotal = Number(
     shippingShown.data.subtotal
     ?? shippingShown.data.subTotal
     ?? shippingShown.data.merchandise_subtotal
     ?? 64.99,
   );
+  return Number.isFinite(subtotal) ? subtotal : 64.99;
+}
+
+const LEAVE_HOOKS = [
+  'Came from the Berry Bog Instagram ad',
+  'Wants Berry Bog, Sugar-Free, one bag',
+  'Checked the nutrition label and the lab test',
+  'Switched to one-time purchase',
+  'Saw shipping at checkout and left',
+];
+
+/** At checkout shipping, before leave — draft can be pre-staged. */
+export function evaluateShippingStaging(tracks: TrackRow[]): SprutLeave | null {
+  const shippingShown = tracks.find((t) => t.name === 'shipping_options_shown');
+  const methodSelected = tracks.find((t) => t.name === 'shipping_method_selected');
+  if (!shippingShown) return null;
+  if (methodSelected && methodSelected.at >= shippingShown.at) return null;
   return {
-    reasonCode: 'shipping_cost' as const,
+    reasonCode: 'shipping_cost',
     reason: 'Left at shipping after seeing Standard $5.99 — shipping cost',
-    hooks: [
-      'Came from the Berry Bog Instagram ad',
-      'Wants Berry Bog, Sugar-Free, one bag',
-      'Checked the nutrition label and the lab test',
-      'Switched to one-time purchase',
-      'Saw shipping at checkout and left',
-    ],
+    hooks: LEAVE_HOOKS,
     summary: 'Came for Berry Bog Sugar-Free one-time; saw Standard shipping and left before choosing a method.',
-    subtotal: Number.isFinite(subtotal) ? subtotal : 64.99,
-    exitAt: exit.at,
+    subtotal: shippingSubtotal(shippingShown),
+    exitAt: shippingShown.at,
   };
+}
+
+/**
+ * Shipping-cost leave. `exitAt` overrides page_exit (dwell / tab-close passes Date.now()).
+ */
+export function evaluateShippingCostLeave(
+  tracks: TrackRow[],
+  now = Date.now(),
+  opts?: { exitAt?: number },
+): SprutLeave | null {
+  const exitTrack = tracks.find((t) => t.name === 'page_exit');
+  const exitAt = opts?.exitAt ?? exitTrack?.at;
+  const shippingShown = tracks.find((t) => t.name === 'shipping_options_shown');
+  const methodSelected = tracks.find((t) => t.name === 'shipping_method_selected');
+  if (exitAt == null || !shippingShown) return null;
+  if (methodSelected && methodSelected.at >= shippingShown.at) return null;
+  if (exitAt < shippingShown.at) return null;
+  if (exitAt - shippingShown.at > EXIT_WINDOW_MS) return null;
+  if (now - exitAt > 5 * 60_000) return null;
+
+  return {
+    reasonCode: 'shipping_cost',
+    reason: 'Left at shipping after seeing Standard $5.99 — shipping cost',
+    hooks: LEAVE_HOOKS,
+    summary: 'Came for Berry Bog Sugar-Free one-time; saw Standard shipping and left before choosing a method.',
+    subtotal: shippingSubtotal(shippingShown),
+    exitAt,
+  };
+}
+
+/** Good filming draft — skip LLM rewrite on auto-send. */
+export function isSprutLeaveDraft(draft: unknown, reason?: string | null) {
+  if (reason && /shipping cost/i.test(reason)) return true;
+  if (!draft || typeof draft !== 'object') return false;
+  const d = draft as { subject?: string; headline?: string };
+  return /ship free/i.test(d.subject || '') || /ship free/i.test(d.headline || '');
 }
 
 function flavorHint(tracks: TrackRow[]) {
@@ -256,7 +304,7 @@ async function upsertSprutOpportunity(
   projectId: string,
   visitorId: string,
   identity: { email: string; name: string | null },
-  leave: NonNullable<ReturnType<typeof evaluateShippingCostLeave>>,
+  leave: SprutLeave,
   draft: MailDocLike,
   page: PageStyleLike,
 ) {
@@ -307,7 +355,7 @@ async function upsertSprutInsight(
   db: NodePgDatabase,
   projectId: string,
   visitorId: string,
-  leave: NonNullable<ReturnType<typeof evaluateShippingCostLeave>>,
+  leave: SprutLeave,
 ) {
   await db.insert(visitorInsights).values({
     projectId,
@@ -336,7 +384,35 @@ async function upsertSprutInsight(
   });
 }
 
-/** Schedule Approve-less send for Sprüt demo (~60s). Drafts first if needed. */
+async function buildAndUpsertSprutDraft(
+  db: NodePgDatabase,
+  projectId: string,
+  visitorId: string,
+  leave: SprutLeave,
+  identity: { email: string; name: string | null },
+  tracks: TrackRow[],
+) {
+  const catalog = await loadSprutCatalog();
+  const flavor = flavorHint(tracks);
+  const sugar = sugarHint(tracks);
+  const offer = pickFreeShipAddOn(catalog, {
+    flavor,
+    sugar,
+    subtotal: leave.subtotal,
+    omerId: visitorId,
+  });
+  if (!offer) return null;
+
+  const first = (identity.name || '').trim().split(/\s+/)[0] || null;
+  const draft = buildSprutDraft({ firstName: first, catalog, offer, sugar });
+  const page = sprutPageStyle(catalog);
+  draft.footer = `${catalog.brand?.name || 'Sprüt'} · Superfood greens in one tiny pack.`;
+
+  await upsertSprutInsight(db, projectId, visitorId, leave);
+  return upsertSprutOpportunity(db, projectId, visitorId, identity, leave, draft, page);
+}
+
+/** Schedule Approve-less send for Sprüt demo. Skips LLM when leave draft is already good. */
 export function scheduleSprutAutoSend(db: NodePgDatabase, projectId: string, opportunityId: string, delayMs = AUTO_SEND_MS) {
   const key = `${projectId}:${opportunityId}`;
   const prev = autoSendTimers.get(key);
@@ -349,9 +425,11 @@ export function scheduleSprutAutoSend(db: NodePgDatabase, projectId: string, opp
           .where(and(eq(projectOpportunities.id, opportunityId), eq(projectOpportunities.projectId, projectId)))
           .limit(1);
         if (!opp || opp.status === 'sent' || opp.status === 'converted' || opp.status === 'dismissed') return;
-        // Always refresh Sprüt copy before auto-send so surveillance-style insight drafts get rewritten.
-        const { draftOpportunityEmail } = await import('./email-draft');
-        await draftOpportunityEmail(db, projectId, opportunityId);
+        if (!isSprutLeaveDraft(opp.draftJson, opp.reason)) {
+          // Surveillance-style insight drafts → rewrite; good leave drafts send as-is.
+          const { draftOpportunityEmail } = await import('./email-draft');
+          await draftOpportunityEmail(db, projectId, opportunityId);
+        }
         const { sendOpportunityEmail } = await import('./email-send');
         await sendOpportunityEmail(db, projectId, opportunityId);
       } catch (error) {
@@ -362,8 +440,52 @@ export function scheduleSprutAutoSend(db: NodePgDatabase, projectId: string, opp
   autoSendTimers.set(key, timer);
 }
 
-/** After page_exit / dwell: if shipping-cost rule hits, draft + queue auto-send. */
-export async function kickSprutLeaveFollowup(db: NodePgDatabase, projectId: string, visitorId: string) {
+/**
+ * While still on checkout: stage Sprüt draft so leave only has to schedule send.
+ * Does not auto-send yet.
+ */
+export async function kickSprutPrestage(db: NodePgDatabase, projectId: string, visitorId: string) {
+  const key = `pre:${projectId}:${visitorId}`;
+  if (inFlight.has(key)) return;
+  inFlight.add(key);
+  try {
+    const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
+    if (!project || !isSprutDemoOrigin(project.origin)) return;
+
+    const tracks = await recentTracks(db, projectId, visitorId);
+    const leave = evaluateShippingStaging(tracks);
+    if (!leave) return;
+
+    const [identityRow] = await db.select().from(identities)
+      .where(and(eq(identities.projectId, projectId), eq(identities.visitorId, visitorId)))
+      .limit(1);
+    if (!identityRow?.email) return;
+    const identity = { email: identityRow.email, name: identityRow.name };
+    if (!isDemoSendAllowed(project.origin, identity.email)) return;
+
+    const [existing] = await db.select().from(projectOpportunities)
+      .where(and(
+        eq(projectOpportunities.projectId, projectId),
+        eq(projectOpportunities.visitorId, visitorId),
+        isNull(projectOpportunities.campaignId),
+      ))
+      .limit(1);
+    if (existing && (existing.status === 'sent' || existing.status === 'converted')) return;
+    if (existing && isSprutLeaveDraft(existing.draftJson, existing.reason)) return;
+
+    await buildAndUpsertSprutDraft(db, projectId, visitorId, leave, identity, tracks);
+  } finally {
+    inFlight.delete(key);
+  }
+}
+
+/** After page_exit / dwell: if shipping-cost rule hits, draft (if needed) + queue auto-send. */
+export async function kickSprutLeaveFollowup(
+  db: NodePgDatabase,
+  projectId: string,
+  visitorId: string,
+  opts?: { fromDwell?: boolean },
+) {
   const key = `${projectId}:${visitorId}`;
   if (inFlight.has(key)) return;
   inFlight.add(key);
@@ -372,41 +494,105 @@ export async function kickSprutLeaveFollowup(db: NodePgDatabase, projectId: stri
     if (!project || !isSprutDemoOrigin(project.origin)) return;
 
     const tracks = await recentTracks(db, projectId, visitorId);
-    const leave = evaluateShippingCostLeave(tracks);
+    const leave = evaluateShippingCostLeave(
+      tracks,
+      Date.now(),
+      opts?.fromDwell ? { exitAt: Date.now() } : undefined,
+    );
     if (!leave) return;
 
-    const [identity] = await db.select().from(identities)
+    const [identityRow] = await db.select().from(identities)
       .where(and(eq(identities.projectId, projectId), eq(identities.visitorId, visitorId)))
       .limit(1);
-    if (!identity?.email) return;
+    if (!identityRow?.email) return;
+    const identity = { email: identityRow.email, name: identityRow.name };
     if (!isDemoSendAllowed(project.origin, identity.email)) {
       console.warn('sprut demo: send blocked for', identity.email);
       return;
     }
 
-    const catalog = await loadSprutCatalog();
-    const flavor = flavorHint(tracks);
-    const sugar = sugarHint(tracks);
-    const offer = pickFreeShipAddOn(catalog, {
-      flavor,
-      sugar,
-      subtotal: leave.subtotal,
-      omerId: visitorId,
-    });
-    if (!offer) return;
+    const [existing] = await db.select().from(projectOpportunities)
+      .where(and(
+        eq(projectOpportunities.projectId, projectId),
+        eq(projectOpportunities.visitorId, visitorId),
+        isNull(projectOpportunities.campaignId),
+      ))
+      .limit(1);
 
-    const first = (identity.name || '').trim().split(/\s+/)[0] || null;
-    const draft = buildSprutDraft({ firstName: first, catalog, offer, sugar });
-    const page = sprutPageStyle(catalog);
-    // Prefer Sprüt display name on send.
-    draft.footer = `${catalog.brand?.name || 'Sprüt'} · Superfood greens in one tiny pack.`;
+    if (existing?.status === 'sent' || existing?.status === 'converted') return;
 
-    await upsertSprutInsight(db, projectId, visitorId, leave);
-    const opp = await upsertSprutOpportunity(db, projectId, visitorId, identity, leave, draft, page);
-    if (opp?.id) scheduleSprutAutoSend(db, projectId, opp.id);
+    let oppId: string | null = existing?.id ?? null;
+    if (!existing || !isSprutLeaveDraft(existing.draftJson, existing.reason)) {
+      const drafted = await buildAndUpsertSprutDraft(db, projectId, visitorId, leave, identity, tracks);
+      oppId = drafted?.id ?? null;
+    } else {
+      // Refresh reason/hooks in case insight overwrote them; keep draft.
+      await db.update(projectOpportunities).set({
+        status: 'drafted',
+        reason: leave.reason,
+        hooksJson: leave.hooks,
+        insightSummary: leave.summary,
+        updatedAt: new Date(),
+      }).where(eq(projectOpportunities.id, existing.id));
+      oppId = existing.id;
+    }
+    if (oppId) scheduleSprutAutoSend(db, projectId, oppId, AUTO_SEND_MS);
   } finally {
     inFlight.delete(key);
   }
+}
+
+/**
+ * Insight / manual draft landed on Sprüt without the leave template — rewrite to Sprüt draft + schedule.
+ */
+export async function ensureSprutDraftAndSchedule(
+  db: NodePgDatabase,
+  projectId: string,
+  opportunityId: string,
+  delayMs = AUTO_SEND_MS,
+) {
+  const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
+  if (!project || !isSprutDemoOrigin(project.origin)) return null;
+
+  const [opp] = await db.select().from(projectOpportunities)
+    .where(and(eq(projectOpportunities.id, opportunityId), eq(projectOpportunities.projectId, projectId)))
+    .limit(1);
+  if (!opp || opp.status === 'sent' || opp.status === 'converted' || opp.status === 'dismissed') return opp ?? null;
+
+  if (isSprutLeaveDraft(opp.draftJson, opp.reason)) {
+    scheduleSprutAutoSend(db, projectId, opportunityId, delayMs);
+    return opp;
+  }
+
+  const tracks = await recentTracks(db, projectId, opp.visitorId);
+  const leave = evaluateShippingStaging(tracks)
+    || evaluateShippingCostLeave(tracks, Date.now(), { exitAt: Date.now() })
+    || {
+      reasonCode: 'shipping_cost' as const,
+      reason: 'Left at shipping after seeing Standard $5.99 — shipping cost',
+      hooks: LEAVE_HOOKS,
+      summary: 'Came for Berry Bog Sugar-Free one-time; saw Standard shipping and left before choosing a method.',
+      subtotal: 64.99,
+      exitAt: Date.now(),
+    };
+
+  const identity = {
+    email: opp.email || '',
+    name: opp.name,
+  };
+  if (!identity.email) {
+    const [row] = await db.select().from(identities)
+      .where(and(eq(identities.projectId, projectId), eq(identities.visitorId, opp.visitorId)))
+      .limit(1);
+    if (!row?.email) return opp;
+    identity.email = row.email;
+    identity.name = row.name;
+  }
+  if (!isDemoSendAllowed(project.origin, identity.email)) return opp;
+
+  const drafted = await buildAndUpsertSprutDraft(db, projectId, opp.visitorId, leave, identity, tracks);
+  if (drafted?.id) scheduleSprutAutoSend(db, projectId, drafted.id, delayMs);
+  return drafted;
 }
 
 export async function markSprutWonBack(

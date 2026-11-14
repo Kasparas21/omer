@@ -11,7 +11,7 @@ import { trackingUrls } from './email-tracking';
 import { loadSending, mailProvidersAvailable, sendViaTransport } from './mail-transport';
 import { and as both, gte, or } from 'drizzle-orm';
 import { projectCampaigns, projectEmailMessages, projectOpportunities, projects, purchases } from './schema';
-import { isDemoSendAllowed, isSprutDemoOrigin } from './sprut-demo';
+import { isDemoSendAllowed, isSprutDemoOrigin, isSprutLeaveDraft } from './sprut-demo';
 import {
   renderSprutFollowupHtml,
   renderSprutFollowupText,
@@ -41,11 +41,11 @@ export async function sendOpportunityEmail(
     throw new Error('Demo sends are limited to the allowlisted filming inbox');
   }
 
-  // Sprüt filming: rewrite surveillance-style insight drafts before the send lands in Gmail.
-  if (isSprutDemoOrigin(project.origin)) {
+  // Sprüt filming: rewrite surveillance-style insight drafts; keep good leave drafts as-is.
+  if (isSprutDemoOrigin(project.origin) && !isSprutLeaveDraft(opp.draftJson, opp.reason)) {
     const hooks = Array.isArray(opp.hooksJson) ? opp.hooksJson : [];
-    const creepy = hooks.some((h) => /mention they|lingered|we saw|you viewed|you left/i.test(String(h)))
-      || /mention they|lingered/i.test(opp.reason || '');
+    const creepy = hooks.some((h) => /mention they|lingered|we saw|you viewed|you left|reference their/i.test(String(h)))
+      || /mention they|lingered|reference their/i.test(opp.reason || '');
     if (creepy || !opp.draftJson) {
       const { draftOpportunityEmail } = await import('./email-draft');
       await draftOpportunityEmail(db, projectId, opportunityId);
