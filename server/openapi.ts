@@ -219,48 +219,43 @@ export const OPENAPI = {
   },
 } as const;
 
-/** Short markdown guide (also at docs/api.md in the repo). */
+/** Markdown twin of /docs/api (also at docs/api.md in the repo). */
 export const API_MARKDOWN = `# Omer API
 
-Authenticate every request with a personal API key from **Settings → Integrations → API**:
+Call Omer with a personal API key from **Settings → Integrations → API**.
 
 \`\`\`http
 Authorization: Bearer omk_…
 \`\`\`
 
-Base URL: \`${ISSUER}\`
-
-OpenAPI: [\`/openapi.json\`](${ISSUER}/openapi.json) · MCP (Claude / ChatGPT / Cursor): [\`/mcp\`](${ISSUER}/mcp)
+Guide: [\`/docs/api\`](${ISSUER}/docs/api) · Base URL: \`${ISSUER}\`
 
 ## Quick start
 
-1. Create an API key in Settings.
-2. List stores and copy a project id:
+1. Create an API key in Settings (shown once).
+2. List stores for a project id:
 
 \`\`\`bash
 curl -sS -H "Authorization: Bearer omk_…" \\
   "${ISSUER}/api/projects?view=summary"
 \`\`\`
 
-3. Use that id on everything else:
+3. Use that id:
 
 \`\`\`bash
-# Dashboard
 curl -sS -H "Authorization: Bearer $OMER_KEY" \\
   "${ISSUER}/api/projects?project=PROJECT_ID"
 
-# Opportunities (people worth a personal email)
 curl -sS -H "Authorization: Bearer $OMER_KEY" \\
   "${ISSUER}/api/projects/PROJECT_ID/opportunities"
 
-# Draft a follow-up (does not send)
 curl -sS -X POST -H "Authorization: Bearer $OMER_KEY" \\
   "${ISSUER}/api/projects/PROJECT_ID/opportunities/OPPORTUNITY_ID/draft"
 \`\`\`
 
 ## Safety
 
-\`POST …/send\` and campaign run endpoints deliver **real email**. Draft and review first.
+\`POST …/send\` and campaign runs deliver **real email**. Draft first. Keys act as the owner.
 
-Keys have the same power as the signed-in owner. Revoke unused keys in Settings.
+Machine schema: [\`/openapi.json\`](${ISSUER}/openapi.json) · MCP: [\`/mcp\`](${ISSUER}/mcp)
 `;

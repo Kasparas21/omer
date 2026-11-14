@@ -17,6 +17,7 @@ import {
   bearerFrom, createApiKey, exchangeCode, getClient, issueCode, listAccess, refreshTokens, registerClient, revokeAccess, userFromToken,
 } from './mcp-auth';
 import { ArgError, INSTRUCTIONS, TOOLS, TOOLS_BY_NAME, type Caller } from './mcp-tools';
+import { apiDocsHtml } from './api-docs-page';
 import { API_MARKDOWN, OPENAPI } from './openapi';
 
 type Fetcher = (request: Request) => Promise<Response>;
@@ -274,6 +275,11 @@ export function createMcpApp(projectsFetch: Fetcher, limiter: Limiter) {
     'Cache-Control': 'public, max-age=300',
     'Access-Control-Allow-Origin': '*',
   }));
+  app.get('/docs/api', (c) => c.html(apiDocsHtml(), 200, {
+    'Cache-Control': 'public, max-age=120',
+    'Content-Security-Policy': "frame-ancestors 'none'",
+    'X-Frame-Options': 'DENY',
+  }));
   app.get('/docs/api.md', (c) => c.text(API_MARKDOWN, 200, {
     'Content-Type': 'text/markdown; charset=utf-8',
     'Cache-Control': 'public, max-age=300',
@@ -287,8 +293,7 @@ export function createMcpApp(projectsFetch: Fetcher, limiter: Limiter) {
     return c.json({
       endpoint: MCP_URL,
       apiBase: ISSUER,
-      openapi: `${ISSUER}/openapi.json`,
-      docs: `${ISSUER}/docs/api.md`,
+      docs: `${ISSUER}/docs/api`,
       access: await listAccess(user.id),
     });
   });
