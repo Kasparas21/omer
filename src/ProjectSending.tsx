@@ -1,5 +1,6 @@
 /* Settings → Sending: Omer (hosted) or Custom (BYO Resend / Postmark). */
 import { useCallback, useEffect, useState } from 'react';
+import { BrandLogo } from './ui/brandLogos';
 import { Icon } from './ui/Icon';
 import { toast } from './ui/toast';
 
@@ -164,7 +165,7 @@ export function ProjectSending({ projectId }: { projectId: string }) {
         <Row title="Send with">
           <div className="seg" role="group" aria-label="Send with">
             <button type="button" aria-pressed={mode === 'omer'} disabled={busy || !sending.providers.ses} onClick={() => pickMode('omer')}>
-              <Icon name="zap" />Omer
+              <Icon name="ghost" />Omer
             </button>
             <button type="button" aria-pressed={mode === 'custom'} disabled={busy} onClick={() => pickMode('custom')}>
               <Icon name="sliders" />Custom
@@ -175,8 +176,12 @@ export function ProjectSending({ projectId }: { projectId: string }) {
         {mode === 'custom' ? (
           <Row title="Provider">
             <div className="seg" role="group" aria-label="Provider">
-              <button type="button" aria-pressed={provider === 'resend'} disabled={busy} onClick={() => pickCustom('resend')}>Resend</button>
-              <button type="button" aria-pressed={provider === 'postmark'} disabled={busy} onClick={() => pickCustom('postmark')}>Postmark</button>
+              <button type="button" aria-pressed={provider === 'resend'} disabled={busy} onClick={() => pickCustom('resend')}>
+                <BrandLogo slug="resend" />Resend
+              </button>
+              <button type="button" aria-pressed={provider === 'postmark'} disabled={busy} onClick={() => pickCustom('postmark')}>
+                <BrandLogo slug="postmark" />Postmark
+              </button>
             </div>
           </Row>
         ) : null}

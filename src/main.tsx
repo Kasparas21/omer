@@ -639,16 +639,20 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
             <LiveGlobe key={project.id} {...live} focusSeed={liveFocus} demo={isDemo(project)} />
           ) : screen === 'visitors' && project && profile?.projectId === project.id ? (
             <Profile key={profile.seed} projectId={project.id} seed={profile.seed}
+              currency={project.currency || 'usd'}
               onName={setProfileName}
               onBack={() => setProfile(undefined)}
               onLive={() => openScreen('globe', { liveFocus: profile.seed })} />
           ) : screen === 'visitors' && project ? (
-            <People key={`${project.id}-${start.n}`} {...live} demo={isDemo(project)} start={start.people} onLive={() => openScreen('globe')}
+            <People key={`${project.id}-${start.n}`} {...live} demo={isDemo(project)} currency={project.currency || 'usd'} start={start.people} onLive={() => openScreen('globe')}
               onOpen={(seed) => { setProfileName(''); setProfile({ projectId: project.id, seed }); window.scrollTo({ top: 0 }); }} />
           ) : screen === 'settings' && project ? (
             <Settings key={`settings-${start.n}`} startTab={start.settings} demo={isDemo(project)} onGo={go} project={project} snippet={snippet}
               topPages={(analytics?.id === project.id ? analytics : project).pages}
               storageReady={replayStorage} replayBusy={replayBusy}
+              onProjectUpdate={(next) => {
+                setProjects((list) => list.map((row) => (row.id === next.id ? { ...row, ...next } : row)));
+              }}
               onReplay={async (enabled) => {
                 setReplayBusy(true);
                 try {
@@ -681,6 +685,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
             <Campaigns key={project.id} space={campaignSpace} storeName={project.name}
               host={(() => { try { return new URL(project.origin).host; } catch { return project.origin; } })()}
               projectId={isDemo(project) ? undefined : project.id}
+              currency={project.currency || 'usd'}
               openId={campaignId} editing={editing}
               onOpen={(id) => { setCampaignId(id); setEditing(false); window.scrollTo({ top: 0 }); }} onEdit={(on) => { setEditing(on); window.scrollTo({ top: 0 }); }} onBack={() => openScreen('home')} />
           ) : screen === 'results' && project ? (

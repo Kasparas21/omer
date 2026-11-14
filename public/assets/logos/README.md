@@ -13,4 +13,4 @@ own gradients and ids stay self-contained. Only if a brand isn't on thesvg.org d
 Use `default` unless it's made for dark backgrounds; then take the `light` variant
 (`/icons/<slug>/light.svg`) for our light UI. TikTok is the one case so far: its default note is white.
 
-In here now: google, instagram, meta, tiktok (light), shopify.
+In here now: google, instagram, meta, tiktok (light), shopify, stripe, resend, postmark, revenuecat, dodo (`dodo-payments` on thesvg.org).

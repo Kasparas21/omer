@@ -7,10 +7,10 @@ import type { DayCount, Project } from './project';
 import { DEMO_DAYS, RESULT_CAMPAIGNS, NOT_SENT, SAID_NO, campaignStats } from './storeData';
 import { useDemo } from './demoState';
 import { useSlidingPill } from './ui/useSlidingPill';
+import { moneyFormatter } from './money';
 
 const RANGES = [7, 14, 30] as const;
 type Range = (typeof RANGES)[number];
-const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 const num = new Intl.NumberFormat('en-US');
 const dayFmt = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 const DAY = 86_400_000;
@@ -48,6 +48,7 @@ function Delta({ now, prev, range }: { now: number; prev: number; range: number 
 }
 
 export function Results({ project, demo, onCampaign, onCampaigns }: { project: Project; demo: boolean; onCampaign: (id: string) => void; onCampaigns?: () => void }) {
+  const money = moneyFormatter(project.currency || 'usd');
   const { campaigns: live } = useDemo();
   const [range, setRange] = useState<Range>(14);
   const rangePill = useSlidingPill<HTMLDivElement>(range);

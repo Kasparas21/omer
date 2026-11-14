@@ -7,13 +7,14 @@ import { SourceMark, sourceKey, sourceLabel } from './ui/sources';
 import { Orb } from './ui/Orb';
 import { CAMPAIGN_COLORS, DEMO_CAMPAIGNS, DEMO_NEEDS, DEMO_PRODUCTS, DEMO_SCHEDULE, RETURNING, demoSeries, isDemo, type NeedRow } from './demo';
 import { useDemo } from './demoState';
+import { moneyFormatter } from './money';
 
 /** Where a Dashboard row takes you, as in the kit. */
 export type Go =
   | { to: 'inbox'; tab?: 'review' | 'hold' | 'approved' | 'replies'; id?: string }
   | { to: 'campaigns'; id?: string }
   | { to: 'results' }
-  | { to: 'settings'; tab?: 'brand' | 'company' | 'changes' | 'monitoring' | 'sending' }
+  | { to: 'settings'; tab?: 'brand' | 'company' | 'changes' | 'monitoring' | 'sending' | 'integrations' | 'privacy' }
   | { to: 'visitors'; source?: string; country?: string };
 
 type Metric = 'people' | 'views' | 'dwell' | 'clicked' | 'sales';
@@ -25,7 +26,6 @@ const METRICS: { key: Metric; label: string; one: string; many: string }[] = [
   { key: 'clicked', label: 'Clicked', one: 'Click', many: 'Clicks' },
   { key: 'sales', label: 'Revenue', one: 'Revenue', many: 'Revenue' },
 ];
-const money = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 // Email clicks and store revenue are not connected yet: these stay honest zeros until they are.
 const zeros = (n: number) => Array(n).fill(0) as number[];
 
@@ -93,8 +93,8 @@ function days(range: number, end: number, map: Map<string, number>) {
 const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
 const avg = (values: number[]) => { const xs = values.filter((v) => v > 0); return xs.length ? sum(xs) / xs.length : 0; };
 
-function show(kind: Metric, value: number) {
-  if (kind === 'sales') return money.format(Math.round(value));
+function show(kind: Metric, value: number, currency = 'usd') {
+  if (kind === 'sales') return moneyFormatter(currency).format(Math.round(value));
   if (kind === 'dwell') {
     const total = Math.max(0, Math.round(value / 1000));
     return `${Math.floor(total / 60)}m ${String(total % 60).padStart(2, '0')}s`;
@@ -109,18 +109,18 @@ function Chip({ now, prev }: { now: number; prev: number }) {
 }
 
 /** Kit hoCountUp: numbers run up from zero with the graph, width held so nothing beside them moves. */
-function CountUp({ value, kind, run }: { value: number; kind: Metric | 'count'; run: number }) {
+function CountUp({ value, kind, run, currency = 'usd' }: { value: number; kind: Metric | 'count'; run: number; currency?: string }) {
   const el = useRef<HTMLElement>(null);
-  const text = kind === 'count' ? countFmt.format(Math.round(value)) : show(kind, value);
-  const target = useRef({ value, text, kind });
-  target.current = { value, text, kind };
+  const text = kind === 'count' ? countFmt.format(Math.round(value)) : show(kind, value, currency);
+  const target = useRef({ value, text, kind, currency });
+  target.current = { value, text, kind, currency };
   useLayoutEffect(() => {
     const node = el.current;
     if (!node || !run || reduced() || !value) return;
     node.style.minWidth = `${node.offsetWidth}px`;
     let frame = 0;
     let start: number | null = null;
-    const fmt = (x: number) => (kind === 'count' ? countFmt.format(Math.round(x)) : show(kind, x));
+    const fmt = (x: number) => (kind === 'count' ? countFmt.format(Math.round(x)) : show(kind, x, currency));
     node.textContent = fmt(0);
     const tick = (now: number) => {
       start ??= now;
@@ -310,6 +310,8 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
   const hostname = useMemo(() => {
     try { return new URL(project.origin).host; } catch { return project.origin; }
   }, [project.origin]);
+  const currency = project.currency || 'usd';
+  const money = useMemo(() => moneyFormatter(currency), [currency]);
 
   useEffect(() => {
     const tick = window.setInterval(() => setClock(Date.now()), 30_000);
@@ -564,7 +566,7 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
                   aria-label={`Show ${label} on the graph`} onClick={() => setMetric(key)}>
                   <span className="v2-m-k">{label}</span>
                   <span className="v2-m-v">
-                    <CountUp value={data.totals[key]} kind={key} run={loading ? 0 : run} />
+                    <CountUp value={data.totals[key]} kind={key} run={loading ? 0 : run} currency={currency} />
                     <Chip now={data.totals[key]} prev={data.prev[key]} />
                   </span>
                   <span className="v2-m-s">
@@ -625,8 +627,8 @@ export function DashboardV2({ project, onSetup, onGlobe, onPeople, onInbox, onGo
             </span>
             <div className="v2-live-tip" style={{ transform: tip.flip ? `translateX(calc(${tip.px - tip.gap}px - 100%))` : `translateX(${tip.px + tip.gap}px)` }}>
               <div className="ho-tip-t">{data.tip(at)}</div>
-              <div className="v2-tip-r"><i style={{ ['--c' as string]: 'var(--v2-chart)' }} /><span>{tip.label}</span><b>{show(metric, nowVals[at])}</b></div>
-              <div className="v2-tip-r was"><i style={{ ['--c' as string]: 'color-mix(in srgb, var(--ink) 28%, transparent)' }} /><span>{data.earlier}</span><b>{show(metric, backVals[at])}</b></div>
+              <div className="v2-tip-r"><i style={{ ['--c' as string]: 'var(--v2-chart)' }} /><span>{tip.label}</span><b>{show(metric, nowVals[at], currency)}</b></div>
+              <div className="v2-tip-r was"><i style={{ ['--c' as string]: 'color-mix(in srgb, var(--ink) 28%, transparent)' }} /><span>{data.earlier}</span><b>{show(metric, backVals[at], currency)}</b></div>
             </div>
           </>}
         </div>

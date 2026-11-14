@@ -6,8 +6,8 @@ import { SourceMark, sourceKind, sourceLabel } from './ui/sources';
 import { ActivityHeatmap } from './ui/Activity';
 import { prefetchReplayPlayer, ReplayPlayer } from './ReplayPlayer';
 import { useSlidingPill } from './ui/useSlidingPill';
+import { moneyFormatter } from './money';
 
-const money = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 const ADJ = ['Quiet', 'Bold', 'Swift', 'Calm', 'Bright', 'Gentle', 'Lucky', 'Clever', 'Brave', 'Sunny', 'Misty', 'Happy', 'Witty', 'Mellow', 'Rapid', 'Keen'];
 const ANIMAL = ['Heron', 'Otter', 'Fox', 'Lynx', 'Robin', 'Panda', 'Koala', 'Falcon', 'Badger', 'Finch', 'Hare', 'Wren', 'Seal', 'Owl', 'Moth', 'Crane'];
 
@@ -123,13 +123,15 @@ type ProfileData = {
 
 const CURRENT_INSIGHT_VERSION = 3;
 
-export function Profile({ projectId, seed, onLive, onName }: {
+export function Profile({ projectId, seed, onLive, onName, currency = 'usd' }: {
+  currency?: string;
   projectId: string;
   seed: string;
   onBack?: () => void;
   onLive?: () => void;
   onName?: (name: string) => void;
 }) {
+  const money = useMemo(() => moneyFormatter(currency), [currency]);
   const [data, setData] = useState<ProfileData>();
   const [failed, setFailed] = useState(false);
   const [filter, setFilter] = useState<'all' | 'purchases'>('all');
@@ -440,6 +442,7 @@ export function Profile({ projectId, seed, onLive, onName }: {
                         session={session}
                         date={showDate ? day : null}
                         replayEnabled={data.replayEnabled}
+                        currency={currency}
                         onReplay={setReplayId}
                       />
                     );
@@ -460,12 +463,14 @@ export function Profile({ projectId, seed, onLive, onName }: {
   );
 }
 
-function JourneyCard({ session, date, replayEnabled, onReplay }: {
+function JourneyCard({ session, date, replayEnabled, onReplay, currency = 'usd' }: {
   session: JourneySession;
   date: string | null;
   replayEnabled: boolean;
   onReplay: (id: string) => void;
+  currency?: string;
 }) {
+  const money = useMemo(() => moneyFormatter(currency), [currency]);
   const [open, setOpen] = useState(true);
   const [openBuy, setOpenBuy] = useState<string | null>(session.purchases[0]?.id ?? null);
   const title = session.live ? 'Active session' : `Session lasted for ${fmtDur(session.durationMs)}`;
