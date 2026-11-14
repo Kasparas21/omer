@@ -438,6 +438,8 @@
 .set-send-chevron { width: 14px; height: 14px; color: var(--ink-3); transition: transform 180ms ease; }
 .set-send-fold[open] > summary .set-send-chevron { transform: rotate(90deg); }
 .set-send-fold .set-dns, .set-send-fold .omer-set-note { margin-top: 10px; }
+.set-int-adv { display: grid; gap: 10px; margin-top: 10px; width: 100%; }
+.set-int-adv .input { width: 100%; }
 .status-pill .ico { width: 13px; height: 13px; }
 @container (max-width: 560px) {
   .kn-row { grid-template-columns: minmax(0, 1fr) auto; }
