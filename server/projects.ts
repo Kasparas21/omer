@@ -26,7 +26,17 @@ import {
 import { draftOpportunityEmail, saveOpportunityDraft } from './email-draft';
 import { sendOpportunityEmail } from './email-send';
 import { loadEmailContext } from './email-context';
-import { sesConfigured } from './ses';
+import { mailProvidersAvailable } from './mail-transport';
+import { checkProjectSending, getProjectSending, upsertProjectSending } from './sending';
+import {
+  connectStripe,
+  disconnectStripe,
+  handleStripeWebhook,
+  listProjectIntegrations,
+  saveStripeWebhookSecret,
+  syncProjectStripe,
+  reattachStripePurchasesByEmail,
+} from './integrations';
 import { CAMPAIGN_ID, MAX_IMAGE_BYTES, deleteCampaign, imageStorageReady, listCampaigns, saveCampaign, storeImage } from './campaigns';
 import { campaignQueueCounts, previewTrigger, runCampaigns, triggerOptions } from './campaign-runner';
 import { cleanTrigger } from './trigger-library';
@@ -476,6 +486,7 @@ async function receiveEvent(request: Request, env: Env) {
           target: [identities.projectId, identities.visitorId],
           set: { email, name: cleanName(body?.name), updatedAt: sql`now()` },
         });
+      await reattachStripePurchasesByEmail(tx, project.id, vid, email);
       return project.id;
     }
 
@@ -513,6 +524,7 @@ async function receiveEvent(request: Request, env: Env) {
           products: cleanProducts(body?.products),
           campaign: cleanCampaign(body?.campaign),
           isReturning: Boolean(prior),
+          provider: 'tracker',
         });
       } catch {
         // Duplicate order_id for this project — treat as idempotent success.
@@ -1630,15 +1642,167 @@ async function sendOpportunityRoute(request: Request, env: Env, projectId: strin
   if (!uuid.test(projectId) || !uuid.test(opportunityId)) return json({ error: 'Not found.' }, 404);
   const owner = await ownerID(request);
   if (!owner) return json({ error: 'Sign in to send.' }, 401);
-  if (!sesConfigured()) return json({ error: 'SES is not configured yet.' }, 503);
+  const providers = mailProvidersAvailable();
+  if (!providers.ses && !providers.resend && !providers.postmark) {
+    return json({ error: 'Email sending is not configured yet.' }, 503);
+  }
   return withDatabase(env, async (db) => {
     if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
     try {
       const result = await sendOpportunityEmail(db, projectId, opportunityId);
-      return json({ message: result.message, tracking: result.tracking });
+      return json({ message: result.message, tracking: result.tracking, from: result.from });
     } catch (error) {
       console.error('opportunity send failed', error);
       return json({ error: error instanceof Error ? error.message.slice(0, 240) : 'Send failed' }, 502);
+    }
+  });
+}
+
+async function getIntegrationsRoute(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to view integrations.' }, 401);
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    const integrations = await listProjectIntegrations(db, projectId);
+    return json({ integrations });
+  });
+}
+
+async function connectStripeRoute(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to connect Stripe.' }, 401);
+  const raw = await readText(request, 8_000);
+  if (raw === null) return json({ error: 'Payload too large.' }, 413);
+  let body: { apiKey?: string; webhookSecret?: string } | null;
+  try { body = JSON.parse(raw); } catch { return json({ error: 'Invalid JSON.' }, 400); }
+  if (!body?.apiKey?.trim()) return json({ error: 'Paste a Stripe API key.' }, 400);
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    try {
+      const result = await connectStripe(db, projectId, {
+        apiKey: body!.apiKey!,
+        webhookSecret: body?.webhookSecret,
+      });
+      return json(result);
+    } catch (error) {
+      console.error('stripe connect failed', error);
+      return json({ error: error instanceof Error ? error.message.slice(0, 240) : 'Connect failed' }, 400);
+    }
+  });
+}
+
+async function syncStripeRoute(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to sync Stripe.' }, 401);
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    try {
+      const synced = await syncProjectStripe(db, projectId);
+      const integrations = await listProjectIntegrations(db, projectId);
+      return json({ synced, integrations });
+    } catch (error) {
+      console.error('stripe sync failed', error);
+      return json({ error: error instanceof Error ? error.message.slice(0, 240) : 'Sync failed' }, 502);
+    }
+  });
+}
+
+async function disconnectStripeRoute(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to disconnect Stripe.' }, 401);
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    const integrations = await disconnectStripe(db, projectId);
+    return json({ integrations });
+  });
+}
+
+async function putStripeWebhookRoute(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in.' }, 401);
+  const raw = await readText(request, 4_000);
+  if (raw === null) return json({ error: 'Payload too large.' }, 413);
+  let body: { webhookSecret?: string } | null;
+  try { body = JSON.parse(raw); } catch { return json({ error: 'Invalid JSON.' }, 400); }
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    try {
+      const integrations = await saveStripeWebhookSecret(db, projectId, body?.webhookSecret || '');
+      return json({ integrations });
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message.slice(0, 240) : 'Save failed' }, 400);
+    }
+  });
+}
+
+async function stripeWebhookRoute(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const raw = await readText(request, 512_000);
+  if (raw === null) return json({ error: 'Payload too large.' }, 413);
+  const signature = request.headers.get('Stripe-Signature');
+  return withDatabase(env, async (db) => {
+    const result = await handleStripeWebhook(db, projectId, raw, signature);
+    if (!result.ok) return json({ error: 'Invalid signature.' }, 400);
+    return json({ received: true, inserted: Boolean(result.inserted) });
+  });
+}
+
+async function getSendingRoute(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to view sending.' }, 401);
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    const sending = await getProjectSending(db, projectId);
+    return json({ sending });
+  });
+}
+
+async function putSendingRoute(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to update sending.' }, 401);
+  const raw = await readText(request, 8_000);
+  if (raw === null) return json({ error: 'Payload too large.' }, 413);
+  let body: {
+    fromName?: string;
+    fromEmail?: string;
+    domain?: string;
+    provider?: 'ses' | 'resend' | 'postmark';
+    providerApiKey?: string;
+    clearProviderKey?: boolean;
+    startVerify?: boolean;
+  } | null;
+  try { body = JSON.parse(raw); } catch { return json({ error: 'Invalid JSON.' }, 400); }
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    try {
+      const sending = await upsertProjectSending(db, projectId, body || {});
+      return json({ sending });
+    } catch (error) {
+      console.error('sending update failed', error);
+      return json({ error: error instanceof Error ? error.message.slice(0, 240) : 'Update failed' }, 400);
+    }
+  });
+}
+
+async function checkSendingRoute(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to check DNS.' }, 401);
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    try {
+      const sending = await checkProjectSending(db, projectId);
+      return json({ sending });
+    } catch (error) {
+      console.error('sending check failed', error);
+      return json({ error: error instanceof Error ? error.message.slice(0, 240) : 'Check failed' }, 502);
     }
   });
 }
@@ -1863,6 +2027,47 @@ export default {
       const opportunitySend = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/opportunities\/([0-9a-f-]{36})\/send$/i);
       if (opportunitySend) {
         if (request.method === 'POST') return await sendOpportunityRoute(request, env, opportunitySend[1], opportunitySend[2]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const sendingCheck = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/sending\/check$/i);
+      if (sendingCheck) {
+        if (request.method === 'POST') return await checkSendingRoute(request, env, sendingCheck[1]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const sendingMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/sending$/i);
+      if (sendingMatch) {
+        if (request.method === 'GET') return await getSendingRoute(request, env, sendingMatch[1]);
+        if (request.method === 'PUT') return await putSendingRoute(request, env, sendingMatch[1]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const stripeConnect = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/integrations\/stripe\/connect$/i);
+      if (stripeConnect) {
+        if (request.method === 'POST') return await connectStripeRoute(request, env, stripeConnect[1]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const stripeSync = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/integrations\/stripe\/sync$/i);
+      if (stripeSync) {
+        if (request.method === 'POST') return await syncStripeRoute(request, env, stripeSync[1]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const stripeDisconnect = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/integrations\/stripe\/disconnect$/i);
+      if (stripeDisconnect) {
+        if (request.method === 'POST') return await disconnectStripeRoute(request, env, stripeDisconnect[1]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const stripeWebhookSecret = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/integrations\/stripe\/webhook-secret$/i);
+      if (stripeWebhookSecret) {
+        if (request.method === 'PUT') return await putStripeWebhookRoute(request, env, stripeWebhookSecret[1]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const integrationsMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/integrations$/i);
+      if (integrationsMatch) {
+        if (request.method === 'GET') return await getIntegrationsRoute(request, env, integrationsMatch[1]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const stripeInbound = url.pathname.match(/^\/v1\/webhooks\/stripe\/([0-9a-f-]{36})$/i);
+      if (stripeInbound) {
+        if (request.method === 'POST') return await stripeWebhookRoute(request, env, stripeInbound[1]);
         return json({ error: 'Method not allowed.' }, 405);
       }
       const opportunityOne = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/opportunities\/([0-9a-f-]{36})$/i);

@@ -8,11 +8,13 @@ import { useSlidingPill } from './ui/useSlidingPill';
 import { BrandKnowledge, MonitoringSection } from './BrandKnowledge';
 import { DEMO_BRAND_SPACE, updateBrand, useBrand } from './brandStore';
 import { DemoChanges, DemoPrivacy, DemoSending, useDemoSettingsCounts } from './DemoSettings';
+import { DemoIntegrations, ProjectIntegrations } from './ProjectIntegrations';
+import { ProjectSending } from './ProjectSending';
 import type { Go } from './DashboardV2';
 
 export type DockMode = 'always' | 'scroll' | 'auto';
 /** 'company' is the Store tab (kept as the id so older links still land there). */
-export type SettingsTab = 'brand' | 'company' | 'changes' | 'monitoring' | 'sending' | 'privacy';
+export type SettingsTab = 'brand' | 'company' | 'changes' | 'monitoring' | 'sending' | 'integrations' | 'privacy';
 type Tab = SettingsTab;
 
 export const DOCK_MODES: { id: DockMode; label: string }[] = [
@@ -29,8 +31,6 @@ function Row({ title, children, wide }: { title: string; children: React.ReactNo
     </div>
   );
 }
-
-const Soon = () => <span className="status-pill">Soon</span>;
 
 export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab, demo = false, onGo }: {
   startTab?: Tab;
@@ -61,6 +61,7 @@ export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab
     { id: 'changes', title: 'Website changes', badge: demo ? counts.changes : changeRows.length },
     { id: 'monitoring', title: 'Monitoring' },
     { id: 'sending', title: 'Sending' },
+    { id: 'integrations', title: 'Integrations' },
     { id: 'privacy', title: 'Privacy' },
   ];
 
@@ -85,6 +86,7 @@ export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab
         <div className="set-sheet">
           {demo && tab === 'changes' && <DemoChanges onGo={onGo} />}
           {demo && tab === 'sending' && <DemoSending />}
+          {demo && tab === 'integrations' && <DemoIntegrations />}
           {demo && tab === 'privacy' && <DemoPrivacy />}
           {tab === 'company' && (
             <div className="set-main solo">
@@ -140,14 +142,8 @@ export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab
               )}
             </div>
           )}
-          {!demo && tab === 'sending' && (
-            <div className="set-main solo">
-              <Row title="From name"><Soon /></Row>
-              <Row title="From email"><Soon /></Row>
-              <Row title="Daily limit"><Soon /></Row>
-              <Row title="Quiet hours"><Soon /></Row>
-            </div>
-          )}
+          {!demo && tab === 'sending' && <ProjectSending projectId={project.id} />}
+          {!demo && tab === 'integrations' && <ProjectIntegrations projectId={project.id} />}
           {!demo && tab === 'privacy' && (
             <div className="set-main solo">
               <Row title="Consent"><span className="status-pill received"><Icon name="check" />Required</span></Row>

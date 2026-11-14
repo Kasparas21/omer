@@ -79,11 +79,32 @@ export const purchases = pgTable('project_purchases', {
   products: jsonb('products').$type<{ name: string; price?: number; qty?: number }[] | null>(),
   campaign: text('campaign'),
   isReturning: boolean('is_returning').default(false).notNull(),
+  /** tracker | stripe | … — null = legacy tracker rows */
+  provider: text('provider'),
+  providerPaymentId: text('provider_payment_id'),
+  customerEmail: text('customer_email'),
   seenAt: timestamp('seen_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   index('project_purchases_project_seen_idx').on(table.projectId, table.seenAt),
   index('project_purchases_visitor_idx').on(table.projectId, table.visitorId),
   uniqueIndex('project_purchases_order_uidx').on(table.projectId, table.orderId).where(sql`${table.orderId} is not null`),
+  uniqueIndex('project_purchases_provider_payment_uidx').on(table.projectId, table.provider, table.providerPaymentId)
+    .where(sql`${table.providerPaymentId} is not null`),
+]);
+
+/** Payment / revenue provider connections (Stripe first; others soon). */
+export const projectIntegrations = pgTable('project_integrations', {
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  provider: text('provider').notNull(),
+  status: text('status').notNull().default('none'),
+  apiKeySealed: text('api_key_sealed'),
+  stripeAccountId: text('stripe_account_id'),
+  webhookSecretSealed: text('webhook_secret_sealed'),
+  lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),
+  lastError: text('last_error'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  primaryKey({ name: 'project_integrations_pk', columns: [table.projectId, table.provider] }),
 ]);
 
 export const identities = pgTable('project_identities', {
@@ -213,7 +234,23 @@ export const projectOpportunities = pgTable('project_opportunities', {
   index('project_opportunities_project_status_idx').on(table.projectId, table.status),
 ]);
 
-/** Sent personal / campaign emails (SES). */
+/** Per-store From / domain verification (Omer SES, or BYO Resend/Postmark). */
+export const projectSending = pgTable('project_sending', {
+  projectId: uuid('project_id').primaryKey().references(() => projects.id, { onDelete: 'cascade' }),
+  fromName: text('from_name'),
+  fromEmail: text('from_email'),
+  domain: text('domain'),
+  provider: text('provider').notNull().default('ses'),
+  status: text('status').notNull().default('none'),
+  dnsRecords: jsonb('dns_records').$type<Array<{ host: string; type: string; value: string }>>(),
+  providerRef: text('provider_ref'),
+  /** AES-GCM sealed BYO API key (Resend / Postmark). Never returned to the client. */
+  providerApiKeySealed: text('provider_api_key_sealed'),
+  verifiedAt: timestamp('verified_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+/** Sent personal / campaign emails (SES or Resend). */
 export const projectEmailMessages = pgTable('project_email_messages', {
   id: uuid('id').defaultRandom().primaryKey(),
   projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
@@ -222,6 +259,8 @@ export const projectEmailMessages = pgTable('project_email_messages', {
   toEmail: text('to_email').notNull(),
   subject: text('subject').notNull(),
   sesMessageId: text('ses_message_id'),
+  provider: text('provider'),
+  fromEmail: text('from_email'),
   status: text('status').notNull().default('queued'),
   error: text('error'),
   sentAt: timestamp('sent_at', { withTimezone: true }),

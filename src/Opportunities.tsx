@@ -79,7 +79,7 @@ export function Opportunities({ demo, projectId, storeName = '', host, editing, 
   const [device, setDevice] = useState<'desktop' | 'phone'>('desktop');
   const [realOpps, setRealOpps] = useState<RealOpp[] | null>(null);
   const [realBusy, setRealBusy] = useState(false);
-  const [sesOn, setSesOn] = useState(false);
+  const [sendOn, setSendOn] = useState(false);
   const [editOppId, setEditOppId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -92,8 +92,8 @@ export function Opportunities({ demo, projectId, storeName = '', host, editing, 
       })
       .catch(() => { if (!gone) setRealOpps([]); });
     void fetch('/api/config').then(async (res) => {
-      const data = await res.json().catch(() => ({})) as { ses?: boolean };
-      if (!gone) setSesOn(Boolean(data.ses));
+      const data = await res.json().catch(() => ({})) as { ses?: boolean; resend?: boolean; postmark?: boolean };
+      if (!gone) setSendOn(Boolean(data.ses || data.resend || data.postmark));
     }).catch(() => undefined);
     return () => { gone = true; };
   }, [demo, projectId]);
@@ -156,7 +156,7 @@ export function Opportunities({ demo, projectId, storeName = '', host, editing, 
     };
 
     const send = async (id: string) => {
-      if (!projectId || realBusy || !sesOn) return;
+      if (!projectId || realBusy || !sendOn) return;
       setRealBusy(true);
       try {
         const res = await fetch(`/api/projects/${projectId}/opportunities/${id}/send`, { method: 'POST' });
@@ -181,8 +181,8 @@ export function Opportunities({ demo, projectId, storeName = '', host, editing, 
               <Icon name="chevronLeft" />Opportunities
             </button>
             <span>{editingOpp.name || editingOpp.email || 'Draft'}</span>
-            <button type="button" className="btn btn-primary btn-sm" disabled={realBusy || !sesOn} title={sesOn ? 'Send with SES' : 'SES is not configured yet'} onClick={() => void send(editingOpp.id)}>
-              {sesOn ? 'Send' : 'Send (SES off)'}
+            <button type="button" className="btn btn-primary btn-sm" disabled={realBusy || !sendOn} title={sendOn ? 'Send email' : 'Email sending is not configured yet'} onClick={() => void send(editingOpp.id)}>
+              {sendOn ? 'Send' : 'Send (off)'}
             </button>
           </div>
           <MailBrandProvider value={storeMailBrand(storeName, realBrand, undefined, host)}>
@@ -233,7 +233,7 @@ export function Opportunities({ demo, projectId, storeName = '', host, editing, 
       <div className="op-screen op-real">
         <header className="op-top">
           <h1 className="op-title">Opportunities</h1>
-          <p className="op-real-lede">Email-ready people. Draft on-brand follow-ups{sesOn ? ', then send' : ' (configure SES to send)'}.</p>
+          <p className="op-real-lede">Email-ready people. Draft on-brand follow-ups{sendOn ? ', then send' : ' (set up Sending in Settings)'}.</p>
         </header>
         <ul className="op-real-list">
           {list.map((o) => (
@@ -253,7 +253,7 @@ export function Opportunities({ demo, projectId, storeName = '', host, editing, 
                   {o.hasDraft || o.draft ? 'Edit draft' : 'Draft email'}
                 </button>
                 {o.hasDraft || o.draft ? (
-                  <button type="button" className="btn btn-secondary btn-sm" disabled={realBusy || !sesOn} onClick={() => void send(o.id)}>Send</button>
+                  <button type="button" className="btn btn-secondary btn-sm" disabled={realBusy || !sendOn} onClick={() => void send(o.id)}>Send</button>
                 ) : null}
                 <button type="button" className="btn btn-ghost btn-sm" disabled={realBusy} onClick={() => void patch(o.id, 'hold')}>Hold</button>
                 <button type="button" className="btn btn-ghost btn-sm" disabled={realBusy} onClick={() => void patch(o.id, 'dismissed')}>Dismiss</button>

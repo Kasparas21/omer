@@ -37,6 +37,7 @@ const imageBodies = bodyLimit({ maxSize: 5 * 1024 * 1024 + 1024 });
 app.use('/api/*', (c, next) => (/^\/api\/projects\/[0-9a-f-]{36}\/assets$/i.test(c.req.path) ? imageBodies(c, next) : smallBodies(c, next)));
 app.use('/v1/collect/replay-chunks', bodyLimit({ maxSize: 4_000_000 }));
 app.use('/v1/collect/event', bodyLimit({ maxSize: 16384 }));
+app.use('/v1/webhooks/*', bodyLimit({ maxSize: 512_000 }));
 app.use('/api/*', async (c, next) => { c.header('Cache-Control', 'no-store'); await next(); });
 app.all('/api/auth/*', (c) => auth.handler(c.req.raw));
 app.get('/api/config', (c) => c.json({
@@ -46,6 +47,9 @@ app.get('/api/config', (c) => c.json({
   firecrawl: firecrawlConfigured(),
   brandImport: brandImportReady(),
   ses: sesConfigured(),
+  // BYO Resend / Postmark are always available in Settings (merchant pastes their key).
+  resend: true,
+  postmark: true,
 }));
 app.all('/api/projects', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id', (c) => projects.fetch(c.req.raw, env));
@@ -53,6 +57,11 @@ app.get('/api/projects/:id/live/stream', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/live', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/brand', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/brand/*', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/sending', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/sending/*', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/integrations', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/integrations/*', (c) => projects.fetch(c.req.raw, env));
+app.all('/v1/webhooks/stripe/:id', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/opportunities', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/opportunities/:oid', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/opportunities/:oid/draft', (c) => projects.fetch(c.req.raw, env));
