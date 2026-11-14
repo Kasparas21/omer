@@ -1,4 +1,6 @@
-/* Premium, inbox-safe HTML from MailDoc — Emailify/Behavly-style: hero-led, brand kit, generous space. */
+/* Premium, inbox-safe HTML from MailDoc — sections distilled from Emailify study (docs/email-anatomy.md). */
+import { EMAIL_CHROME } from './email-sections';
+
 type Product = { name: string; now: string; was?: string; note?: string; img?: string; url?: string; specs?: [string, string][] };
 export type MailDocLike = {
   kind?: 'brand' | 'personal';
@@ -11,6 +13,10 @@ export type MailDocLike = {
   cta: string;
   ctaUrl?: string;
   perks?: string[];
+  /** Feature-list rows (Feature List pattern); falls back to perks when absent. */
+  features?: string[];
+  /** Optional social / utility labels shown above the footer. */
+  social?: string[];
   hero?: { src?: string; img?: string; tag?: string };
   footer?: string;
   order: string[];
@@ -68,11 +74,6 @@ function onAccent(hex: string) {
   const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
   const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
   return lum > 0.62 ? '#111111' : '#ffffff';
-}
-
-function muted(text: string) {
-  // Soft secondary from the text color — fixed neutrals keep email clients happy.
-  return text;
 }
 
 export function mailDocToText(
@@ -146,18 +147,18 @@ export function mailDocToHtml(
     name?: string | null;
   },
 ) {
-  const width = Math.min(640, Math.max(560, page.width || 600));
+  const width = Math.min(640, Math.max(560, page.width || EMAIL_CHROME.width));
   const head = fontStack(page.headFont);
   const body = fontStack(page.bodyFont);
   const personal = doc.kind === 'personal';
   const ctaHref = tracking.wrapClick(doc.ctaUrl || '#');
   const name = tracking.name || null;
-  const accent = page.accent || '#111111';
+  const accent = page.accent || EMAIL_CHROME.text;
   const btnInk = onAccent(accent);
   const align = personal ? 'left' : 'center';
-  const padX = personal ? '36px' : '40px';
-  const textColor = page.text || '#111111';
-  void muted;
+  const padX = personal ? `${EMAIL_CHROME.padXPersonal}px` : `${EMAIL_CHROME.padXBrand}px`;
+  const textColor = page.text || EMAIL_CHROME.text;
+  const featureRows = (doc.features?.length ? doc.features : doc.perks) || [];
 
   // Only brand layouts get an implied hero from a single product image.
   const heroSrc = doc.hero?.src || doc.hero?.img
@@ -250,8 +251,21 @@ export function mailDocToHtml(
       continue;
     }
 
-    if (t === 'perks' && doc.perks?.length) {
-      blocks.push(`<tr><td align="center" style="padding:14px ${padX} 6px;font-family:${esc(body)};font-size:12.5px;line-height:1.5;color:#6B7280">${esc(doc.perks.join(' · '))}</td></tr>`);
+    if ((t === 'perks' || t === 'features') && featureRows.length) {
+      if (t === 'features') {
+        const rows = featureRows.slice(0, 4).map((f) =>
+          `<tr><td style="padding:6px 0;font-family:${esc(body)};font-size:14px;line-height:1.45;color:${esc(EMAIL_CHROME.muted)};text-align:${align}">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:999px;background:${esc(accent)};margin-right:10px;vertical-align:middle"></span>${esc(f)}
+          </td></tr>`).join('');
+        blocks.push(`<tr><td style="padding:12px ${padX} 4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">${rows}</table></td></tr>`);
+      } else {
+        blocks.push(`<tr><td align="center" style="padding:14px ${padX} 6px;font-family:${esc(body)};font-size:12.5px;line-height:1.5;color:#6B7280">${esc(featureRows.join(' · '))}</td></tr>`);
+      }
+      continue;
+    }
+
+    if (t === 'social' && doc.social?.length) {
+      blocks.push(`<tr><td align="center" style="padding:18px ${padX} 0;font-family:${esc(body)};font-size:12px;letter-spacing:0.04em;color:#6B7280">${esc(doc.social.join('  ·  '))}</td></tr>`);
       continue;
     }
 
@@ -261,7 +275,7 @@ export function mailDocToHtml(
     }
 
     if (t === 'footer') {
-      blocks.push(`<tr><td align="center" style="padding:20px ${padX} 36px;font-family:${esc(body)};font-size:11.5px;line-height:1.6;color:#9CA3AF;border-top:1px solid #F3F4F6">
+      blocks.push(`<tr><td align="center" style="padding:20px ${padX} 36px;font-family:${esc(body)};font-size:11.5px;line-height:1.6;color:#9CA3AF;border-top:1px solid ${EMAIL_CHROME.rule}">
         ${esc(doc.footer || brand.address)}<br/>
         <a href="${esc(tracking.unsubscribeUrl)}" style="color:#9CA3AF;text-decoration:underline">Unsubscribe</a>
       </td></tr>`);
@@ -269,7 +283,7 @@ export function mailDocToHtml(
   }
 
   if (!order.includes('footer')) {
-    blocks.push(`<tr><td align="center" style="padding:20px ${padX} 36px;font-family:${esc(body)};font-size:11.5px;line-height:1.6;color:#9CA3AF;border-top:1px solid #F3F4F6">
+    blocks.push(`<tr><td align="center" style="padding:20px ${padX} 36px;font-family:${esc(body)};font-size:11.5px;line-height:1.6;color:#9CA3AF;border-top:1px solid ${EMAIL_CHROME.rule}">
       ${esc(brand.address)}<br/><a href="${esc(tracking.unsubscribeUrl)}" style="color:#9CA3AF;text-decoration:underline">Unsubscribe</a>
     </td></tr>`);
   }

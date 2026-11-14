@@ -5,25 +5,20 @@ import { loadBrand, type StoredBrand } from './brand-import';
 import { loadEmailContext } from './email-context';
 import type { MailDocLike, PageStyleLike } from './email-html';
 import { brandFromStore, pageFromBrand } from './email-page';
+import { LAYOUT_RECIPES, type LayoutRecipeId } from './email-sections';
 import { openaiConfigured } from './replay-insight';
 import { projectOpportunities, projects } from './schema';
 
 const MODEL = 'gpt-6-luna';
 
-const RECIPES: Record<string, string[]> = {
-  personal_note: ['body.0', 'body.1', 'body.2', 'products', 'cta', 'body.3', 'sig', 'footer'],
-  // Hero-led launch layout (Emailify / Behavly style): logo → hero → headline → copy → CTA.
-  product_nudge: ['hero', 'headline', 'body.0', 'body.1', 'products', 'cta', 'perks', 'sig', 'footer'],
-  compare: ['hero', 'headline', 'body.0', 'body.1', 'products', 'cta', 'sig', 'footer'],
-  cart_rescue: ['hero', 'headline', 'body.0', 'products', 'code', 'cta', 'perks', 'sig', 'footer'],
-};
-
-function pickRecipe(hooks: string[], summary: string | null): keyof typeof RECIPES {
+function pickRecipe(hooks: string[], summary: string | null): LayoutRecipeId {
   const blob = `${hooks.join(' ')} ${summary || ''}`.toLowerCase();
   if (/cart|checkout|abandon|left checkout|code|coupon|discount/.test(blob)) return 'cart_rescue';
   if (/compar|vs\.|between|two |decide|side by side/.test(blob)) return 'compare';
-  if (/product|looked at|viewed|interested|price/.test(blob)) return 'product_nudge';
-  return 'personal_note';
+  if (/restock|back in stock|sold out|returned|in stock again/.test(blob)) return 'restock';
+  if (/digest|newsletter|round.?up|this week|recap/.test(blob)) return 'digest';
+  if (/product|looked at|viewed|interested|price|launch|drop/.test(blob)) return 'launch';
+  return 'editorial_note';
 }
 
 function openaiKey() {
@@ -69,15 +64,16 @@ function asStringArray(v: unknown, maxItems = 6, maxLen = 400): string[] {
 
 function normalizeDoc(
   raw: Record<string, unknown>,
-  recipe: keyof typeof RECIPES,
+  recipe: LayoutRecipeId,
   origin: string,
   brand: StoredBrand,
   firstName: string | null,
 ): MailDocLike {
-  const order = RECIPES[recipe];
+  const layout = LAYOUT_RECIPES[recipe];
+  const order = [...layout.order];
   const body = asStringArray(raw.body, 6, 600);
   while (body.length < 2) body.push('');
-  if (recipe === 'personal_note' && firstName && body[0] && !/hi |hello |hey /i.test(body[0])) {
+  if (layout.kind === 'personal' && firstName && body[0] && !/hi |hello |hey /i.test(body[0])) {
     body[0] = `Hi ${firstName},`;
   }
 
@@ -114,8 +110,11 @@ function normalizeDoc(
     ? { c: asString((raw.code as { c?: unknown }).c, 40), n: asString((raw.code as { n?: unknown }).n, 120) }
     : undefined;
 
+  const perks = asStringArray(raw.perks, 4, 80);
+  const features = asStringArray(raw.features, 4, 80);
+  const social = asStringArray(raw.social, 4, 40);
   const doc: MailDocLike & { blocks: Record<string, unknown> } = {
-    kind: recipe === 'personal_note' ? 'personal' : 'brand',
+    kind: layout.kind,
     subject: asString(raw.subject, 120) || 'Following up',
     preview: asString(raw.preview, 160) || undefined,
     headline: asString(raw.headline, 120),
@@ -124,8 +123,10 @@ function normalizeDoc(
     code: code?.c ? code : undefined,
     cta: asString(raw.cta, 60) || 'See it on the site',
     ctaUrl,
-    perks: asStringArray(raw.perks, 4, 80),
-    hero: recipe !== 'personal_note' && heroSrc ? { src: heroSrc } : undefined,
+    perks: perks.length ? perks : undefined,
+    features: features.length ? features : (recipe === 'restock' && perks.length ? perks : undefined),
+    social: social.length ? social : undefined,
+    hero: layout.kind !== 'personal' && heroSrc ? { src: heroSrc } : undefined,
     footer: undefined,
     order: order.includes('footer') ? order : [...order, 'footer'],
     blocks: {},
@@ -136,6 +137,8 @@ function normalizeDoc(
   }
   if (!doc.code) doc.order = doc.order.filter((k) => k !== 'code');
   if (!doc.perks?.length) doc.order = doc.order.filter((k) => k !== 'perks');
+  if (!doc.features?.length) doc.order = doc.order.filter((k) => k !== 'features');
+  if (!doc.social?.length) doc.order = doc.order.filter((k) => k !== 'social');
   if (!doc.hero) doc.order = doc.order.filter((k) => k !== 'hero');
   if (!doc.headline) doc.order = doc.order.filter((k) => k !== 'headline');
 
@@ -197,9 +200,10 @@ export async function draftOpportunityEmail(
   const products = brand.products.slice(0, 8).map((p) => `- ${p.name}${p.price ? ` (${p.price})` : ''}`).join('\n');
   const paths = (brand.monitor || []).slice(0, 8).map((m) => m.path).join(', ') || '/';
 
+  const layout = LAYOUT_RECIPES[recipe];
   const system = `You write one personalized follow-up email for a merchant's store visitor.
 Output ONLY a JSON object (no markdown fences) with keys:
-subject, preview, headline, body (string array), cta, ctaUrl, products (optional array of {name, now, was?, note?}), code (optional {c,n}), perks (optional string array).
+subject, preview, headline, body (string array), cta, ctaUrl, products (optional array of {name, now, was?, note?}), code (optional {c,n}), perks (optional string array), features (optional string array for restock/feature-list rows), social (optional short labels).
 
 Rules:
 - Match the language of the Brand Voice Guide / Product Information (same language as the site).
@@ -207,8 +211,9 @@ Rules:
 - Only use facts from approved store facts or product list. If a discount/code is not in facts, omit code.
 - body: 2-5 short paragraphs/lines. Use {{first_name}} at most once if helpful.
 - ctaUrl must be on the store origin (${project.origin}) — prefer a real path from monitored pages when relevant.
-- Layout recipe is "${recipe}" — fill fields that fit; leave unused optional fields out.
-- Never use em dashes or banned AI filler.`;
+- Layout recipe is "${recipe}" (${layout.blurb}).
+- Section order to fill: ${layout.order.join(' → ')}. Write copy that fits those slots; leave unused optional fields out.
+- Premium email tone: one clear hero idea, short headline, no template filler. Never use em dashes or banned AI filler.`;
 
   const user = [
     `Store: ${project.name} (${project.origin})`,
@@ -218,6 +223,7 @@ Rules:
     `Insight: ${opp.insightSummary || ctx.insight?.summary || ''}`,
     `Interests: ${(ctx.insight?.interests || []).join(', ') || 'n/a'}`,
     `Recipe: ${recipe}`,
+    `Section order: ${layout.order.join(' → ')}`,
     `Monitored paths: ${paths}`,
     '',
     '## Brand voice (excerpt)',
@@ -236,7 +242,7 @@ Rules:
   const raw = await lunaDraftJson(system, user);
   const first = (opp.name || '').trim().split(/\s+/)[0] || null;
   const doc = normalizeDoc(raw, recipe, project.origin, brand, first);
-  doc.kind = recipe === 'personal_note' ? 'personal' : 'brand';
+  doc.kind = layout.kind;
 
   const now = new Date();
   const [row] = await db.update(projectOpportunities).set({

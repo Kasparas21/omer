@@ -31,10 +31,12 @@ export type MailDoc = {
   /** Where the button goes. Empty means the store's home page. */
   ctaUrl?: string;
   perks?: string[];
+  features?: string[];
+  social?: string[];
   hero?: { photo?: PhotoKey; src?: string; tag?: string };
   cart?: { photo: PhotoKey; item: string; price: string; lines: [string, string][]; total: string };
   footer?: string;
-  /** Block keys in order: headline, body.N, products, code, cta, perks, hero, cart, sig, div.N, footer. */
+  /** Block keys in order: headline, body.N, products, code, cta, perks, features, social, hero, cart, sig, div.N, footer. */
   order: string[];
   blocks: Record<string, BlockStyle>;
 };
