@@ -1,4 +1,4 @@
-/* Settings → Integrations → API: personal keys + copy-paste recipes for scripts / Codex / Zapier. */
+/* Settings → Integrations → API: keys only. Examples live on /docs/api. */
 import { useCallback, useEffect, useState } from 'react';
 import { Icon } from './ui/Icon';
 import { toast } from './ui/toast';
@@ -24,40 +24,16 @@ async function copyText(text: string, ok = 'Copied') {
   }
 }
 
-function Recipe({ label, code }: { label: string; code: string }) {
-  return (
-    <div className="api-recipe">
-      <div className="api-recipe-head">
-        <span>{label}</span>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copyText(code, 'Command copied')}>
-          Copy
-        </button>
-      </div>
-      <pre><code>{code}</code></pre>
-    </div>
-  );
-}
-
 export function DeveloperAPI({ projectId }: { projectId: string }) {
   const [keys, setKeys] = useState<Access[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [fresh, setFresh] = useState<FreshKey | null>(null);
-  const [docsUrl, setDocsUrl] = useState('/docs/api.md');
-  const [openapiUrl, setOpenapiUrl] = useState('/openapi.json');
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://app.tryomer.com';
-  const keyPlaceholder = 'omk_…';
 
   const load = useCallback(async () => {
     const res = await fetch('/api/mcp/access');
-    const data = await res.json().catch(() => ({})) as {
-      access?: Access[];
-      docs?: string;
-      openapi?: string;
-      error?: string;
-    };
+    const data = await res.json().catch(() => ({})) as { access?: Access[]; error?: string };
     if (!res.ok || !data.access) throw new Error(data.error || 'Could not load API access');
-    if (data.docs) setDocsUrl(data.docs);
-    if (data.openapi) setOpenapiUrl(data.openapi);
     setKeys(data.access.filter((r) => r.type === 'key'));
   }, []);
 
@@ -103,11 +79,6 @@ export function DeveloperAPI({ projectId }: { projectId: string }) {
     }
   };
 
-  const listCmd = `curl -sS -H "Authorization: Bearer ${keyPlaceholder}" \\\n  "${origin}/api/projects?view=summary"`;
-  const dashCmd = `curl -sS -H "Authorization: Bearer ${keyPlaceholder}" \\\n  "${origin}/api/projects?project=${projectId}"`;
-  const oppCmd = `curl -sS -H "Authorization: Bearer ${keyPlaceholder}" \\\n  "${origin}/api/projects/${projectId}/opportunities"`;
-  const draftCmd = `curl -sS -X POST -H "Authorization: Bearer ${keyPlaceholder}" \\\n  "${origin}/api/projects/${projectId}/opportunities/OPPORTUNITY_ID/draft"`;
-
   if (!keys) {
     return (
       <div className="set-main solo api-dev" aria-busy="true">
@@ -124,27 +95,28 @@ export function DeveloperAPI({ projectId }: { projectId: string }) {
       <header className="set-int-section-head">
         <h3>API</h3>
         <p>
-          Use project ids and a personal key from scripts, Codex, or Zapier — same power as the dashboard.
+          Personal keys for scripts and agents.
           {' '}
-          <a href={docsUrl} target="_blank" rel="noreferrer">Docs</a>
-          {' · '}
-          <a href={openapiUrl} target="_blank" rel="noreferrer">OpenAPI</a>
+          <a href="/docs/api" target="_blank" rel="noreferrer">API documentation</a>
         </p>
       </header>
 
-      <div className="api-base">
-        <span>Base URL</span>
-        <code>{origin}</code>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copyText(origin, 'Base URL copied')}>
-          Copy
-        </button>
+      <div className="api-meta">
+        <div className="api-base">
+          <span>Base URL</span>
+          <code>{origin}</code>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copyText(origin, 'Base URL copied')}>
+            Copy
+          </button>
+        </div>
+        <div className="api-base">
+          <span>Project id</span>
+          <code>{projectId}</code>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copyText(projectId, 'Project id copied')}>
+            Copy
+          </button>
+        </div>
       </div>
-      <p className="api-hint">
-        This store’s project id: <code>{projectId}</code>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copyText(projectId, 'Project id copied')}>
-          Copy id
-        </button>
-      </p>
 
       {fresh ? (
         <div className="ai-fresh api-fresh" role="status">
@@ -158,20 +130,20 @@ export function DeveloperAPI({ projectId }: { projectId: string }) {
               Copy key
             </button>
           </div>
-          <p className="omer-set-note">We cannot show it again. Store it somewhere safe, then revoke it here if it leaks.</p>
+          <p className="omer-set-note">We cannot show it again. Store it somewhere safe.</p>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => setFresh(null)}>Dismiss</button>
         </div>
       ) : null}
 
       <div className="api-keys-bar">
-        <h4>API keys</h4>
+        <h4>Keys</h4>
         <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void createKey()}>
           Create key
         </button>
       </div>
 
       {keys.length === 0 ? (
-        <p className="api-empty">No keys yet. Create one, then paste it as <code>Authorization: Bearer omk_…</code>.</p>
+        <p className="api-empty">No keys yet. Create one to authenticate as <code>Bearer omk_…</code>.</p>
       ) : (
         <ul className="ai-list api-key-list">
           {keys.map((row) => (
@@ -188,17 +160,6 @@ export function DeveloperAPI({ projectId }: { projectId: string }) {
           ))}
         </ul>
       )}
-
-      <section className="api-recipes" aria-label="Example requests">
-        <header>
-          <h4>Examples</h4>
-          <p>Replace <code>omk_…</code> with your key. Draft does not send; <code>…/send</code> does.</p>
-        </header>
-        <Recipe label="List stores (get project ids)" code={listCmd} />
-        <Recipe label="Dashboard for this store" code={dashCmd} />
-        <Recipe label="List opportunities" code={oppCmd} />
-        <Recipe label="Draft a follow-up email" code={draftCmd} />
-      </section>
     </div>
   );
 }
@@ -208,9 +169,13 @@ export function DemoDeveloperAPI() {
     <div className="set-main solo api-dev">
       <header className="set-int-section-head">
         <h3>API</h3>
-        <p>Create keys and call Omer with project ids from scripts — available on a real store.</p>
+        <p>
+          Personal keys for scripts and agents.
+          {' '}
+          <a href="/docs/api" target="_blank" rel="noreferrer">API documentation</a>
+        </p>
       </header>
-      <p className="api-empty">Demo store — open a real project to create API keys.</p>
+      <p className="api-empty">Demo store — open a real project to create keys.</p>
     </div>
   );
 }
