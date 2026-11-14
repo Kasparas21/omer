@@ -12,7 +12,8 @@
     "test:onboarding": "node tests/onboarding.mjs",
     "start": "tsx server/index.ts",
     "dev:api": "node --env-file=.env --import tsx server/index.ts",
-    "deploy:prod": "bash scripts/deploy-prod.sh"
+    "deploy:prod": "bash scripts/deploy-prod.sh",
+    "email:fixtures": "node --import tsx scripts/email-fixtures.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.8",

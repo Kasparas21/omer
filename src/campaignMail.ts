@@ -10,6 +10,13 @@ export function storeMailBrand(storeName: string, brand: Brand, sender?: string,
   return { name: storeName, logo: logo?.src || undefined, sender: sender?.trim() || storeName, signoff: storeName, address: host ? `${storeName} · ${host}` : storeName };
 }
 
+function skinFromClientBrand(brand: Brand): PageStyle['skin'] {
+  const blob = `${brand.voice?.tone || ''} ${brand.voice?.tagline || ''} ${(brand.docs?.voice || '').slice(0, 800)}`.toLowerCase();
+  if (/\b(playful|fun|witty|warm|friendly|casual|quirky|pet|kids?)\b/.test(blob)) return 'playful';
+  if (/\b(professional|corporate|enterprise|formal|premium|luxury|minimal|b2b)\b/.test(blob)) return 'professional';
+  return 'modern';
+}
+
 /** The store's look: its main colour for buttons, secondary for page wash, fonts where we have them. */
 export function storePage(brand: Brand): PageStyle {
   const main = brand.colors.find((c) => c.role === 'main')?.hex || brand.colors[0]?.hex;
@@ -18,16 +25,26 @@ export function storePage(brand: Brand): PageStyle {
     const family = brand.fonts.find((f) => f.role === role)?.family;
     return family && FONTS.includes(family) ? family : fallback;
   };
+  const skin = skinFromClientBrand(brand);
+  const chrome = skin === 'professional'
+    ? { corners: 8, ctaRadius: 8, size: 15, headSize: 30, wash: '#F3F4F6', head: 'Helvetica' as const }
+    : skin === 'playful'
+      ? { corners: 22, ctaRadius: 999, size: 16, headSize: 38, wash: '#F7F3EE', head: 'Georgia' as const }
+      : { corners: 16, ctaRadius: 999, size: 16, headSize: 34, wash: '#F6F6F6', head: 'Georgia' as const };
   return {
     ...PAGE_STYLE,
-    bg: /^#[0-9a-f]{6}$/i.test(secondary ?? '') ? secondary! : '#F6F6F6',
-    text: '#111111',
-    accent: /^#[0-9a-f]{6}$/i.test(main ?? '') ? main! : '#111111',
-    headFont: fontOf('Headings', 'Georgia'),
+    bg: /^#[0-9a-f]{6}$/i.test(secondary ?? '') ? secondary! : chrome.wash,
+    fill: '#FAFAFA',
+    text: '#1A1A1A',
+    accent: /^#[0-9a-f]{6}$/i.test(main ?? '') ? main! : '#1A1A1A',
+    headFont: fontOf('Headings', chrome.head),
     bodyFont: fontOf('Body', 'Helvetica'),
-    size: 16,
+    size: chrome.size,
     width: 600,
-    corners: 16,
+    corners: chrome.corners,
+    ctaRadius: chrome.ctaRadius,
+    headSize: chrome.headSize,
+    skin,
   };
 }
 

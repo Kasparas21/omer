@@ -43,8 +43,17 @@ export type MailDoc = {
   order: string[];
   blocks: Record<string, BlockStyle>;
 };
-export type PageStyle = { bg: string; fill: string; text: string; accent: string; headFont: string; bodyFont: string; size: number; width: number; corners: number };
-export const PAGE_STYLE: PageStyle = { bg: '#F6F6F6', fill: '#FFFFFF', text: '#111111', accent: STORE.color, headFont: 'Georgia', bodyFont: 'Helvetica', size: 16, width: 600, corners: 16 };
+export type MailSkin = 'professional' | 'modern' | 'playful';
+export type PageStyle = {
+  bg: string; fill: string; text: string; accent: string;
+  headFont: string; bodyFont: string; size: number; width: number; corners: number;
+  ctaRadius?: number; headSize?: number; skin?: MailSkin;
+};
+export const PAGE_STYLE: PageStyle = {
+  bg: '#F6F6F6', fill: '#FAFAFA', text: '#1A1A1A', accent: STORE.color,
+  headFont: 'Georgia', bodyFont: 'Helvetica', size: 16, width: 600, corners: 16,
+  ctaRadius: 999, headSize: 34, skin: 'playful',
+};
 
 type Draft = Omit<MailDoc, 'order' | 'blocks' | 'kind'> & { kind?: MailDoc['kind']; order?: string[] };
 function mail(d: Draft): MailDoc {

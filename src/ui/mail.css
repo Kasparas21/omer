@@ -10,9 +10,10 @@
 .ml-paw { width: 21px; height: 21px; flex: none; color: var(--ml-accent); }
 .ml-main { padding: 12px 40px 8px; font-size: var(--ml-size, 16px); line-height: 1.55; }
 .ml:not(.personal) .ml-main { text-align: center; }
-.ml .ml-h { margin: 18px 0 12px; font-family: var(--ml-head, Georgia, serif); font-size: 32px; line-height: 1.15; letter-spacing: -0.03em; font-weight: 700; color: #111; }
-.ml .ml-h.size-s { font-size: 24px; }
-.ml .ml-h.size-l { font-size: 38px; }
+.ml .ml-h { margin: 18px 0 12px; font-family: var(--ml-head, Georgia, serif); font-size: var(--ml-head-size, 34px); line-height: 1.15; letter-spacing: -0.03em; font-weight: 700; color: #111; }
+.ml .ml-h.size-s { font-size: calc(var(--ml-head-size, 34px) * 0.76); }
+.ml .ml-h.size-m { font-size: var(--ml-head-size, 34px); }
+.ml .ml-h.size-l { font-size: calc(var(--ml-head-size, 34px) * 1.18); }
 .ml-main p { margin: 0 auto 12px; max-width: 26em; color: var(--ml-text, #4B5563); }
 .ml.personal .ml-main p { max-width: none; margin-left: 0; margin-right: 0; }
 .ml-var { display: inline-block; padding: 0 6px; border-radius: 7px; background: rgb(25 27 34 / 0.07); color: inherit; line-height: 1.35; white-space: nowrap; cursor: help; font-family: var(--font-mono); font-size: 0.86em; }
@@ -38,7 +39,7 @@
 .ml-code code { font-family: var(--font-mono); font-size: 18px; font-weight: 700; letter-spacing: 0.04em; color: var(--ml-accent); }
 .ml-cta-row { margin: 18px 0 14px; display: flex; justify-content: center; }
 .ml.personal .ml-cta-row { justify-content: flex-start; }
-.ml-cta { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 28px; border-radius: 999px; background: var(--ml-accent); color: #fff; font-weight: 600; font-size: 15px; letter-spacing: 0.01em; }
+.ml-cta { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 28px; border-radius: var(--ml-cta-radius, 999px); background: var(--ml-accent); color: #fff; font-weight: 600; font-size: 15px; letter-spacing: 0.01em; }
 .ml-cta-row.full .ml-cta { display: flex; flex: 1; }
 .ml-link { font-weight: 500; color: var(--ml-accent) !important; }
 .ml-link span { text-decoration: underline; text-underline-offset: 3px; }
