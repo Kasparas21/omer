@@ -46,7 +46,7 @@ function peopleFromVisits(visits: LiveVisit[], now: number) {
   }));
 }
 
-/** Demo store only: the kit's example keeps moving, so visits land every few seconds and the last bar grows. */
+/** Demo store only: the product's example keeps moving, so visits land every few seconds and the last bar grows. */
 function useDemoDrift(data: LivePayload, on: boolean, now: number) {
   const [tick, setTick] = useState(0);
   useEffect(() => {

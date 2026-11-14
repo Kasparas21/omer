@@ -1,4 +1,4 @@
-/* Icon set copied from the Unfair Weekend UI kit (public/ui/kit.js). 24×24, 1.6 stroke, rounded. */
+/* Icon set copied from the Omer design system (shared icon set). 24×24, 1.6 stroke, rounded. */
 const P = {
   "home": "<path d=\"M3 11.2 12 3.8l9 7.4\"/><path d=\"M5.5 9.5v10.2a.8.8 0 0 0 .8.8h11.4a.8.8 0 0 0 .8-.8V9.5\"/><path d=\"M10 20.5v-6h4v6\"/>",
   "inbox": "<path d=\"M22 12h-6l-2 3h-4l-2-3H2\"/><path d=\"M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z\"/>",

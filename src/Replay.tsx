@@ -1,6 +1,6 @@
 /* Session replay: until real recordings ship, the session is rebuilt from what they did — each page drawn as a
    simple store page with their cursor on top, a timeline you can scrub, and the steps alongside. Laid out like
-   the UI kit's replay. Says plainly that it's reconstructed. */
+   the product's replay. Says plainly that it's reconstructed. */
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from './ui/Icon';
 import { PHOTOS, photo, type PhotoKey } from './storeData';

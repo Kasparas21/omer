@@ -535,7 +535,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
     return null;
   }
 
-  // Inside a campaign the shelf trades the store switcher for the way back, as in the kit.
+  // Inside a campaign the shelf trades the store switcher for the way back, as in the product UI.
   const openCampaign = screen === 'campaigns' && project ? campaignState.campaigns.find((c) => c.id === campaignId) : undefined;
   const onProfile = screen === 'visitors' && project && profile?.projectId === project.id;
   const nested = inSetup ? undefined

@@ -3,7 +3,7 @@
    away. A new campaign: name it and add steps (or start from a template) in the create card, then write the
    email yourself in the editor. When it's on, the server matches real visitors every 10 minutes: their email
    waits for approval in Opportunities, or sends by itself (outside their quiet hours, within the daily
-   limit). It's dropped if they buy first. The demo store shows the kit's example set; a real store's
+   limit). It's dropped if they buy first. The demo store shows the product's example set; a real store's
    campaigns, settings and numbers come from the server. */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -269,7 +269,7 @@ function CampaignPage({ c, space, storeName, onWrite, onClose, currency = 'usd' 
   const [name, setName] = useState(c.name);
   const [saved, setSaved] = useState(false);
   const wholeMoney = useMemo(() => moneyWhole(currency), [currency]);
-  // Real stores: what its emails led to (orders within 7 days of an email, last 14 days). Demo: the kit's numbers.
+  // Real stores: what its emails led to (orders within 7 days of an email, last 14 days). Demo: the product's numbers.
   const demoStats = campaignStats(c);
   const sent = real ? queue?.sent14 ?? 0 : demoStats[0];
   const bought = real ? queue?.bought ?? 0 : demoStats[1];

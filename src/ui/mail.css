@@ -1,5 +1,5 @@
 /* Emails (the store's look), campaign cards, a campaign's page, its Settings window and the email editor.
-   Written for Omer from the UI kit's screens. */
+   Written for Omer from the product's screens. */
 
 /* ---------- The email ---------- */
 .ml-skin { --ml-bg: #F5F5F7; --ml-fill: #fff; --ml-text: #4D3E36; --ml-accent: #C8471F; --ml-head: var(--font); --ml-body: var(--font); --ml-size: 15px; --ml-width: 520px; --ml-corners: 12px; }

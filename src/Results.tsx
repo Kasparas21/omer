@@ -1,5 +1,5 @@
-/* Results: what follow-up email earned, laid out like the UI kit's Results page.
-   Real projects read their own sales, orders, clicks and campaigns; the demo store uses the kit's example numbers. */
+/* Results: what follow-up email earned, laid out like the product's Results page.
+   Real projects read their own sales, orders, clicks and campaigns; the demo store uses the product's example numbers. */
 import { useEffect, useState } from 'react';
 import { Icon } from './ui/Icon';
 import { Area, Card } from './DashboardV2';

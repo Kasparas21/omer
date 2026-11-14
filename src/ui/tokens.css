@@ -1,4 +1,4 @@
-/* unfairweekend UI — design tokens
+/* Omer UI — design tokens
    Every component reads from these variables. The customizer only changes
    variables and data-attributes on <html>, so whatever you pick here is
    exactly what ships.
@@ -30,7 +30,7 @@
   --violet: #4F4BE0;            /* deeper sibling in the same hue */
   --lavender: #d5d3ff;
   /* orb avatars only: the pop colour in every orb's gradient (iris, pop, deep, indigo).
-     Picked in the Customize panel; options live in kit.js ORB_POPS. */
+     Picked in the Customize panel; options live in ORB_POPS. */
   --orb-pop: #ff9a5c;
   --gradient: linear-gradient(135deg, #eeefff 0%, #6360F0 44%, #4F4BE0 78%, #d5d3ff 100%);
   --gradient-mesh:

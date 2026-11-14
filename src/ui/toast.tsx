@@ -1,4 +1,4 @@
-/* Toasts, as in the kit: a pill above the dock, newest in front, gone after 4s (paused while hovered). */
+/* Toasts, as in the product UI: a pill above the dock, newest in front, gone after 4s (paused while hovered). */
 import { useSyncExternalStore } from 'react';
 import { Icon } from './Icon';
 

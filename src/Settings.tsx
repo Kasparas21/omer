@@ -66,7 +66,7 @@ function Row({ title, children, wide }: { title: string; children: React.ReactNo
 
 export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab, demo = false, onGo, onProjectUpdate, onReplay, storageReady = true, replayBusy = false }: {
   startTab?: Tab;
-  /** The demo store shows the kit's full example Settings. */
+  /** The demo store shows the product's full example Settings. */
   demo?: boolean;
   onGo?: (go: Go) => void;
   project: Project;

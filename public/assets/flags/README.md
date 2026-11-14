@@ -1,6 +1,6 @@
 # Country flags
 
-Every country flag in the kit is the **circle** style from BRIX Templates'
+Every country flag here is the **circle** style from BRIX Templates'
 [200+ Country Flags](https://www.figma.com/community/file/1095830901163009888) Figma file.
 Files are named by lowercase ISO 3166-1 alpha-2 code (`us.svg`, `gb.svg`, `lt.svg` …), 200 in all.
 Show one with `UI.flag('lt', 16)` — never hand-draw a flag or use emoji flags.

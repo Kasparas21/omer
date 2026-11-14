@@ -1,4 +1,4 @@
-/* Dashboard V2 — a port of the UI kit's Home (public/ui/screens.js v2Live / v2Chart / v2DayChart / mountV2)
+/* Dashboard V2 — a port of the product's Home (dashboard screen modules v2Live / v2Chart / v2DayChart / mountV2)
    driven by real rollups: same geometry, axis, hover scrubber, wipe-in, count-up and card language. */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Project } from './project';
@@ -9,7 +9,7 @@ import { CAMPAIGN_COLORS, DEMO_CAMPAIGNS, DEMO_NEEDS, DEMO_PRODUCTS, DEMO_SCHEDU
 import { useDemo } from './demoState';
 import { moneyFormatter } from './money';
 
-/** Where a Dashboard row takes you, as in the kit. */
+/** Where a Dashboard row takes you, as in the product UI. */
 export type Go =
   | { to: 'inbox'; tab?: 'review' | 'hold' | 'approved' | 'replies'; id?: string }
   | { to: 'campaigns'; id?: string }

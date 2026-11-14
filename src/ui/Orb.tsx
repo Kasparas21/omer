@@ -1,4 +1,4 @@
-/* Orb avatars, same as the UI kit (public/ui/kit.js): rendered by the vendored
+/* Orb avatars, same as the product UI (shared icon set): rendered by the vendored
    @outpacelabs/avatars engine in the brand gradient, with a CSS stand-in until it loads. */
 import { useEffect, useState } from 'react';
 

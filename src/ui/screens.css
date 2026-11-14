@@ -1,4 +1,4 @@
-/* Opportunities, Campaigns and Results: written for Omer, following the UI kit's layout. */
+/* Opportunities, Campaigns and Results: written for Omer, following the product's layout. */
 .op-screen, .cp-screen, .rs-screen { width: var(--v2-rail); margin-inline: auto; padding-top: var(--page-start, 24px); padding-bottom: 130px; box-sizing: border-box; container-type: inline-size; }
 @media (max-width: 900px) { .op-screen, .cp-screen, .rs-screen { --v2-rail: min(100% - 32px, 1080px); } }
 @media (max-width: 520px) { .op-screen, .cp-screen, .rs-screen { --v2-rail: calc(100% - 24px); } }

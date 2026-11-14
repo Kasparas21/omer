@@ -1,4 +1,4 @@
-/* People: the kit's visitor directory from the last day of visits.
+/* People: the product's visitor directory from the last day of visits.
    Sessions use a 30-minute gap. Email and revenue come from identify/purchase events (demo fills pawsome). */
 import { useEffect, useMemo, useState } from 'react';
 import { isOnline, type LivePayload, type LiveVisit } from './live';

@@ -1,5 +1,5 @@
 /* Example content for the demo store (Pawsome): the people behind Opportunities, the campaigns and the emails
-   they send. Mirrors the UI kit's example app. Real projects never read this; they show empty states until
+   they send. Mirrors the product's example app. Real projects never read this; they show empty states until
    email drafting ships. */
 import type { CampaignTrigger } from '../server/trigger-library';
 
@@ -274,7 +274,7 @@ export const PERSONAL_MAILS: MailDoc[] = [
 
 // ---------------- Results ----------------
 const noise = (i: number, salt: number) => { const x = Math.sin(i * 12.9898 + salt * 78.233) * 43758.5453; return x - Math.floor(x); };
-/** 60 days of demo sends, clicks, orders and sales, shaped like the kit (weekday rhythm plus a mid-period lift). */
+/** 60 days of demo sends, clicks, orders and sales, shaped like the product UI (weekday rhythm plus a mid-period lift). */
 export const DEMO_DAYS = (() => {
   const n = 60;
   const sent = Array.from({ length: n }, (_, i) => Math.round(760 + 260 * Math.sin(i * 0.9) + 220 * noise(i, 3) + (i > 40 ? 120 : 0)));
