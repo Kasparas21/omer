@@ -387,7 +387,7 @@ export function Profile({ projectId, seed, onLive, onName, currency = 'usd' }: {
                                       <span>
                                         {visitorError
                                           || insight?.summary
-                                          || 'Open a Watch replay to analyze a session. We roll those insights into this visitor brief — email drafts come later.'}
+                                          || 'Open a Watch replay to analyze a session. We roll those insights into this visitor brief — high-confidence follow-ups send on their own.'}
                                       </span>
                                     </div>
                                   </div>
