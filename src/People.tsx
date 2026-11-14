@@ -7,12 +7,12 @@ import { Orb } from './ui/Orb';
 import { Dropdown } from './ui/Dropdown';
 import { SourceMark, sourceKey, sourceKind, sourceLabel } from './ui/sources';
 import { demoCustomer } from './demo';
+import { moneyFormatter } from './money';
 import { useSlidingPill } from './ui/useSlidingPill';
 
 const ADJ = ['Quiet', 'Bold', 'Swift', 'Calm', 'Bright', 'Gentle', 'Lucky', 'Clever', 'Brave', 'Sunny', 'Misty', 'Happy', 'Witty', 'Mellow', 'Rapid', 'Keen'];
 const ANIMAL = ['Heron', 'Otter', 'Fox', 'Lynx', 'Robin', 'Panda', 'Koala', 'Falcon', 'Badger', 'Finch', 'Hare', 'Wren', 'Seal', 'Owl', 'Moth', 'Crane'];
 const SESSION_GAP = 30 * 60_000;
-const money = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 
 type Tab = 'all' | 'live' | 'email' | 'customers';
 type Sort = 'recent' | 'revenue' | 'sessions';
@@ -32,8 +32,9 @@ function ago(iso: string, now: number) {
   return minutes < 60 ? `${minutes}m ago` : `${Math.floor(minutes / 60)}h ago`;
 }
 
-export function People({ data, loading, failed, onLive, onOpen, demo = false, start }: {
+export function People({ data, loading, failed, onLive, onOpen, demo = false, start, currency = 'usd' }: {
   demo?: boolean;
+  currency?: string;
   /** Opened from a Dashboard row: start filtered to that source or country. */
   start?: { source?: string; country?: string };
   data: LivePayload;
@@ -42,6 +43,7 @@ export function People({ data, loading, failed, onLive, onOpen, demo = false, st
   onLive: () => void;
   onOpen: (seed: string) => void;
 }) {
+  const money = useMemo(() => moneyFormatter(currency), [currency]);
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState<Tab>('all');
   const tabPill = useSlidingPill<HTMLElement>(tab);

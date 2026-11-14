@@ -1,7 +1,7 @@
 /* Settings: pill tabs on top, then plain rows: a label and its value, nothing else. Brand knowledge first
    (folders with everything emails are written with), then the store's setup, website changes, monitored
    pages, sending and privacy. The dock's behaviour lives in the account menu. */
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { Project } from './project';
 import { Icon } from './ui/Icon';
 import { useSlidingPill } from './ui/useSlidingPill';
@@ -10,6 +10,7 @@ import { DEMO_BRAND_SPACE, updateBrand, useBrand } from './brandStore';
 import { DemoChanges, DemoPrivacy, DemoSending, useDemoSettingsCounts } from './DemoSettings';
 import { DemoIntegrations, ProjectIntegrations } from './ProjectIntegrations';
 import { ProjectSending } from './ProjectSending';
+import { toast } from './ui/toast';
 import type { Go } from './DashboardV2';
 
 export type DockMode = 'always' | 'scroll' | 'auto';
@@ -23,6 +24,31 @@ export const DOCK_MODES: { id: DockMode; label: string }[] = [
   { id: 'auto', label: 'Always hidden' },
 ];
 
+const CURRENCY_OPTIONS = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'usd', label: 'USD' },
+  { value: 'eur', label: 'EUR' },
+  { value: 'gbp', label: 'GBP' },
+  { value: 'cad', label: 'CAD' },
+  { value: 'aud', label: 'AUD' },
+  { value: 'sek', label: 'SEK' },
+  { value: 'nok', label: 'NOK' },
+  { value: 'dkk', label: 'DKK' },
+  { value: 'pln', label: 'PLN' },
+  { value: 'chf', label: 'CHF' },
+  { value: 'jpy', label: 'JPY' },
+];
+
+type Usage = {
+  pageviews: number;
+  purchases: number;
+  identifies: number;
+  emailOpens: number;
+  emailClicks: number;
+  total: number;
+  days: { day: string; pageviews: number }[];
+};
+
 function Row({ title, children, wide }: { title: string; children: React.ReactNode; wide?: boolean }) {
   return (
     <div className={`set-row${wide ? ' wide' : ''}`}>
@@ -32,7 +58,7 @@ function Row({ title, children, wide }: { title: string; children: React.ReactNo
   );
 }
 
-export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab, demo = false, onGo }: {
+export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab, demo = false, onGo, onProjectUpdate }: {
   startTab?: Tab;
   /** The demo store shows the kit's full example Settings. */
   demo?: boolean;
@@ -45,6 +71,7 @@ export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab
   onGuide: () => void;
   onSetup: () => void;
   onReplay?: (enabled: boolean) => void;
+  onProjectUpdate?: (project: Project) => void;
   storageReady?: boolean;
   replayBusy?: boolean;
 }) {
@@ -55,6 +82,72 @@ export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab
   const space = demo ? DEMO_BRAND_SPACE : project.id;
   const brand = useBrand(space);
   const changeRows = (brand.changes || []).filter((c) => !c.seen);
+  const [name, setName] = useState(project.name);
+  const [currencyChoice, setCurrencyChoice] = useState(project.displayCurrency || 'auto');
+  const [usage, setUsage] = useState<Usage | null>(null);
+  const [storeBusy, setStoreBusy] = useState(false);
+
+  useEffect(() => {
+    setName(project.name);
+    setCurrencyChoice(project.displayCurrency || 'auto');
+  }, [project.id, project.name, project.displayCurrency]);
+
+  const loadUsage = useCallback(async () => {
+    if (demo) {
+      setUsage({
+        pageviews: 4,
+        purchases: 0,
+        identifies: 0,
+        emailOpens: 0,
+        emailClicks: 0,
+        total: 4,
+        days: [
+          { day: '2026-11-10', pageviews: 4 },
+          { day: '2026-11-11', pageviews: 0 },
+        ],
+      });
+      return;
+    }
+    const res = await fetch(`/api/projects/${project.id}/usage`);
+    const data = await res.json().catch(() => ({})) as { usage?: Usage; error?: string };
+    if (!res.ok || !data.usage) throw new Error(data.error || 'Could not load usage');
+    setUsage(data.usage);
+  }, [demo, project.id]);
+
+  useEffect(() => {
+    if (tab !== 'company') return;
+    void loadUsage().catch((error) => toast(error instanceof Error ? error.message : 'Could not load usage', { kind: 'warn' }));
+  }, [tab, loadUsage]);
+
+  const patchStore = async (body: { name?: string; displayCurrency?: string | null }) => {
+    if (demo || storeBusy) return;
+    setStoreBusy(true);
+    try {
+      const res = await fetch(`/api/projects/${project.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({})) as { project?: Project; error?: string };
+      if (!res.ok || !data.project) throw new Error(data.error || 'Save failed');
+      onProjectUpdate?.(data.project);
+      toast('Saved');
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'Save failed', { kind: 'warn' });
+    } finally {
+      setStoreBusy(false);
+    }
+  };
+
+  const copyToken = async () => {
+    try {
+      await navigator.clipboard.writeText(project.writeKey);
+      toast('Copied');
+    } catch {
+      toast('Could not copy', { kind: 'warn' });
+    }
+  };
+
   const tabs: { id: Tab; title: string; badge?: number }[] = [
     { id: 'brand', title: 'Brand knowledge', badge: demo ? counts.company : 0 },
     { id: 'company', title: 'Store' },
@@ -64,6 +157,9 @@ export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab
     { id: 'integrations', title: 'Integrations' },
     { id: 'privacy', title: 'Privacy' },
   ];
+
+  const maxBar = Math.max(1, ...(usage?.days || []).map((d) => d.pageviews));
+  const emailEvents = (usage?.emailOpens || 0) + (usage?.emailClicks || 0);
 
   return (
     <div className="omer-settings st-page">
@@ -89,26 +185,91 @@ export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab
           {demo && tab === 'integrations' && <DemoIntegrations />}
           {demo && tab === 'privacy' && <DemoPrivacy />}
           {tab === 'company' && (
-            <div className="set-main solo">
-              <Row title="Name"><span className="omer-set-val">{project.name}</span></Row>
-              <Row title="Website">
-                <a className="omer-set-link" href={project.origin} target="_blank" rel="noreferrer">{host}<Icon name="arrowUpRight" /></a>
-              </Row>
-              <Row title="Tracking">
-                <span className={`status-pill ${project.firstEventAt ? 'received' : ''}`}><span className="lvp-dot" aria-hidden="true" />{project.firstEventAt ? 'Live' : 'Not installed'}</span>
-              </Row>
-              <Row title="Install script" wide>
-                <div className="su-code omer-set-snippet"><pre>{snippet}</pre>
-                  <button className="btn btn-secondary btn-sm" type="button" onClick={() => onCopy('script')}><Icon name="copy" />Copy</button>
+            <>
+              <div className="set-main">
+                <Row title="Name">
+                  <input
+                    className="input"
+                    value={name}
+                    maxLength={80}
+                    disabled={storeBusy || demo}
+                    onChange={(e) => setName(e.target.value)}
+                    onBlur={() => {
+                      if (demo || name.trim() === project.name) return;
+                      void patchStore({ name: name.trim() });
+                    }}
+                  />
+                </Row>
+                <Row title="Website">
+                  <a className="omer-set-link" href={project.origin} target="_blank" rel="noreferrer">{host}<Icon name="arrowUpRight" /></a>
+                </Row>
+                <Row title="Project token" wide>
+                  <div className="su-code omer-set-snippet">
+                    <pre>{project.writeKey}</pre>
+                    <button className="btn btn-secondary btn-sm" type="button" onClick={() => void copyToken()}><Icon name="copy" />Copy</button>
+                  </div>
+                </Row>
+                <Row title="Currency">
+                  <span className="cpe-select-wrap">
+                    <select
+                      className="select"
+                      aria-label="Display currency"
+                      value={currencyChoice}
+                      disabled={storeBusy || demo}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setCurrencyChoice(value);
+                        void patchStore({ displayCurrency: value === 'auto' ? null : value });
+                      }}
+                    >
+                      {CURRENCY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                    <Icon name="chevronDown" />
+                  </span>
+                </Row>
+                <Row title="Showing as">
+                  <span className="omer-set-val">{(project.currency || 'usd').toUpperCase()}</span>
+                </Row>
+                <Row title="Tracking">
+                  <span className={`status-pill ${project.firstEventAt ? 'received' : ''}`}><span className="lvp-dot" aria-hidden="true" />{project.firstEventAt ? 'Live' : 'Not installed'}</span>
+                </Row>
+                <Row title="Install script" wide>
+                  <div className="su-code omer-set-snippet"><pre>{snippet}</pre>
+                    <button className="btn btn-secondary btn-sm" type="button" onClick={() => onCopy('script')}><Icon name="copy" />Copy</button>
+                  </div>
+                </Row>
+                <Row title="Install prompt">
+                  <span className="omer-set-acts">
+                    <button className="btn btn-ghost btn-sm" type="button" onClick={onGuide}><Icon name="book" />Guide</button>
+                    <button className="btn btn-secondary btn-sm" type="button" onClick={() => onCopy('prompt')}><Icon name="copy" />Copy</button>
+                  </span>
+                </Row>
+              </div>
+              <aside className="set-side">
+                <div className="set-side-in">
+                  <div className="set-side-k">Usage</div>
+                  <p className="set-send-lede">Events this calendar month.</p>
+                  {usage?.days?.length ? (
+                    <div className="set-usage-bars" aria-hidden="true">
+                      {usage.days.map((d) => (
+                        <i key={d.day} style={{ height: `${Math.max(4, (d.pageviews / maxBar) * 100)}%` }} title={d.day} />
+                      ))}
+                    </div>
+                  ) : null}
+                  {usage ? (
+                    <ul className="set-usage">
+                      <li><span><i className="set-usage-dot" style={{ ['--c' as string]: '#4F7CFF' }} />Pageview</span><span>{usage.pageviews}</span></li>
+                      <li><span><i className="set-usage-dot" style={{ ['--c' as string]: '#22A06B' }} />Transaction</span><span>{usage.purchases}</span></li>
+                      <li><span><i className="set-usage-dot" style={{ ['--c' as string]: '#F5A524' }} />Identify</span><span>{usage.identifies}</span></li>
+                      <li><span><i className="set-usage-dot" style={{ ['--c' as string]: '#8B5CF6' }} />Email</span><span>{emailEvents}</span></li>
+                      <li><span><i className="set-usage-dot" style={{ ['--c' as string]: '#94A3B8' }} />Total</span><span>{usage.total}</span></li>
+                    </ul>
+                  ) : (
+                    <p className="omer-set-note">Loading…</p>
+                  )}
                 </div>
-              </Row>
-              <Row title="Install prompt">
-                <span className="omer-set-acts">
-                  <button className="btn btn-ghost btn-sm" type="button" onClick={onGuide}><Icon name="book" />Guide</button>
-                  <button className="btn btn-secondary btn-sm" type="button" onClick={() => onCopy('prompt')}><Icon name="copy" />Copy</button>
-                </span>
-              </Row>
-            </div>
+              </aside>
+            </>
           )}
           {!demo && tab === 'changes' && (
             <div className="set-main solo">

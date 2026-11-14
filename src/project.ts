@@ -15,6 +15,10 @@ export type Project = {
   writeKey: string;
   firstEventAt: string | null;
   replayEnabled?: boolean;
+  /** Stored override; null/undefined = auto */
+  displayCurrency?: string | null;
+  /** Resolved display currency (auto or override) */
+  currency?: string;
   pageViews?: DayCount[];
   visitors?: DayCount[];
   dwell?: DayDwell[];

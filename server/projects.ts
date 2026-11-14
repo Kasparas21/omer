@@ -65,7 +65,23 @@ const projectFields = {
   writeKey: projects.writeKey,
   firstEventAt: projects.firstEventAt,
   replayEnabled: projects.replayEnabled,
+  displayCurrency: projects.displayCurrency,
 };
+
+/** Resolved display currency: override → mode of recent purchases → usd */
+const resolvedCurrencySql = sql<string>`coalesce(
+  nullif(lower(${projects.displayCurrency}), ''),
+  (
+    select lower(p.currency)
+    from ${purchases} p
+    where p.project_id = ${projects.id}
+      and p.seen_at >= now() - interval '30 days'
+    group by lower(p.currency)
+    order by count(*) desc
+    limit 1
+  ),
+  'usd'
+)`;
 
 function cleanSessionId(value: unknown) {
   return typeof value === 'string' && sessionIdRe.test(value) ? value : null;
@@ -177,12 +193,15 @@ async function listProjects(request: Request, env: Env) {
   const selected = url.searchParams.get('project');
   if (selected && !uuid.test(selected)) return json({ error: 'Project not found.' }, 404);
   if (summary) {
-    const records = await withDatabase(env, (db) => db.select(projectFields)
-      .from(projects).where(eq(projects.owner, owner)).orderBy(desc(projects.createdAt)));
+    const records = await withDatabase(env, (db) => db.select({
+      ...projectFields,
+      currency: resolvedCurrencySql,
+    }).from(projects).where(eq(projects.owner, owner)).orderBy(desc(projects.createdAt)));
     return json({ projects: records });
   }
   const records = await withDatabase(env, (db) => db.select({
     ...projectFields,
+    currency: resolvedCurrencySql,
     pageViews: sql<{ day: string; count: number }[]>`coalesce((
       select json_agg(json_build_object('day', day, 'count', count) order by day)
       from (
@@ -1489,19 +1508,107 @@ async function patchProject(request: Request, env: Env, projectId: string) {
   const owner = await ownerID(request);
   if (!owner) return json({ error: 'Sign in to update settings.' }, 401);
   const raw = await readText(request, 2048);
-  let body: { replayEnabled?: unknown } | null;
+  let body: { replayEnabled?: unknown; name?: unknown; displayCurrency?: unknown } | null;
   try { body = raw === null ? null : JSON.parse(raw); } catch { return json({ error: 'Invalid JSON.' }, 400); }
-  if (typeof body?.replayEnabled !== 'boolean') return json({ error: 'replayEnabled required.' }, 400);
-  if (body.replayEnabled && !objectStoreConfigured()) {
-    return json({ error: 'Replay storage is not configured on this server.' }, 400);
+  const patch: { replayEnabled?: boolean; name?: string; displayCurrency?: string | null } = {};
+  if (typeof body?.replayEnabled === 'boolean') {
+    if (body.replayEnabled && !objectStoreConfigured()) {
+      return json({ error: 'Replay storage is not configured on this server.' }, 400);
+    }
+    patch.replayEnabled = body.replayEnabled;
   }
+  if (typeof body?.name === 'string') {
+    const name = body.name.trim().slice(0, 80);
+    if (!name) return json({ error: 'Name required.' }, 400);
+    patch.name = name;
+  }
+  if (body && 'displayCurrency' in body) {
+    if (body.displayCurrency === null || body.displayCurrency === '' || body.displayCurrency === 'auto') {
+      patch.displayCurrency = null;
+    } else if (typeof body.displayCurrency === 'string') {
+      const code = body.displayCurrency.trim().toLowerCase();
+      if (!/^[a-z]{3}$/.test(code)) return json({ error: 'Invalid currency.' }, 400);
+      patch.displayCurrency = code;
+    } else {
+      return json({ error: 'Invalid currency.' }, 400);
+    }
+  }
+  if (!Object.keys(patch).length) return json({ error: 'Nothing to update.' }, 400);
   return withDatabase(env, async (db) => {
-    const [project] = await db.update(projects)
-      .set({ replayEnabled: body!.replayEnabled as boolean })
+    const [updated] = await db.update(projects)
+      .set(patch)
       .where(and(eq(projects.id, projectId), eq(projects.owner, owner)))
       .returning(projectFields);
-    if (!project) return json({ error: 'Not found.' }, 404);
-    return json({ project, storageReady: objectStoreConfigured() });
+    if (!updated) return json({ error: 'Not found.' }, 404);
+    const [withCurrency] = await db.select({
+      ...projectFields,
+      currency: resolvedCurrencySql,
+    }).from(projects).where(eq(projects.id, projectId)).limit(1);
+    return json({ project: withCurrency || updated, storageReady: objectStoreConfigured() });
+  });
+}
+
+async function getProjectUsage(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to view usage.' }, 401);
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    const monthStart = sql`(date_trunc('month', now() at time zone 'UTC'))::date`;
+    const [pv] = await db.select({
+      count: sql<number>`coalesce(sum(${pageViews.count}), 0)::float8`,
+    }).from(pageViews).where(and(eq(pageViews.projectId, projectId), sql`${pageViews.day} >= ${monthStart}`));
+    const [buy] = await db.select({
+      count: sql<number>`count(*)::float8`,
+    }).from(purchases).where(and(
+      eq(purchases.projectId, projectId),
+      sql`${purchases.seenAt} >= ${monthStart}`,
+    ));
+    const [ids] = await db.select({
+      count: sql<number>`count(*)::float8`,
+    }).from(identities).where(and(
+      eq(identities.projectId, projectId),
+      sql`${identities.updatedAt} >= ${monthStart}`,
+    ));
+    const [opens] = await db.select({
+      count: sql<number>`count(*)::float8`,
+    }).from(emailEvents).where(and(
+      eq(emailEvents.projectId, projectId),
+      eq(emailEvents.type, 'email_open'),
+      sql`${emailEvents.seenAt} >= ${monthStart}`,
+    ));
+    const [clicks] = await db.select({
+      count: sql<number>`count(*)::float8`,
+    }).from(emailEvents).where(and(
+      eq(emailEvents.projectId, projectId),
+      eq(emailEvents.type, 'email_click'),
+      sql`${emailEvents.seenAt} >= ${monthStart}`,
+    ));
+    const days = await db.select({
+      day: pageViews.day,
+      pageviews: pageViews.count,
+    }).from(pageViews)
+      .where(and(eq(pageViews.projectId, projectId), sql`${pageViews.day} >= ${monthStart}`))
+      .orderBy(asc(pageViews.day));
+    const pageviews = Number(pv?.count || 0);
+    const purchasesCount = Number(buy?.count || 0);
+    const identifies = Number(ids?.count || 0);
+    const emailOpens = Number(opens?.count || 0);
+    const emailClicks = Number(clicks?.count || 0);
+    return json({
+      usage: {
+        pageviews,
+        purchases: purchasesCount,
+        identifies,
+        emailOpens,
+        emailClicks,
+        total: pageviews + purchasesCount + identifies + emailOpens + emailClicks,
+        days: days.map((d) => ({
+          day: String(d.day),
+          pageviews: Number(d.pageviews || 0),
+        })),
+      },
+    });
   });
 }
 
@@ -2093,6 +2200,11 @@ export default {
       const emailContextMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/visitors\/([A-Za-z0-9_-]{8,80})\/email-context$/i);
       if (emailContextMatch) {
         if (request.method === 'GET') return await getEmailContextRoute(request, env, emailContextMatch[1], emailContextMatch[2]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const usageMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/usage$/i);
+      if (usageMatch) {
+        if (request.method === 'GET') return await getProjectUsage(request, env, usageMatch[1]);
         return json({ error: 'Method not allowed.' }, 405);
       }
       const projectMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})$/i);

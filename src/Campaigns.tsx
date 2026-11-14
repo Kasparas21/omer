@@ -16,6 +16,7 @@ import { DEMO_SPACE, demo as store, pickValue, useDemo, type CampaignSettings, t
 import { useBrand } from './brandStore';
 import { starterMail, storeMailBrand, storePage } from './campaignMail';
 import { TEMPLATES, WAITS, stepLabel, stepType, triggerLine, type CampaignTrigger } from '../server/trigger-library';
+import { moneyFormatter } from './money';
 
 type Suggestion = {
   id: string;
@@ -25,16 +26,16 @@ type Suggestion = {
   status: string;
 };
 
-const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 const num = new Intl.NumberFormat('en-US');
 
-export function Campaigns({ space, storeName, host, projectId, openId, editing, onOpen, onEdit }: {
+export function Campaigns({ space, storeName, host, projectId, openId, editing, onOpen, onEdit, currency = 'usd' }: {
   /** DEMO_SPACE for the demo store, otherwise the project id: each store keeps its own campaigns. */
   space: string;
   storeName: string;
   host?: string;
   /** Real project id for Ghost suggestions from shared hooks. */
   projectId?: string;
+  currency?: string;
   openId?: string;
   editing: boolean;
   onOpen: (id?: string) => void;
@@ -74,7 +75,7 @@ export function Campaigns({ space, storeName, host, projectId, openId, editing, 
         onPublish={(draft) => store.updateCampaign(open.id, { published: draft })} />, open,
     );
   }
-  if (open) return wrap(<CampaignPage key={open.id} c={open} space={space} storeName={storeName} onWrite={() => write(open)} onClose={() => onOpen(undefined)} />, open);
+  if (open) return wrap(<CampaignPage key={open.id} c={open} space={space} storeName={storeName} currency={currency} onWrite={() => write(open)} onClose={() => onOpen(undefined)} />, open);
   if (!ready) return <div className="cp-screen" aria-busy="true" />;
 
   const ordered = [...campaigns.filter((c) => c.suggested && !c.dismissed), ...campaigns.filter((c) => !c.suggested)];
@@ -271,7 +272,8 @@ function FlowCard({ c, flow, onChange, queue }: { c: CampaignState; flow: Flow |
   );
 }
 
-function CampaignPage({ c, space, storeName, onWrite, onClose }: { c: CampaignState; space: string; storeName: string; onWrite: () => void; onClose: () => void }) {
+function CampaignPage({ c, space, storeName, onWrite, onClose, currency = 'usd' }: { c: CampaignState; space: string; storeName: string; onWrite: () => void; onClose: () => void; currency?: string }) {
+  const money = moneyFormatter(currency);
   const [settings, setSettings] = useState(false);
   const [picking, setPicking] = useState(false);
   const onEdit = onWrite;

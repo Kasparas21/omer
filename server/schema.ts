@@ -10,6 +10,8 @@ export const projects = pgTable('onboarding_projects', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   firstEventAt: timestamp('first_event_at', { withTimezone: true }),
   replayEnabled: boolean('replay_enabled').default(false).notNull(),
+  /** null = auto from recent purchases */
+  displayCurrency: text('display_currency'),
 }, (table) => [index('onboarding_projects_owner_idx').on(table.owner)]);
 
 export const pageViews = pgTable('project_page_views', {
