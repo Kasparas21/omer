@@ -1,5 +1,5 @@
 /* Luna drafts a personal MailDoc from brand context + visitor insight. */
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { loadBrand, type StoredBrand } from './brand-import';
 import { loadEmailContext } from './email-context';
@@ -296,7 +296,8 @@ export async function saveOpportunityDraft(
   const [row] = await db.update(projectOpportunities).set({
     draftJson: draft as unknown as Record<string, unknown>,
     pageJson: page as unknown as Record<string, unknown>,
-    status: 'drafted',
+    // Editing an email a campaign will send by itself keeps it queued to send.
+    status: sql`case when ${projectOpportunities.status} = 'scheduled' then 'scheduled' else 'drafted' end`,
     updatedAt: new Date(),
   }).where(and(
     eq(projectOpportunities.id, opportunityId),

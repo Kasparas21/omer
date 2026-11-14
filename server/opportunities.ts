@@ -3,7 +3,8 @@ import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { identities, projectCampaignSuggestions, projectOpportunities, projects, visitorInsights } from './schema';
 
-const ACTIVE = ['review', 'hold', 'ready_for_draft', 'drafted', 'sent'] as const;
+// scheduled: a campaign that sends by itself has queued it (shown so it can be checked, held or sent now).
+const ACTIVE = ['review', 'hold', 'ready_for_draft', 'drafted', 'scheduled', 'sent'] as const;
 
 export async function upsertOpportunityFromInsight(
   db: NodePgDatabase,

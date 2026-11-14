@@ -8,6 +8,7 @@ import { Menu } from './ui/Menu';
 import { toast } from './ui/toast';
 import { MailBody, MailBrandProvider, MailPhone, Sender, pageVars, senderName } from './Mail';
 import { MailEditor } from './MailEditor';
+import { leave } from './leaveGuard';
 import { PAGE_STYLE, PEOPLE, STORE, type JourneyDay, type MailDoc, type PageStyle, type Person, type Reply, type ReplyState } from './storeData';
 import { demo as store, useDemo, type PersonState, DEMO_SPACE } from './demoState';
 import { DEMO_BRAND_SPACE, useBrand } from './brandStore';
@@ -99,7 +100,7 @@ export function Opportunities({ demo, projectId, storeName = '', host, editing, 
   }, [demo, projectId]);
 
   if (!demo) {
-    const list = (realOpps || []).filter((o) => !o.suppressed && (o.status === 'review' || o.status === 'hold' || o.status === 'ready_for_draft' || o.status === 'drafted'));
+    const list = (realOpps || []).filter((o) => !o.suppressed && (o.status === 'review' || o.status === 'hold' || o.status === 'ready_for_draft' || o.status === 'drafted' || o.status === 'scheduled'));
     const editingOpp = editOppId ? (realOpps || []).find((o) => o.id === editOppId) : null;
 
     const patch = async (id: string, status: string) => {
@@ -177,7 +178,7 @@ export function Opportunities({ demo, projectId, storeName = '', host, editing, 
       return (
         <div className="op-real-editor">
           <div className="op-real-editor-bar">
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setEditOppId(null); onEdit(false); }}>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => leave(() => { setEditOppId(null); onEdit(false); })}>
               <Icon name="chevronLeft" />Opportunities
             </button>
             <span>{editingOpp.name || editingOpp.email || 'Draft'}</span>
@@ -199,7 +200,7 @@ export function Opportunities({ demo, projectId, storeName = '', host, editing, 
                   body: JSON.stringify({ draft: draftSave.doc, page: draftSave.page }),
                 });
                 if (!res.ok) { toast('Could not save draft', { kind: 'warn' }); return; }
-                setRealOpps((prev) => (prev || []).map((o) => (o.id === editingOpp.id ? { ...o, draft: draftSave.doc, page: draftSave.page, hasDraft: true, status: 'drafted' } : o)));
+                setRealOpps((prev) => (prev || []).map((o) => (o.id === editingOpp.id ? { ...o, draft: draftSave.doc, page: draftSave.page, hasDraft: true, status: o.status === 'scheduled' ? 'scheduled' : 'drafted' } : o)));
                 toast('Saved draft');
               })();
             }}
@@ -241,6 +242,8 @@ export function Opportunities({ demo, projectId, storeName = '', host, editing, 
               <div className="op-real-who">
                 <b>{o.name || o.email || 'Visitor'}</b>
                 {o.email && o.name ? <small>{o.email}</small> : null}
+                {o.status === 'scheduled' ? <span className="op-real-auto" title="Its campaign sends by itself, outside their quiet hours"><Icon name="zap" />Sends by itself</span>
+                  : o.status === 'hold' ? <span className="op-real-auto is-hold"><Icon name="pause" />On hold</span> : null}
               </div>
               <p>{o.reason || o.insightSummary || 'Ready for a personal follow-up'}</p>
               {o.hooks?.length ? (
@@ -253,9 +256,9 @@ export function Opportunities({ demo, projectId, storeName = '', host, editing, 
                   {o.hasDraft || o.draft ? 'Edit draft' : 'Draft email'}
                 </button>
                 {o.hasDraft || o.draft ? (
-                  <button type="button" className="btn btn-secondary btn-sm" disabled={realBusy || !sendOn} onClick={() => void send(o.id)}>Send</button>
+                  <button type="button" className="btn btn-secondary btn-sm" disabled={realBusy || !sendOn} onClick={() => void send(o.id)}>{o.status === 'scheduled' ? 'Send now' : 'Send'}</button>
                 ) : null}
-                <button type="button" className="btn btn-ghost btn-sm" disabled={realBusy} onClick={() => void patch(o.id, 'hold')}>Hold</button>
+                {o.status === 'hold' ? null : <button type="button" className="btn btn-ghost btn-sm" disabled={realBusy} onClick={() => void patch(o.id, 'hold')}>Hold</button>}
                 <button type="button" className="btn btn-ghost btn-sm" disabled={realBusy} onClick={() => void patch(o.id, 'dismissed')}>Dismiss</button>
               </div>
             </li>

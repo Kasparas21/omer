@@ -388,6 +388,9 @@
   .cpe-side { width: 260px; }
   .cpe-canvas { padding-right: 290px; padding-left: 84px; }
   .cpe-dock { left: calc(84px + (100% - 374px) / 2); }
+  /* Narrower: the bottom bar keeps its icons and drops the words, so it never runs into Save. */
+  .cpe-dock .cpe-lbl { display: none; }
+  .cpe-devseg button, .cpe-fields-btn { padding-inline: 10px; }
 }
 @container (max-width: 720px) {
   .cpe-side { top: auto; left: 12px; right: 12px; bottom: 12px; width: auto; height: 42%; }

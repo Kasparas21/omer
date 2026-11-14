@@ -23,6 +23,7 @@ import { Dock } from './ui/Dock';
 import { ProjectMenu } from './ui/ProjectMenu';
 import { importBrandFromSite } from './brandStore';
 import { isDemo } from './demo';
+import { leave } from './leaveGuard';
 
 type ProjectError = { field?: 'name' | 'website'; error: string };
 type SetupStep = 'site' | 'brand' | 'install' | 'check' | 'sender';
@@ -96,7 +97,8 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
   useNewVersion();
   // Where a Dashboard row sent you: the screen opens there (a tab, a person, a filter). The key remounts it.
   const [start, setStart] = useState<{ n: number; op?: { tab?: OpTab; id?: string }; people?: { source?: string; country?: string }; settings?: SettingsTab }>({ n: 0 });
-  function go(to: Go) {
+  function go(to: Go) { leave(() => goNow(to)); }
+  function goNow(to: Go) {
     setProfile(undefined);
     setEditing(false);
     setCampaignId(to.to === 'campaigns' ? to.id : undefined);
@@ -112,6 +114,9 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
 
   function openScreen(id: AppScreen, opts?: { liveFocus?: string | undefined }) {
     if (id === screen && opts?.liveFocus === undefined) return;
+    leave(() => openScreenNow(id, opts));
+  }
+  function openScreenNow(id: AppScreen, opts?: { liveFocus?: string | undefined }) {
     if (id === 'globe') setLiveFocus(opts?.liveFocus);
     if (id !== 'visitors') setProfile(undefined);
     setCampaignId(undefined);
@@ -547,13 +552,13 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
           <div className="app-shelf-l">
             <button type="button" className="app-shelf-logo" aria-label="Dashboard" onClick={() => openScreen('home')}><Icon name="ghost" /></button>
             {projects.length > 0 && (
-              <ProjectMenu projects={projects} current={project?.id} onAdd={openCreate} onPick={(id) => {
+              <ProjectMenu projects={projects} current={project?.id} onAdd={openCreate} onPick={(id) => leave(() => {
                 setSelection(id);
                 setNotice('');
-                openScreen('home');
-              }} />
+                openScreenNow('home');
+              })} />
             )}
-            {nested ? <button type="button" className="app-shelf-back" aria-label={`Back to ${nested.back}`} onClick={nested.go}><Icon name="arrowLeft" /><span>{nested.back}</span></button> : null}
+            {nested ? <button type="button" className="app-shelf-back" aria-label={`Back to ${nested.back}`} onClick={() => leave(nested.go)}><Icon name="arrowLeft" /><span>{nested.back}</span></button> : null}
             {!inSetup && (nested?.title ?? WHERE[screen]) ? <span className="app-shelf-where">{nested?.title ?? WHERE[screen]}</span> : null}
           </div>
           <div className="app-shelf-r">
