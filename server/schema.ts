@@ -250,6 +250,10 @@ export const projectOpportunities = pgTable('project_opportunities', {
   suppressed: boolean('suppressed').default(false).notNull(),
   /** Set when a manual campaign queued this email; null for personal follow-ups. */
   campaignId: text('campaign_id'),
+  /** Sprüt demo: durable auto-send deadline (survives deploys). */
+  autoSendAt: timestamp('auto_send_at', { withTimezone: true }),
+  /** Last auto/manual send failure message for UI. */
+  sendError: text('send_error'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [

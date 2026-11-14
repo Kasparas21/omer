@@ -83,6 +83,8 @@ export async function listOpportunities(db: NodePgDatabase, projectId: string) {
     hasDraft: Boolean(row.draftJson),
     draft: row.draftJson || null,
     page: row.pageJson || null,
+    autoSendAt: row.autoSendAt ? new Date(row.autoSendAt).toISOString() : null,
+    sendError: row.sendError || null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }));

@@ -212,6 +212,10 @@ campaignTimer.unref();
 retentionTimer.unref();
 prune();
 pruneReplays();
+// Sprüt filming: durable auto-send poller (survives deploys; drains overdue drafted rows).
+void import('./sprut-demo').then(({ startSprutAutoSendPoller }) => {
+  startSprutAutoSendPoller(() => drizzle(pool));
+}).catch((error) => console.error('sprut poller start', error));
 // First monitor pass a few minutes after boot so deploys are not blocked on Firecrawl.
 setTimeout(runMonitor, 3 * 60 * 1000).unref();
 process.on('SIGTERM', () => { server.close(async () => { await pool.end(); process.exit(0); }); });

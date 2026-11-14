@@ -146,6 +146,8 @@ export async function sendOpportunityEmail(
 
     await db.update(projectOpportunities).set({
       status: 'sent',
+      autoSendAt: null,
+      sendError: null,
       updatedAt: now,
     }).where(eq(projectOpportunities.id, opportunityId));
 
