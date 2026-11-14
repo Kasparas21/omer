@@ -86,21 +86,52 @@ export function Opportunities({ demo, projectId, storeName = '', host, editing, 
   useEffect(() => {
     if (demo || !projectId) return;
     let gone = false;
-    void fetch(`/api/projects/${projectId}/opportunities`)
-      .then(async (res) => {
-        const data = await res.json().catch(() => ({})) as { opportunities?: RealOpp[] };
-        if (!gone) setRealOpps(Array.isArray(data.opportunities) ? data.opportunities : []);
-      })
-      .catch(() => { if (!gone) setRealOpps([]); });
+    const seenConverted = new Set<string>();
+    const load = () => {
+      void fetch(`/api/projects/${projectId}/opportunities`)
+        .then(async (res) => {
+          const data = await res.json().catch(() => ({})) as { opportunities?: RealOpp[] };
+          if (gone) return;
+          const next = Array.isArray(data.opportunities) ? data.opportunities : [];
+          for (const o of next) {
+            if (o.status === 'converted' && !seenConverted.has(o.id)) {
+              seenConverted.add(o.id);
+              toast(o.reason?.startsWith('Won back') ? o.reason : 'Won back', { kind: 'ok' });
+              try {
+                const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+                if (Ctx) {
+                  const ctx = new Ctx();
+                  const osc = ctx.createOscillator();
+                  const gain = ctx.createGain();
+                  osc.type = 'sine';
+                  osc.frequency.value = 880;
+                  gain.gain.value = 0.04;
+                  osc.connect(gain);
+                  gain.connect(ctx.destination);
+                  osc.start();
+                  osc.stop(ctx.currentTime + 0.12);
+                }
+              } catch { /* ignore audio */ }
+            }
+          }
+          setRealOpps(next);
+        })
+        .catch(() => { if (!gone) setRealOpps((prev) => prev ?? []); });
+    };
+    load();
+    const tick = window.setInterval(load, 4000);
     void fetch('/api/config').then(async (res) => {
       const data = await res.json().catch(() => ({})) as { ses?: boolean; resend?: boolean; postmark?: boolean };
       if (!gone) setSendOn(Boolean(data.ses || data.resend || data.postmark));
     }).catch(() => undefined);
-    return () => { gone = true; };
+    return () => { gone = true; window.clearInterval(tick); };
   }, [demo, projectId]);
 
   if (!demo) {
-    const list = (realOpps || []).filter((o) => !o.suppressed && (o.status === 'review' || o.status === 'hold' || o.status === 'ready_for_draft' || o.status === 'drafted' || o.status === 'scheduled'));
+    const list = (realOpps || []).filter((o) => !o.suppressed && (
+      o.status === 'review' || o.status === 'hold' || o.status === 'ready_for_draft'
+      || o.status === 'drafted' || o.status === 'scheduled' || o.status === 'sent' || o.status === 'converted'
+    ));
     const editingOpp = editOppId ? (realOpps || []).find((o) => o.id === editOppId) : null;
 
     const patch = async (id: string, status: string) => {
@@ -238,12 +269,15 @@ export function Opportunities({ demo, projectId, storeName = '', host, editing, 
         </header>
         <ul className="op-real-list">
           {list.map((o) => (
-            <li key={o.id} className="op-real-card">
+            <li key={o.id} className={`op-real-card${o.status === 'converted' ? ' is-won' : ''}`}>
               <div className="op-real-who">
                 <b>{o.name || o.email || 'Visitor'}</b>
                 {o.email && o.name ? <small>{o.email}</small> : null}
-                {o.status === 'scheduled' ? <span className="op-real-auto" title="Its campaign sends by itself, outside their quiet hours"><Icon name="zap" />Sends by itself</span>
-                  : o.status === 'hold' ? <span className="op-real-auto is-hold"><Icon name="pause" />On hold</span> : null}
+                {o.status === 'converted' ? <span className="op-real-auto is-won"><Icon name="checkCircle" />Won back</span>
+                  : o.status === 'sent' ? <span className="op-real-auto"><Icon name="mail" />Sent</span>
+                  : o.status === 'scheduled' ? <span className="op-real-auto" title="Its campaign sends by itself, outside their quiet hours"><Icon name="zap" />Sends by itself</span>
+                  : o.status === 'hold' ? <span className="op-real-auto is-hold"><Icon name="pause" />On hold</span>
+                  : o.status === 'drafted' ? <span className="op-real-auto"><Icon name="zap" />Draft ready</span> : null}
               </div>
               <p>{o.reason || o.insightSummary || 'Ready for a personal follow-up'}</p>
               {o.hooks?.length ? (
@@ -252,14 +286,24 @@ export function Opportunities({ demo, projectId, storeName = '', host, editing, 
                 </div>
               ) : null}
               <div className="op-real-acts">
-                <button type="button" className="btn btn-primary btn-sm" disabled={realBusy} onClick={() => void openDraft(o)}>
-                  {o.hasDraft || o.draft ? 'Edit draft' : 'Draft email'}
-                </button>
-                {o.hasDraft || o.draft ? (
-                  <button type="button" className="btn btn-secondary btn-sm" disabled={realBusy || !sendOn} onClick={() => void send(o.id)}>{o.status === 'scheduled' ? 'Send now' : 'Send'}</button>
-                ) : null}
-                {o.status === 'hold' ? null : <button type="button" className="btn btn-ghost btn-sm" disabled={realBusy} onClick={() => void patch(o.id, 'hold')}>Hold</button>}
-                <button type="button" className="btn btn-ghost btn-sm" disabled={realBusy} onClick={() => void patch(o.id, 'dismissed')}>Dismiss</button>
+                {o.status === 'converted' || o.status === 'sent' ? (
+                  o.hasDraft || o.draft ? (
+                    <button type="button" className="btn btn-ghost btn-sm" disabled={realBusy} onClick={() => void openDraft(o)}>View</button>
+                  ) : null
+                ) : (
+                  <>
+                    <button type="button" className="btn btn-primary btn-sm" disabled={realBusy} onClick={() => void openDraft(o)}>
+                      {o.hasDraft || o.draft ? 'Edit draft' : 'Draft email'}
+                    </button>
+                    {o.hasDraft || o.draft ? (
+                      <button type="button" className="btn btn-secondary btn-sm" disabled={realBusy || !sendOn} onClick={() => void send(o.id)}>
+                        {o.status === 'scheduled' ? 'Send now' : 'Approve & send'}
+                      </button>
+                    ) : null}
+                    {o.status === 'hold' ? null : <button type="button" className="btn btn-ghost btn-sm" disabled={realBusy} onClick={() => void patch(o.id, 'hold')}>Hold</button>}
+                    <button type="button" className="btn btn-ghost btn-sm" disabled={realBusy} onClick={() => void patch(o.id, 'dismissed')}>Dismiss</button>
+                  </>
+                )}
               </div>
             </li>
           ))}

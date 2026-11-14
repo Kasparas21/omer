@@ -5,7 +5,7 @@ import { identities, projectCampaignSuggestions, projectOpportunities, projects,
 import { ensureVisitorEnrichment } from './visitor-enrich';
 
 // scheduled: a campaign that sends by itself has queued it (shown so it can be checked, held or sent now).
-const ACTIVE = ['review', 'hold', 'ready_for_draft', 'drafted', 'scheduled', 'sent'] as const;
+const ACTIVE = ['review', 'hold', 'ready_for_draft', 'drafted', 'scheduled', 'sent', 'converted'] as const;
 
 export async function upsertOpportunityFromInsight(
   db: NodePgDatabase,

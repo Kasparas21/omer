@@ -6,11 +6,14 @@ import { draftOpportunityEmail } from './email-draft';
 import { sendOpportunityEmail } from './email-send';
 import { loadSending, mailProvidersAvailable, resolveFrom } from './mail-transport';
 import { projectOpportunities, projects, visitorInsights, visits } from './schema';
+import { isSprutDemoOrigin } from './sprut-demo';
 
 /** Match the “Email-ready 80%+” bar people expect when they see a strong score. */
 export const PERSONAL_AUTO_CONFIDENCE = 0.8;
 /** Don’t email while they’re still on the site (or just left). */
 const COOL_MS = 2 * 60_000;
+/** Sprüt filming: auto-send fallback aims for ~60s after leave. */
+const SPRUT_COOL_MS = 60_000;
 const BATCH = 8;
 
 function sendingReady(projectName: string, sending: Awaited<ReturnType<typeof loadSending>>) {
@@ -19,7 +22,7 @@ function sendingReady(projectName: string, sending: Awaited<ReturnType<typeof lo
   return Boolean(resolveFrom(projectName, sending).fromEmail);
 }
 
-async function visitorStillAround(db: NodePgDatabase, projectId: string, visitorId: string) {
+async function visitorStillAround(db: NodePgDatabase, projectId: string, visitorId: string, coolMs: number) {
   const [row] = await db.select({
     activeAt: visits.activeAt,
     seenAt: visits.seenAt,
@@ -29,10 +32,10 @@ async function visitorStillAround(db: NodePgDatabase, projectId: string, visitor
     .limit(1);
   if (!row) return false;
   const at = Date.parse(String(row.activeAt ?? row.seenAt));
-  return Number.isFinite(at) && Date.now() - at < COOL_MS;
+  return Number.isFinite(at) && Date.now() - at < coolMs;
 }
 
-async function processOne(db: NodePgDatabase, projectId: string, opportunityId: string, projectName: string) {
+async function processOne(db: NodePgDatabase, projectId: string, opportunityId: string, projectName: string, origin?: string) {
   const sending = await loadSending(db, projectId);
   if (!sendingReady(projectName, sending)) return 'skip-sending';
 
@@ -45,7 +48,8 @@ async function processOne(db: NodePgDatabase, projectId: string, opportunityId: 
     .limit(1);
   if (!opp || opp.suppressed || !opp.email) return 'skip';
   if (opp.status === 'sent' || opp.status === 'dismissed' || opp.status === 'converted') return 'skip';
-  if (await visitorStillAround(db, projectId, opp.visitorId)) return 'wait';
+  const cool = origin && isSprutDemoOrigin(origin) ? SPRUT_COOL_MS : COOL_MS;
+  if (await visitorStillAround(db, projectId, opp.visitorId, cool)) return 'wait';
 
   if (!opp.draftJson) {
     await draftOpportunityEmail(db, projectId, opportunityId);
@@ -62,6 +66,7 @@ export async function processPersonalFollowups(db: NodePgDatabase, onlyProject?:
   const projectRows = await db.select({
     id: projects.id,
     name: projects.name,
+    origin: projects.origin,
   }).from(projects)
     .where(and(
       eq(projects.personalFollowups, true),
@@ -73,6 +78,8 @@ export async function processPersonalFollowups(db: NodePgDatabase, onlyProject?:
   for (const project of projectRows) {
     const sending = await loadSending(db, project.id);
     if (!sendingReady(project.name, sending)) continue;
+    const sprut = isSprutDemoOrigin(project.origin);
+    const confFloor = sprut ? 0.5 : PERSONAL_AUTO_CONFIDENCE;
 
     const candidates = await db.select({
       id: projectOpportunities.id,
@@ -87,14 +94,14 @@ export async function processPersonalFollowups(db: NodePgDatabase, onlyProject?:
         isNull(projectOpportunities.campaignId),
         eq(projectOpportunities.suppressed, false),
         inArray(projectOpportunities.status, ['review', 'ready_for_draft', 'drafted']),
-        gte(visitorInsights.emailReadyConfidence, PERSONAL_AUTO_CONFIDENCE),
+        gte(visitorInsights.emailReadyConfidence, confFloor),
       ))
       .orderBy(desc(visitorInsights.emailReadyConfidence))
       .limit(BATCH);
 
     for (const row of candidates) {
       try {
-        const result = await processOne(db, project.id, row.id, project.name);
+        const result = await processOne(db, project.id, row.id, project.name, project.origin);
         if (result === 'sent') sent += 1;
         else if (result === 'wait') waited += 1;
       } catch (error) {
@@ -114,11 +121,11 @@ export function kickPersonalFollowup(
 ) {
   if (confidence == null || confidence < PERSONAL_AUTO_CONFIDENCE) return;
   void (async () => {
-    const [project] = await db.select({ name: projects.name, on: projects.personalFollowups })
+    const [project] = await db.select({ name: projects.name, on: projects.personalFollowups, origin: projects.origin })
       .from(projects).where(eq(projects.id, projectId)).limit(1);
     if (!project?.on) return;
     try {
-      await processOne(db, projectId, opportunityId, project.name);
+      await processOne(db, projectId, opportunityId, project.name, project.origin);
     } catch (error) {
       console.error('personal follow-up kick failed', projectId, opportunityId, error instanceof Error ? error.message : error);
     }

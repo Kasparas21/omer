@@ -11,6 +11,7 @@ import { trackingUrls } from './email-tracking';
 import { loadSending, mailProvidersAvailable, sendViaTransport } from './mail-transport';
 import { and as both, gte, or } from 'drizzle-orm';
 import { projectCampaigns, projectEmailMessages, projectOpportunities, projects, purchases } from './schema';
+import { isDemoSendAllowed, isSprutDemoOrigin } from './sprut-demo';
 
 export async function sendOpportunityEmail(
   db: NodePgDatabase,
@@ -30,6 +31,9 @@ export async function sendOpportunityEmail(
 
   const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
   if (!project) throw new Error('Project not found');
+  if (!isDemoSendAllowed(project.origin, opp.email)) {
+    throw new Error('Demo sends are limited to the allowlisted filming inbox');
+  }
 
   const brandFull = await loadBrand(db, projectId);
   let host = '';
@@ -46,6 +50,11 @@ export async function sendOpportunityEmail(
     store_name: project.name,
   }) as unknown as MailDocLike;
   let sending = await loadSending(db, projectId);
+  if (isSprutDemoOrigin(project.origin)) {
+    sending = sending
+      ? { ...sending, fromName: 'Sprüt' }
+      : { fromName: 'Sprüt', fromEmail: null, domain: null, provider: 'ses', status: 'none' };
+  }
 
   // A campaign's email: its own sender name, and never after they've bought since it was made.
   if (opp.campaignId) {

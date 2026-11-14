@@ -794,7 +794,7 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
             <li>
               <strong>Cookie banner</strong>
               <p>Omer stays quiet until analytics consent. From your banner, call:</p>
-              <pre><code>{'window.unfairweekend.consent({ analytics: true });'}</code></pre>
+              <pre><code>{'window.omer.consent({ analytics: true });'}</code></pre>
               <p>Use <code>analytics: false</code> when someone rejects or withdraws. No banner yet? Add a simple analytics opt-in first.</p>
             </li>
             <li>

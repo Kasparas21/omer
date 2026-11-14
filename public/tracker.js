@@ -452,6 +452,43 @@
     void post(payload);
   }
 
+  function track(name, props) {
+    if (!consented || typeof name !== 'string') return;
+    const eventName = name.trim().slice(0, 80);
+    if (!eventName) return;
+    const data = (props && typeof props === 'object' && !Array.isArray(props)) ? props : {};
+    if (eventName === 'email_entered') {
+      const email = typeof data.email === 'string' ? data.email : (typeof data.Email === 'string' ? data.Email : '');
+      const first = typeof data.first_name === 'string' ? data.first_name
+        : (typeof data.firstName === 'string' ? data.firstName : '');
+      const last = typeof data.last_name === 'string' ? data.last_name
+        : (typeof data.lastName === 'string' ? data.lastName : '');
+      const full = typeof data.name === 'string' ? data.name
+        : [first, last].filter(Boolean).join(' ').trim();
+      if (email) identify({ email, ...(full ? { name: full } : {}) });
+    }
+    if (eventName === 'order_completed') {
+      const amount = Number(data.total ?? data.amount);
+      const orderId = typeof data.order_id === 'string' ? data.order_id
+        : (typeof data.orderId === 'string' ? data.orderId : undefined);
+      const currency = typeof data.currency === 'string' ? data.currency : undefined;
+      const products = Array.isArray(data.items) ? data.items : data.products;
+      const omerId = typeof data.omer_id === 'string' ? data.omer_id
+        : (typeof data.omerId === 'string' ? data.omerId : undefined);
+      if (Number.isFinite(amount)) {
+        purchase({
+          amount,
+          currency,
+          orderId,
+          products,
+          campaign: omerId ? `omer:${omerId}` : (typeof data.utm_source === 'string' ? data.utm_source : 'omer'),
+        });
+      }
+    }
+    const payload = { ...basePayload('track'), name: eventName, props: data };
+    void post(payload);
+  }
+
   function emailEvent(type, input) {
     if (!consented || (type !== 'email_open' && type !== 'email_click')) return;
     const payload = { ...basePayload(type) };
@@ -739,7 +776,9 @@
     identify,
     purchase,
     cart,
+    track,
     emailOpen: (input) => emailEvent('email_open', input),
     emailClick: (input) => emailEvent('email_click', input),
   };
+  window.omer = window.unfairweekend;
 })();

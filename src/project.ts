@@ -39,7 +39,7 @@ export type Project = {
 };
 
 export function installSnippet(project: Project, appOrigin: string) {
-  return `<script src="${appOrigin}/tracker.js?v=18" data-site="${project.writeKey}" defer></script>`;
+  return `<script src="${appOrigin}/tracker.js?v=19" data-site="${project.writeKey}" defer></script>`;
 }
 
 export function installPrompt(project: Project, appOrigin: string) {
@@ -51,14 +51,16 @@ export function installPrompt(project: Project, appOrigin: string) {
     '',
     '2) Cookie banner / analytics consent is required.',
     'If the site already has a cookie banner, wire analytics acceptance to:',
-    '  window.unfairweekend.consent({ analytics: true })',
+    '  window.omer.consent({ analytics: true })',
     'and withdrawal / reject to:',
-    '  window.unfairweekend.consent({ analytics: false })',
+    '  window.omer.consent({ analytics: false })',
     'Call the same when restoring a saved choice. Do not track before consent.',
     'If there is no cookie banner, add a simple analytics opt-in banner first, then wire it the same way.',
     '',
-    '3) Optional: on checkout success call window.unfairweekend.purchase({ amount, currency, orderId, products }).',
-    'When you know the shopper, call window.unfairweekend.identify({ email, name }).',
+    '3) Prefer window.omer.track(name, props) for product/checkout steps (email_entered, shipping_options_shown, page_exit, order_completed, …).',
+    'On checkout success you may also call window.omer.purchase({ amount, currency, orderId, products }).',
+    'When you know the shopper, call window.omer.identify({ email, name }) or track email_entered.',
+    '(window.unfairweekend is an alias of window.omer.)',
     '',
     'Do not capture passwords or payment fields. Tell me which files changed and how to verify the first event after granting consent.',
   ].join('\n');

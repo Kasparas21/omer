@@ -45,7 +45,13 @@ import {
 import { CAMPAIGN_ID, MAX_IMAGE_BYTES, deleteCampaign, imageStorageReady, listCampaigns, saveCampaign, storeImage } from './campaigns';
 import { campaignQueueCounts, previewTrigger, runCampaigns, triggerOptions } from './campaign-runner';
 import { cleanTrigger } from './trigger-library';
-import { recordSignal } from './signals';
+import { recordSignal, recordTrack } from './signals';
+import {
+  isSprutDemoOrigin,
+  kickSprutLeaveFollowup,
+  markSprutWonBack,
+  resetSprutDemoVisitor,
+} from './sprut-demo';
 
 /** An IANA zone like Europe/Vilnius, or null. */
 function cleanTimeZone(v: unknown) {
@@ -480,7 +486,8 @@ async function receiveEvent(request: Request, env: Env) {
   const type = body?.type === 'pageview' || body?.type === 'dwell' || body?.type === 'presence'
     || body?.type === 'purchase' || body?.type === 'identify'
     || body?.type === 'email_open' || body?.type === 'email_click'
-    || body?.type === 'cart' || body?.type === 'code' || body?.type === 'product' ? body.type : null;
+    || body?.type === 'cart' || body?.type === 'code' || body?.type === 'product'
+    || body?.type === 'track' ? body.type : null;
   const vid = typeof body?.vid === 'string' && visitorId.test(body.vid) ? body.vid : null;
   const path = cleanPath(body?.path) ?? '/';
   if (!uuid.test(writeKey) || !type || !vid) return collectReply(origin, 400);
@@ -549,6 +556,11 @@ async function receiveEvent(request: Request, env: Env) {
         });
       await reattachStripePurchasesByEmail(tx, project.id, vid, email);
       return project.id;
+    }
+
+    if (type === 'track') {
+      const ok = await recordTrack(tx, project.id, vid, body ?? {}, path);
+      return ok ? project.id : null;
     }
 
     if (type === 'cart' || type === 'code' || type === 'product') {
@@ -642,6 +654,31 @@ async function receiveEvent(request: Request, env: Env) {
 
   // Notify Live on leave (dwell) too so Online drops without waiting for the next poll.
   if (accepted) for (const notify of liveListeners.get(accepted) ?? []) notify();
+
+  if (accepted && origin && isSprutDemoOrigin(origin)) {
+    const trackName = type === 'track' && typeof body?.name === 'string' ? body.name.trim() : '';
+    if (trackName === 'page_exit' || type === 'dwell') {
+      void withDatabase(env, (db) => kickSprutLeaveFollowup(db, accepted, vid!)).catch((error) => {
+        console.error('sprut leave followup', error instanceof Error ? error.message : error);
+      });
+    }
+    if (type === 'purchase' || trackName === 'order_completed') {
+      const campaign = typeof body?.campaign === 'string' ? body.campaign : '';
+      const props = body?.props && typeof body.props === 'object' ? body.props as Record<string, unknown> : {};
+      const omerId = typeof props.omer_id === 'string' ? props.omer_id
+        : (typeof props.omerId === 'string' ? props.omerId : (campaign.startsWith('omer:') ? campaign.slice(5) : null));
+      const amount = typeof body?.amount === 'number' ? body.amount
+        : (typeof props.total === 'number' ? props.total : null);
+      void withDatabase(env, (db) => markSprutWonBack(db, accepted, vid!, {
+        omerId,
+        amount,
+        orderId: typeof body?.orderId === 'string' ? body.orderId : (typeof props.order_id === 'string' ? props.order_id : null),
+      })).catch((error) => {
+        console.error('sprut won back', error instanceof Error ? error.message : error);
+      });
+    }
+  }
+
   return accepted
     ? new Response(null, { status: 204, headers: cors(origin) })
     : new Response(null, { status: 403 });
@@ -1865,6 +1902,28 @@ async function sendOpportunityRoute(request: Request, env: Env, projectId: strin
   });
 }
 
+async function demoResetRoute(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to reset.' }, 401);
+  const raw = await readText(request, 4_000);
+  if (raw === null) return json({ error: 'Payload too large.' }, 413);
+  let body: { email?: string; visitorId?: string } | null;
+  try { body = raw ? JSON.parse(raw) : {}; } catch { return json({ error: 'Invalid JSON.' }, 400); }
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    try {
+      const result = await resetSprutDemoVisitor(db, projectId, {
+        email: body?.email || 'joris263@gmail.com',
+        visitorId: body?.visitorId || null,
+      });
+      return json({ ok: true, ...result });
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message.slice(0, 240) : 'Reset failed' }, 400);
+    }
+  });
+}
+
 async function getIntegrationsRoute(request: Request, env: Env, projectId: string) {
   if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
   const owner = await ownerID(request);
@@ -2270,6 +2329,11 @@ export default {
       const opportunitySend = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/opportunities\/([0-9a-f-]{36})\/send$/i);
       if (opportunitySend) {
         if (request.method === 'POST') return await sendOpportunityRoute(request, env, opportunitySend[1], opportunitySend[2]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const demoReset = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/demo-reset$/i);
+      if (demoReset) {
+        if (request.method === 'POST') return await demoResetRoute(request, env, demoReset[1]);
         return json({ error: 'Method not allowed.' }, 405);
       }
       const sendingCheck = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/sending\/check$/i);
