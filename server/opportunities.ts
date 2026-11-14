@@ -9,7 +9,7 @@ export async function upsertOpportunityFromInsight(
   db: NodePgDatabase,
   projectId: string,
   visitorId: string,
-  insight: { emailReady: boolean; summaryText: string | null; emailHooks: string[] },
+  insight: { emailReady: boolean; summaryText: string | null; emailHooks: string[]; emailReadyConfidence?: number | null },
 ) {
   if (!insight.emailReady) return null;
   // Personal follow-ups switched off on the Campaigns page: don't queue new ones.

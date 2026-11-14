@@ -25,6 +25,7 @@ import {
 } from './opportunities';
 import { draftOpportunityEmail, saveOpportunityDraft } from './email-draft';
 import { sendOpportunityEmail } from './email-send';
+import { kickPersonalFollowup } from './personal-followups';
 import { loadEmailContext } from './email-context';
 import { mailProvidersAvailable } from './mail-transport';
 import { checkProjectSending, getProjectSending, upsertProjectSending } from './sending';
@@ -1463,11 +1464,15 @@ async function summarizeVisitor(request: Request, env: Env, projectId: string, v
         const hooks = Array.isArray(saved.emailHooksJson)
           ? saved.emailHooksJson.filter((item): item is string => typeof item === 'string')
           : [];
-        await upsertOpportunityFromInsight(db, projectId, visitorKey, {
+        const opp = await upsertOpportunityFromInsight(db, projectId, visitorKey, {
           emailReady: Boolean(saved.emailReady),
           summaryText: saved.summaryText,
           emailHooks: hooks,
+          emailReadyConfidence: saved.emailReadyConfidence,
         });
+        if (opp?.id) {
+          kickPersonalFollowup(db, projectId, opp.id, saved.emailReadyConfidence);
+        }
         await refreshCampaignSuggestions(db, projectId);
       } catch (hookError) {
         console.error('opportunity upsert failed', hookError);
