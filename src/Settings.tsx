@@ -269,16 +269,16 @@ export function Settings({ project, topPages, snippet, onCopy, onGuide, startTab
                     </span>
                   )}
                 </Row>
+                <Row title="Install prompt" wide>
+                  <span className="omer-set-acts">
+                    <button className="btn btn-secondary btn-sm" type="button" onClick={() => onCopy('prompt')}><Icon name="copy" />Copy prompt</button>
+                    <button className="btn btn-ghost btn-sm" type="button" onClick={onGuide}><Icon name="book" />Guide</button>
+                  </span>
+                </Row>
                 <Row title="Install script" wide>
                   <div className="su-code omer-set-snippet"><pre>{snippet}</pre>
                     <button className="btn btn-secondary btn-sm" type="button" onClick={() => onCopy('script')}><Icon name="copy" />Copy</button>
                   </div>
-                </Row>
-                <Row title="Install prompt">
-                  <span className="omer-set-acts">
-                    <button className="btn btn-ghost btn-sm" type="button" onClick={onGuide}><Icon name="book" />Guide</button>
-                    <button className="btn btn-secondary btn-sm" type="button" onClick={() => onCopy('prompt')}><Icon name="copy" />Copy</button>
-                  </span>
                 </Row>
               </div>
               <aside className="set-side">

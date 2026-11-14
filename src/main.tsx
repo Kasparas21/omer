@@ -19,11 +19,18 @@ import { DEMO_SPACE, useDemo } from './demoState';
 import { DOCK_MODES, Settings, type DockMode, type SettingsTab } from './Settings';
 import { useLive } from './live';
 import { Icon, type IconName } from './ui/Icon';
+import { BrandLogo } from './ui/brandLogos';
 import { Dock } from './ui/Dock';
 import { ProjectMenu } from './ui/ProjectMenu';
 import { importBrandFromSite } from './brandStore';
 import { isDemo } from './demo';
 import { leave } from './leaveGuard';
+
+const INSTALL_AGENTS: { id: string; name: string; logo: string }[] = [
+  { id: 'cursor', name: 'Cursor', logo: 'cursor' },
+  { id: 'claude', name: 'Claude Code', logo: 'claude' },
+  { id: 'codex', name: 'Codex', logo: 'chatgpt' },
+];
 
 type ProjectError = { field?: 'name' | 'website'; error: string };
 type SetupStep = 'site' | 'brand' | 'install' | 'check' | 'sender';
@@ -53,7 +60,7 @@ const WHERE: Record<AppScreen, string> = {
 const SETUP_STEPS: { id: SetupStep; label: string; locked?: boolean }[] = [
   { id: 'site', label: 'Your website' },
   { id: 'brand', label: 'Your brand' },
-  { id: 'install', label: 'Install the snippet' },
+  { id: 'install', label: 'Install Omer' },
   { id: 'check', label: 'Check it works' },
   { id: 'sender', label: 'Your sender', locked: true },
 ];
@@ -377,9 +384,9 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
             <div className="set-side-in">
               <div className="set-side-k">What happens next</div>
               <ul className="set-dns">
-                <li><i className="su-dot" /><div><b>Install the snippet</b><small>One script in your shared head</small></div></li>
-                <li><i className="su-dot" /><div><b>Grant analytics consent</b><small>The tracker stays quiet until then</small></div></li>
-                <li><i className="su-dot" /><div><b>Confirm the first event</b><small>We store a single installation receipt</small></div></li>
+                <li><i className="su-dot" /><div><b>Install Omer</b><small>One prompt for your coding agent</small></div></li>
+                <li><i className="su-dot" /><div><b>Cookie banner</b><small>Analytics only after consent</small></div></li>
+                <li><i className="su-dot" /><div><b>Confirm it works</b><small>First event shows up here</small></div></li>
               </ul>
             </div>
           </aside>
@@ -434,48 +441,61 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
     }
 
     if (step === 'install' && project) {
+      const host = (() => { try { return new URL(project.origin).host; } catch { return project.origin; } })();
       return (
-        <>
-          <div className="set-main">
-            <header className="su-head">
-              <h2>Add this to your site</h2>
-              <p>Paste it before the closing head tag on every page of <strong>{new URL(project.origin).host}</strong>.</p>
-            </header>
+        <div className="set-main solo">
+          <header className="su-head">
+            <h2>Install Omer</h2>
+            <p>Copy one prompt into Cursor, Claude Code, or Codex to set up <strong>{host}</strong>. Same prompt works in any coding agent.</p>
+          </header>
+
+          <div className="su-agents" role="group" aria-label="Copy install prompt for">
+            {INSTALL_AGENTS.map((agent) => (
+              <button
+                key={agent.id}
+                type="button"
+                className="su-agent"
+                onClick={() => void copy('prompt')}
+              >
+                <span className="su-agent-mark"><BrandLogo slug={agent.logo} /></span>
+                <span className="su-agent-copy">
+                  <b>{agent.name}</b>
+                  <small>Copy prompt</small>
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <button className="btn btn-primary su-install-primary" type="button" onClick={() => void copy('prompt')}>
+            <Copy size={16} aria-hidden="true" /> Copy install prompt
+          </button>
+
+          <div className="su-callout" role="note">
+            <b>Cookie banner required</b>
+            <p>Omer only runs after analytics consent. If {host} doesn’t have a cookie banner yet, the prompt tells your agent to add a simple opt-in first.</p>
+          </div>
+
+          <details className="su-manual">
+            <summary>Prefer to paste the script yourself?</summary>
             <div className="su-code">
               <pre>{snippet}</pre>
               <button className="btn btn-secondary btn-sm" type="button" onClick={() => void copy('script')}>
                 <Copy size={15} aria-hidden="true" /> Copy
               </button>
             </div>
-            <div className="su-alt">
-              <span>Using a coding assistant?</span>
-              <button className="btn btn-ghost btn-sm" type="button" onClick={() => void copy('prompt')}>Copy install prompt</button>
-              <button className="btn btn-ghost btn-sm" type="button" onClick={openGuide}>Installation guide</button>
-            </div>
-            <footer className="su-foot">
-              <button className="btn btn-ghost btn-sm" type="button" onClick={() => goStep('site')}>Back</button>
-              <button className="btn btn-primary" type="button" onClick={() => { setReached((value) => Math.max(value, stepIndex('check'))); setStep('check'); }}>
-                Check installation
-              </button>
-            </footer>
+          </details>
+
+          <div className="su-alt">
+            <button className="btn btn-ghost btn-sm" type="button" onClick={openGuide}>Installation guide</button>
           </div>
-          <aside className="set-side">
-            <div className="set-side-in">
-              <div className="set-side-k">What it sends</div>
-              <ul className="set-list">
-                <li>One installation signal after consent</li>
-                <li>Your public project key</li>
-                <li>The browser Origin for matching</li>
-              </ul>
-              <div className="set-side-k gap">Not sent</div>
-              <ul className="set-list no">
-                <li>Passwords or form values</li>
-                <li>Replay or identity data</li>
-                <li>Anything before analytics consent</li>
-              </ul>
-            </div>
-          </aside>
-        </>
+
+          <footer className="su-foot">
+            <button className="btn btn-ghost btn-sm" type="button" onClick={() => goStep('brand')}>Back</button>
+            <button className="btn btn-primary" type="button" onClick={() => { setReached((value) => Math.max(value, stepIndex('check'))); setStep('check'); }}>
+              Check installation
+            </button>
+          </footer>
+        </div>
       );
     }
 
@@ -487,10 +507,10 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
             <header className="su-head">
               <h2>{checking ? 'Checking your site…' : received ? 'First event received' : 'Waiting for events'}</h2>
               <p>{checking
-                ? 'Looking for the first consented installation receipt.'
+                ? 'Looking for the first event after analytics consent.'
                 : received
                   ? <>Received on <time dateTime={project.firstEventAt!}>{new Date(project.firstEventAt!).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</time>.</>
-                  : 'Visit your site, grant analytics consent, then check again.'}</p>
+                  : 'Open your site, accept analytics on the cookie banner, then check again.'}</p>
             </header>
             <ul className="set-dns">
               <li className={project ? '' : 'wait'}>
@@ -523,9 +543,9 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
           <aside className="set-side">
             <div className="set-side-in">
               <div className="set-side-k">Nothing showing up?</div>
-              <p className="su-side-p">Open the exact website address in your project, grant analytics consent, then check again.</p>
+              <p className="su-side-p">Open {(() => { try { return new URL(project.origin).host; } catch { return 'your site'; } })()}, accept analytics on the cookie banner, then check again.</p>
               <button className="btn btn-secondary btn-sm" type="button" disabled={checking} onClick={() => void refresh(true)}>Check again</button>
-              <button className="btn btn-ghost btn-sm" type="button" style={{ marginTop: 8 }} onClick={openGuide}>Installation guide</button>
+              <button className="btn btn-ghost btn-sm" type="button" style={{ marginTop: 8 }} onClick={() => void copy('prompt')}>Copy install prompt</button>
             </div>
           </aside>
         </>
@@ -759,32 +779,38 @@ function App({ onSignOut }: { onSignOut: () => Promise<void> }) {
             <X size={19} aria-hidden="true" />
           </button>
           <span className="feature-icon"><BookOpen size={23} aria-hidden="true" /></span>
-          <h2 id="guide-heading">Installation guide</h2>
+          <h2 id="guide-heading">Install Omer</h2>
           {manualCopy && project && (
             <div className="manual-copy">
               <label className="label" htmlFor="manual-copy">{manualCopy === 'script' ? 'Copy the script manually' : 'Copy the install prompt manually'}</label>
-              <textarea id="manual-copy" readOnly rows={5} value={manualCopy === 'script' ? snippet : installPrompt(project, window.location.origin)} />
+              <textarea id="manual-copy" readOnly rows={8} value={manualCopy === 'script' ? snippet : installPrompt(project, window.location.origin)} />
             </div>
           )}
           <ol className="guide-steps">
             <li>
-              <strong>Add your script</strong>
-              <p>Paste the project script into the shared <code>&lt;head&gt;</code> of your site. In a framework, use the root document or its script component. Add it once across your site.</p>
+              <strong>Paste the install prompt</strong>
+              <p>Copy one prompt into Cursor, Claude Code, or Codex. It adds the script and wires consent. Or paste the script yourself into the shared <code>&lt;head&gt;</code>.</p>
             </li>
             <li>
-              <strong>Connect analytics consent</strong>
-              <p>After the script loads, call this from your consent banner when analytics consent is granted. Call it again with <code>analytics: false</code> if consent is withdrawn.</p>
+              <strong>Cookie banner</strong>
+              <p>Omer stays quiet until analytics consent. From your banner, call:</p>
               <pre><code>{'window.unfairweekend.consent({ analytics: true });'}</code></pre>
+              <p>Use <code>analytics: false</code> when someone rejects or withdraws. No banner yet? Add a simple analytics opt-in first.</p>
             </li>
             <li>
-              <strong>Check your installation</strong>
-              <p>Visit the exact website address in your project and grant analytics consent. Return here to see visitors, page views, sources, pages, and visit duration. The tracker only runs after consent and does not send form or identity data.</p>
+              <strong>Check it works</strong>
+              <p>Open your exact site origin, accept analytics, then return here. You should see the first event.</p>
             </li>
           </ol>
           {project && (
-            <button className="btn btn-primary" type="button" onClick={() => void copy('script')}>
-              <Copy size={17} aria-hidden="true" /> Copy script
-            </button>
+            <div className="su-guide-acts">
+              <button className="btn btn-primary" type="button" onClick={() => void copy('prompt')}>
+                <Copy size={17} aria-hidden="true" /> Copy install prompt
+              </button>
+              <button className="btn btn-secondary" type="button" onClick={() => void copy('script')}>
+                Copy script
+              </button>
+            </div>
           )}
           <p role="status" className="notice">{notice}</p>
         </div>
