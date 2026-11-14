@@ -4,7 +4,7 @@ import { Icon } from './Icon';
 
 export type Option = { value: string; label: string };
 
-export function Dropdown({ value, options, onChange, label, className = '', align = 'start' }: {
+export function Dropdown({ value, options, onChange, label, className = '', align = 'start', previewFont = false }: {
   value: string;
   options: Option[];
   onChange: (value: string) => void;
@@ -12,6 +12,8 @@ export function Dropdown({ value, options, onChange, label, className = '', alig
   className?: string;
   /** 'end' opens the list from the right edge (kit: `.vl-refine .dd:has(#vlCountry, #vlSort) .dd-list`). */
   align?: 'start' | 'end';
+  /** Show each option (and the closed value) in that font family — for brand font pickers. */
+  previewFont?: boolean;
 }) {
   const id = useId();
   const root = useRef<HTMLSpanElement>(null);
@@ -65,7 +67,7 @@ export function Dropdown({ value, options, onChange, label, className = '', alig
           if (['ArrowDown', 'ArrowUp'].includes(event.key)) { event.preventDefault(); setOpen(true); }
         }}
       >
-        <span className="dd-value">{options[selected]?.label}</span>
+        <span className="dd-value" style={previewFont && options[selected]?.value ? { fontFamily: `"${options[selected].value}", system-ui` } : undefined}>{options[selected]?.label}</span>
         <Icon name="chevronDown" />
       </button>
       <span className="dd-list menu" role="listbox" id={id} tabIndex={-1} aria-label={label} onKeyDown={onListKey}>
@@ -79,7 +81,7 @@ export function Dropdown({ value, options, onChange, label, className = '', alig
             aria-selected={index === selected}
             onClick={() => pick(index)}
           >
-            <span className="dd-text"><span>{option.label}</span></span>
+            <span className="dd-text"><span style={previewFont && option.value ? { fontFamily: `"${option.value}", system-ui` } : undefined}>{option.label}</span></span>
           </button>
         ))}
       </span>

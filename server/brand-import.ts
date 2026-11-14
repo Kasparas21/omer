@@ -2,11 +2,21 @@
 import { and, eq } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { BRAND_VOICE_SYSTEM, PRODUCT_INFORMATION_SYSTEM, lunaMarkdown, voiceFieldsFromGuide, wrapScrapedContent } from './brand-docs';
+import { factsFromProductDoc, seedMonitorPaths } from './brand-facts';
 import { firecrawlConfigured, scrapeBrandSite } from './firecrawl';
 import { openaiConfigured } from './replay-insight';
 import { projectBrand, projects } from './schema';
 
 export type StoredBrandFile = { id: string; name: string; src: string; type?: string };
+export type StoredMonitor = {
+  id: string;
+  path: string;
+  addedAt: string;
+  checkedAt?: string | null;
+  change?: string | null;
+  hash?: string | null;
+  lastMarkdown?: string | null;
+};
 export type StoredBrand = {
   logos: { primary: StoredBrandFile | null; mark: StoredBrandFile | null; dark: StoredBrandFile | null };
   colors: { id: string; name: string; hex: string; role?: 'main' | 'secondary' | 'accent' }[];
@@ -15,9 +25,10 @@ export type StoredBrand = {
   photos: StoredBrandFile[];
   voice: { tagline: string; tone: string; about: string };
   docs: { product: string; voice: string };
-  monitor: { id: string; path: string; addedAt: string; checkedAt?: string | null; change?: string | null }[];
-  /** What emails can say (shipping, returns, offers, answers); kept as-is on import. */
+  monitor: StoredMonitor[];
+  /** What emails can say (shipping, returns, offers, answers). */
   facts?: { id: string; group: string; name: string; value: string; review?: boolean }[];
+  changes?: { id: string; path: string; summary: string; at: string; seen?: boolean }[];
   importedAt?: string | null;
 };
 
@@ -37,6 +48,7 @@ export function emptyStoredBrand(): StoredBrand {
     docs: { product: '', voice: '' },
     monitor: [],
     facts: [],
+    changes: [],
     importedAt: null,
   };
 }
@@ -99,6 +111,10 @@ export async function importBrandFromSite(db: NodePgDatabase, projectId: string,
   const aboutMatch = productDoc.match(/## What It Is\s*\n+([\s\S]*?)(?=\n## |\n*$)/i)?.[1]?.trim();
   if (!voice.about && aboutMatch) voice.about = aboutMatch.slice(0, 500);
 
+  const parsedFacts = factsFromProductDoc(productDoc);
+  const keepManual = (existing.facts || []).filter((f) => !parsedFacts.some((p) => p.name === f.name && p.group === f.group));
+  const seeded = seedMonitorPaths(project.origin, scrape.pages.map((p) => p.url));
+
   const brand: StoredBrand = {
     ...existing,
     logos: {
@@ -120,9 +136,9 @@ export async function importBrandFromSite(db: NodePgDatabase, projectId: string,
       about: voice.about || existing.voice.about,
     },
     docs: { product: productDoc, voice: voiceDoc },
-    monitor: existing.monitor.length ? existing.monitor : [
-      { id: id(), path: '/', addedAt: fetchedAt, checkedAt: null, change: null },
-    ],
+    facts: [...parsedFacts, ...keepManual].slice(0, 40),
+    monitor: existing.monitor.length ? existing.monitor : seeded,
+    changes: existing.changes || [],
     importedAt: fetchedAt,
   };
 

@@ -4,11 +4,15 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { bodyLimit } from 'hono/body-limit';
 import { auth, googleAuthEnabled, pool } from './auth';
 import { objectStoreConfigured } from './object-store';
+import { drizzle } from 'drizzle-orm/node-postgres';
 import { brandImportReady } from './brand-import';
+import { runBrandMonitoring } from './brand-monitor';
 import { firecrawlConfigured } from './firecrawl';
 import { openaiConfigured } from './replay-insight';
 import projects from './projects';
 import { loadImage } from './campaigns';
+import { PIXEL_GIF, recordEmailEvent, suppressVisitor, verifyTrackingToken } from './email-tracking';
+import { sesConfigured } from './ses';
 
 // Single-server demo limits; bounded memory, no visitor IP persisted in project data.
 function limiter(max: number) {
@@ -40,6 +44,7 @@ app.get('/api/config', (c) => c.json({
   replayInsights: openaiConfigured(),
   firecrawl: firecrawlConfigured(),
   brandImport: brandImportReady(),
+  ses: sesConfigured(),
 }));
 app.all('/api/projects', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id', (c) => projects.fetch(c.req.raw, env));
@@ -47,11 +52,18 @@ app.get('/api/projects/:id/live/stream', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/live', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/brand', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/brand/*', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/opportunities', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/opportunities/:oid', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/opportunities/:oid/draft', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/opportunities/:oid/send', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/campaign-suggestions', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/campaign-suggestions/:sid', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/campaigns', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/campaigns/*', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/assets', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/visitors/:vid', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/visitors/:vid/insight', (c) => projects.fetch(c.req.raw, env));
+app.all('/api/projects/:id/visitors/:vid/email-context', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/replays/:rid/summary', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/replays/:rid', (c) => projects.fetch(c.req.raw, env));
 app.all('/api/projects/:id/replays/:rid/chunks/:seq', (c) => projects.fetch(c.req.raw, env));
@@ -64,6 +76,63 @@ app.get('/i/:project/:file', async (c) => {
   const image = await loadImage(`${c.req.param('project')}/${c.req.param('file')}`);
   if (!image) return c.text('Not found', 404);
   return c.body(new Uint8Array(image.body), 200, { 'Content-Type': image.type, 'Cache-Control': 'public, max-age=31536000, immutable' });
+});
+// Email open pixel, click redirect, unsubscribe (signed tokens, no auth).
+app.get('/t/o/:token', async (c) => {
+  const raw = c.req.param('token');
+  const parsed = verifyTrackingToken(raw);
+  if (parsed?.purpose === 'open') {
+    try {
+      await recordEmailEvent(drizzle(pool), parsed.projectId, parsed.visitorId, 'email_open', parsed.messageId);
+    } catch (error) {
+      console.error('email open track failed', error);
+    }
+  }
+  return c.body(new Uint8Array(PIXEL_GIF), 200, {
+    'Content-Type': 'image/gif',
+    'Cache-Control': 'no-store, no-cache, must-revalidate',
+  });
+});
+app.get('/t/c/:token', async (c) => {
+  const parsed = verifyTrackingToken(c.req.param('token'));
+  const fallback = '/';
+  if (parsed?.purpose === 'click') {
+    try {
+      await recordEmailEvent(drizzle(pool), parsed.projectId, parsed.visitorId, 'email_click', parsed.messageId);
+    } catch (error) {
+      console.error('email click track failed', error);
+    }
+    const dest = parsed.url && /^https?:\/\//i.test(parsed.url) ? parsed.url : fallback;
+    return c.redirect(dest, 302);
+  }
+  return c.redirect(fallback, 302);
+});
+app.get('/t/u/:token', async (c) => {
+  const parsed = verifyTrackingToken(c.req.param('token'));
+  if (!parsed || parsed.purpose !== 'unsub') {
+    return c.html('<!doctype html><title>Unsubscribe</title><p>This unsubscribe link is invalid or expired.</p>', 400);
+  }
+  const confirm = c.req.query('confirm');
+  if (confirm === '1' || c.req.header('List-Unsubscribe') === 'One-Click' || c.req.method === 'POST') {
+    try {
+      await suppressVisitor(drizzle(pool), parsed.projectId, parsed.visitorId);
+    } catch (error) {
+      console.error('unsubscribe failed', error);
+    }
+    return c.html('<!doctype html><title>Unsubscribed</title><p style="font:16px system-ui;padding:40px">You’re unsubscribed. You won’t get another follow-up from this store via Omer.</p>');
+  }
+  const href = `?confirm=1`;
+  return c.html(`<!doctype html><title>Unsubscribe</title><main style="font:16px system-ui;padding:40px;max-width:420px"><p>Stop follow-up emails from this store?</p><p><a href="${href}">Yes, unsubscribe</a></p></main>`);
+});
+app.post('/t/u/:token', async (c) => {
+  const parsed = verifyTrackingToken(c.req.param('token'));
+  if (!parsed || parsed.purpose !== 'unsub') return c.text('Invalid', 400);
+  try {
+    await suppressVisitor(drizzle(pool), parsed.projectId, parsed.visitorId);
+  } catch (error) {
+    console.error('unsubscribe post failed', error);
+  }
+  return c.text('OK');
 });
 app.get('/health', async (c) => { await pool.query('select 1'); return c.json({ status: 'ready' }); });
 app.all('/api/*', (c) => c.json({ error: 'Not found' }, 404));
@@ -101,8 +170,15 @@ const pruneReplays = () => void pool.query(`
   )
   select count(*) from marked
 `).catch(() => console.error('Unable to mark expired replays'));
-const retentionTimer = setInterval(() => { prune(); pruneReplays(); }, 60 * 60 * 1000);
+const runMonitor = () => {
+  if (!firecrawlConfigured()) return;
+  void runBrandMonitoring(drizzle(pool))
+    .catch((error) => console.error('brand monitoring failed', error));
+};
+const retentionTimer = setInterval(() => { prune(); pruneReplays(); runMonitor(); }, 60 * 60 * 1000);
 retentionTimer.unref();
 prune();
 pruneReplays();
+// First monitor pass a few minutes after boot so deploys are not blocked on Firecrawl.
+setTimeout(runMonitor, 3 * 60 * 1000).unref();
 process.on('SIGTERM', () => { server.close(async () => { await pool.end(); process.exit(0); }); });

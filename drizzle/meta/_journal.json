@@ -2,89 +2,19 @@
   "version": "7",
   "dialect": "postgresql",
   "entries": [
-    {
-      "idx": 0,
-      "version": "7",
-      "when": 1794507849261,
-      "tag": "0000_moaning_stellaris",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1794516449860,
-      "tag": "0001_regular_vertigo",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1794570000000,
-      "tag": "0002_analytics_rollups",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1794573600000,
-      "tag": "0003_project_visits",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1794573600001,
-      "tag": "0004_live_presence",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1794650000000,
-      "tag": "0005_commerce_events",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1794660000000,
-      "tag": "0006_visit_session_fields",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1794660000001,
-      "tag": "0007_replay_sessions",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "7",
-      "when": 1794665000000,
-      "tag": "0008_replay_insights",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "7",
-      "when": 1794669000000,
-      "tag": "0009_rich_insights",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "7",
-      "when": 1794672000000,
-      "tag": "0010_project_brand",
-      "breakpoints": true
-    },
-    {
-      "idx": 11,
-      "version": "7",
-      "when": 1794676000000,
-      "tag": "0011_project_campaigns",
-      "breakpoints": true
-    }
+    {"idx": 0, "version": "7", "when": 1794507849261, "tag": "0000_moaning_stellaris", "breakpoints": true},
+    {"idx": 1, "version": "7", "when": 1794516449860, "tag": "0001_regular_vertigo", "breakpoints": true},
+    {"idx": 2, "version": "7", "when": 1794570000000, "tag": "0002_analytics_rollups", "breakpoints": true},
+    {"idx": 3, "version": "7", "when": 1794573600000, "tag": "0003_project_visits", "breakpoints": true},
+    {"idx": 4, "version": "7", "when": 1794573600001, "tag": "0004_live_presence", "breakpoints": true},
+    {"idx": 5, "version": "7", "when": 1794650000000, "tag": "0005_commerce_events", "breakpoints": true},
+    {"idx": 6, "version": "7", "when": 1794660000000, "tag": "0006_visit_session_fields", "breakpoints": true},
+    {"idx": 7, "version": "7", "when": 1794660000001, "tag": "0007_replay_sessions", "breakpoints": true},
+    {"idx": 8, "version": "7", "when": 1794665000000, "tag": "0008_replay_insights", "breakpoints": true},
+    {"idx": 9, "version": "7", "when": 1794669000000, "tag": "0009_rich_insights", "breakpoints": true},
+    {"idx": 10, "version": "7", "when": 1794672000000, "tag": "0010_project_brand", "breakpoints": true},
+    {"idx": 11, "version": "7", "when": 1794676000000, "tag": "0011_project_campaigns", "breakpoints": true},
+    {"idx": 12, "version": "7", "when": 1794678000000, "tag": "0012_email_ready_spine", "breakpoints": true},
+    {"idx": 13, "version": "7", "when": 1794682000000, "tag": "0013_email_send", "breakpoints": true}
   ]
 }

@@ -157,6 +157,10 @@
 .cpx-off-label { flex: none; font-size: 12.5px; color: var(--ink-3); }
 .cpx-ai-chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px 0 8px; border-radius: 999px; background: var(--accent-wash); font-size: 12px; font-weight: 550; color: var(--accent-text); white-space: nowrap; }
 .cpx-ai-chip .ico { width: 14px !important; height: 14px !important; color: currentColor !important; }
+.cpx-suggest-body { display: grid; align-content: start; gap: 10px; padding: 18px; height: auto; min-height: 160px; background: var(--v2-shell); }
+.cpx-suggest-body p { margin: 0; font-size: 14px; line-height: 1.45; color: var(--ink-2); }
+.cpx-suggest-body small { font-size: 12.5px; color: var(--ink-3); }
+.cpx-suggest-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; }
 .cpx-thumb-empty { display: grid; place-content: center; justify-items: center; gap: 8px; height: 100%; padding: 0 30px; text-align: center; font-size: var(--fs-sm); color: var(--ink-3); }
 .cpx-thumb-empty .ico { width: 22px; height: 22px; }
 .cpx-off-chip { display: none; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border-radius: 999px; background: rgb(25 27 34 / 0.78); font-size: 12px; font-weight: 550; color: #fff; backdrop-filter: blur(6px); }

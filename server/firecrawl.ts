@@ -240,6 +240,12 @@ function combineMarkdown(pages: BrandScrapePage[]) {
   return chunks.join('\n\n---\n\n');
 }
 
+/** Cheap markdown-only scrape for a monitored path. */
+export async function scrapeMonitorPath(url: string): Promise<{ url: string; markdown: string }> {
+  const page = await scrapeOne(url, ['markdown']);
+  return { url: page.url, markdown: page.markdown };
+}
+
 /** Scrape the store origin for brand assets + grounded markdown. */
 export async function scrapeBrandSite(origin: string): Promise<BrandScrapeResult> {
   const home = await scrapeOne(origin, ['markdown', 'branding', 'links', 'images']);
