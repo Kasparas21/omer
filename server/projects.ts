@@ -14,6 +14,7 @@ import {
   publicVisitorInsight,
 } from './replay-insight';
 import { brandImportReady, emptyStoredBrand, importBrandFromSite, loadBrand, saveBrand, type StoredBrand } from './brand-import';
+import { ensureBrandRead } from './brand-read';
 import { firecrawlConfigured } from './firecrawl';
 import {
   listCampaignSuggestions,
@@ -346,6 +347,18 @@ async function listProjects(request: Request, env: Env) {
         where ${emailEvents.projectId} = ${projects.id}
           and ${emailEvents.type} = 'email_open'
           and ${emailEvents.seenAt} >= (now() at time zone 'UTC')::date - 59
+        group by 1
+      ) q
+    ), '[]'::json)`,
+    emailSents: sql<{ day: string; count: number }[]>`coalesce((
+      select json_agg(json_build_object('day', day, 'count', count) order by day)
+      from (
+        select (coalesce(${projectEmailMessages.sentAt}, ${projectEmailMessages.createdAt}) at time zone 'UTC')::date::text as day,
+          count(*)::float8 as count
+        from ${projectEmailMessages}
+        where ${projectEmailMessages.projectId} = ${projects.id}
+          and ${projectEmailMessages.status} = 'sent'
+          and coalesce(${projectEmailMessages.sentAt}, ${projectEmailMessages.createdAt}) >= (now() at time zone 'UTC')::date - 59
         group by 1
       ) q
     ), '[]'::json)`,
@@ -1744,6 +1757,18 @@ async function postBrandImport(request: Request, env: Env, projectId: string) {
   }
 }
 
+async function postBrandRead(request: Request, env: Env, projectId: string) {
+  if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
+  const owner = await ownerID(request);
+  if (!owner) return json({ error: 'Sign in to read brand.' }, 401);
+  const force = new URL(request.url).searchParams.get('force') === '1';
+  return withDatabase(env, async (db) => {
+    if (!(await ownedProject(db, projectId, owner))) return json({ error: 'Not found.' }, 404);
+    const result = await ensureBrandRead(db, projectId, { force });
+    return json(result);
+  });
+}
+
 async function getOpportunities(request: Request, env: Env, projectId: string) {
   if (!uuid.test(projectId)) return json({ error: 'Not found.' }, 404);
   const owner = await ownerID(request);
@@ -2205,6 +2230,11 @@ export default {
       const brandImportMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/brand\/import$/i);
       if (brandImportMatch) {
         if (request.method === 'POST') return await postBrandImport(request, env, brandImportMatch[1]);
+        return json({ error: 'Method not allowed.' }, 405);
+      }
+      const brandReadMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/brand\/read$/i);
+      if (brandReadMatch) {
+        if (request.method === 'POST') return await postBrandRead(request, env, brandReadMatch[1]);
         return json({ error: 'Method not allowed.' }, 405);
       }
       const toolMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})\/campaigns\/(options|preview|run|personal)$/i);

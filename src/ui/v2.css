@@ -163,6 +163,11 @@
 .v2-brand-read > p { margin: 0; font-size: 14px; line-height: 1.4; color: var(--ink-2); }
 .v2-brand-ind { font-size: 13px !important; color: var(--ink-3) !important; }
 .v2-brand-ind em { font-style: normal; font-weight: 600; color: var(--ink-2); }
+.v2-brand-cta {
+  margin: 0; padding: 0; border: 0; background: none; font: inherit; font-weight: 600;
+  color: var(--accent-text, var(--accent)); cursor: pointer; text-underline-offset: 2px;
+}
+.v2-brand-cta:hover { text-decoration: underline; }
 
 /* Schedule — upcoming sends */
 .v2-sched { display: grid; gap: 14px; }
