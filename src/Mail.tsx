@@ -67,7 +67,7 @@ const TEXT_KEYS = /^(headline|body\.\d+|cta)$/;
 
 const PLACEHOLDER: Record<string, string> = { headline: 'Write a headline', body: 'Write your message', cta: 'Button text' };
 
-export function MailBody({ doc, edit, typing = true, onText }: { doc: MailDoc; edit?: MailEdit; typing?: boolean; onText?: (key: string, text: string) => void }) {
+export function MailBody({ doc, page = PAGE_STYLE, edit, typing = true, onText }: { doc: MailDoc; page?: PageStyle; edit?: MailEdit; typing?: boolean; onText?: (key: string, text: string) => void }) {
   const personal = doc.kind === 'personal';
   const brand = useMailBrand();
   const style = (k: string) => doc.blocks[k] ?? {};
@@ -103,8 +103,11 @@ export function MailBody({ doc, edit, typing = true, onText }: { doc: MailDoc; e
     if (t === 'code') return doc.code ? <div className="ml-code"><div><b>Your code</b><small>{doc.code.n}</small></div><code>{doc.code.c}</code></div> : null;
     if (t === 'cta') {
       if (!doc.cta && !edit) return null;
-      if (personal) return <p className="ml-link"><span key={doc.cta} {...editable(k, doc.cta)}>{doc.cta}</span> →</p>;
-      return <div className={`ml-cta-row${style(k).width === 'full' ? ' full' : ''}`}><span key={doc.cta} className="ml-cta" {...editable(k, doc.cta)}>{doc.cta}</span></div>;
+      // Professional personal notes stay letter-like; modern/playful use the pill CTA.
+      if (personal && page.skin === 'professional') {
+        return <p className="ml-link"><span key={doc.cta} {...editable(k, doc.cta)}>{doc.cta}</span> →</p>;
+      }
+      return <div className={`ml-cta-row${style(k).width === 'full' ? ' full' : ''}${personal ? ' is-personal' : ''}`}><span key={doc.cta} className="ml-cta" {...editable(k, doc.cta)}>{doc.cta}</span></div>;
     }
     if (t === 'hero') {
       if (!doc.hero) return null;
@@ -166,7 +169,7 @@ export function MailBody({ doc, edit, typing = true, onText }: { doc: MailDoc; e
 
   return (
     <div className={`ml${personal ? ' personal' : ''}${edit ? ' is-editing' : ''}`}>
-      {personal ? null : edit
+      {edit
         ? <div className={`ml-blk${edit.sel === 'logo' ? ' sel' : ''}`} onPointerDown={() => edit.onSelect('logo')}><Logo /></div>
         : <Logo />}
       <div className="ml-main">
@@ -201,14 +204,14 @@ export function MailInbox({ doc, page }: { doc: MailDoc; page?: PageStyle }) {
         <div><b><SenderName doc={doc} /></b> {useMailBrand().paw ? <span className="ml-addr">&lt;{STORE.from}&gt;</span> : null}<small>to {doc.to ?? 'me'}</small></div>
         <div className="ml-from-r"><span>9:41 AM</span><Icon name="reply" /><Icon name="more" /></div>
       </div>
-      <div className="ml-canvas ml-skin" style={pageVars(page)}><MailBody doc={doc} /></div>
+      <div className="ml-canvas ml-skin" style={pageVars(page)}><MailBody doc={doc} page={page} /></div>
     </div>
   );
 }
 
 /** A small, non-interactive copy of the email for cards. */
 export function MailPeek({ doc, page }: { doc: MailDoc; page?: PageStyle }) {
-  return <div className="ml-peek ml-skin" style={pageVars(page)} aria-hidden="true"><MailBody doc={doc} /></div>;
+  return <div className="ml-peek ml-skin" style={pageVars(page)} aria-hidden="true"><MailBody doc={doc} page={page} /></div>;
 }
 
 /** Gmail on an iPhone, drawn simply: status bar, toolbar, subject, sender, then the email. */
@@ -221,7 +224,7 @@ export function MailPhone({ doc, page, children, subject }: { doc: MailDoc; page
         <div className="gm-scroll">
           <div className="gm-subj">{subject ?? <span>{words(doc.subject)}</span>}<span className="ml-tag">Inbox</span><Icon name="star" /></div>
           <div className="gm-from"><Sender doc={doc} size={34} /><div><p><b><SenderName doc={doc} /></b><span>9:41 AM</span></p><p className="gm-to">to me</p></div><Icon name="reply" /><Icon name="more" /></div>
-          <div className="ml-skin is-mobile" style={pageVars(page)}>{children ?? <MailBody doc={doc} />}</div>
+          <div className="ml-skin is-mobile" style={pageVars(page)}>{children ?? <MailBody doc={doc} page={page} />}</div>
           <div className="gm-acts"><span><Icon name="reply" />Reply</span><span><Icon name="arrowRight" />Forward</span></div>
         </div>
         <i className="iph-home" />

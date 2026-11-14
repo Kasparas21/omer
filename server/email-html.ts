@@ -106,11 +106,19 @@ export function mailDocToText(
   return lines.join('\n');
 }
 
-function logoRow(brand: MailBrandLike, head: string, text: string, pad = '28px 40px 20px') {
+function logoRow(
+  brand: MailBrandLike,
+  head: string,
+  text: string,
+  pad = '28px 40px 20px',
+  opts?: { align?: 'left' | 'center'; maxWidth?: number },
+) {
+  const align = opts?.align ?? 'center';
+  const maxW = opts?.maxWidth ?? 120;
   if (brand.logo) {
-    return `<tr><td align="center" style="padding:${pad}"><img src="${esc(brand.logo)}" alt="${esc(brand.name)}" width="120" style="display:block;margin:0 auto;max-width:120px;height:auto;border:0" /></td></tr>`;
+    return `<tr><td align="${align}" style="padding:${pad}"><img src="${esc(brand.logo)}" alt="${esc(brand.name)}" width="${maxW}" style="display:block;${align === 'center' ? 'margin:0 auto;' : ''}max-width:${maxW}px;height:auto;border:0" /></td></tr>`;
   }
-  return `<tr><td align="center" style="padding:${pad};font-family:${esc(head)};font-size:13px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${esc(text)}">${esc(brand.name)}</td></tr>`;
+  return `<tr><td align="${align}" style="padding:${pad};font-family:${esc(head)};font-size:13px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${esc(text)}">${esc(brand.name)}</td></tr>`;
 }
 
 function productCard(
@@ -220,15 +228,34 @@ export function mailDocToHtml(
 
   const blocks: string[] = [];
   let showedLogo = false;
+  const skin = page.skin || 'modern';
   const ensureLogo = (tight = false) => {
-    if (showedLogo || personal) return;
+    if (showedLogo) return;
     showedLogo = true;
+    if (personal) {
+      blocks.push(logoRow(brand, head, textColor, tight ? `20px ${padX} 8px` : `28px ${padX} 6px`, {
+        align: 'left',
+        maxWidth: 96,
+      }));
+      return;
+    }
     blocks.push(logoRow(brand, head, textColor, tight ? '22px 40px 12px' : '32px 40px 8px'));
   };
+
+  // Personal follow-ups: thin accent bar so scraped brand color shows immediately.
+  if (personal) {
+    blocks.push(`<tr><td style="padding:0;height:3px;line-height:3px;font-size:0;background:${esc(accent)}">&nbsp;</td></tr>`);
+  }
 
   const look = (k: string) => doc.blocks?.[k] ?? {};
   const alignOf = (k: string) => look(k).align ?? align;
   const defaultHead = page.headSize || (personal ? EMAIL_CHROME.headSizePersonal : EMAIL_CHROME.headSizeBrand);
+
+  // Prefer a compact hero after the greeting for personal notes when imagery exists.
+  if (personal && (doc.hero?.src || doc.hero?.img) && !order.includes('hero')) {
+    const afterGreeting = order.findIndex((k) => k === 'body.0' || k.startsWith('body'));
+    order.splice(afterGreeting < 0 ? 0 : afterGreeting + 1, 0, 'hero');
+  }
 
   for (const key of order) {
     const [t, n] = key.split('.');
@@ -237,17 +264,25 @@ export function mailDocToHtml(
       if (!src) continue;
       ensureLogo(true);
       const alt = doc.headline || brand.name;
-      blocks.push(`<tr><td style="padding:0;font-size:0;line-height:0">
-        <img src="${esc(src)}" alt="${esc(alt)}" width="${width}" style="display:block;width:100%;max-width:${width}px;height:auto;border:0" />
-        ${doc.hero?.tag ? `<div style="padding:10px ${padX} 0;font-family:${esc(body)};font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:${esc(muted)};text-align:${align}">${esc(doc.hero.tag)}</div>` : ''}
-      </td></tr>`);
+      if (personal) {
+        const insetW = Math.min(width - 72, 520);
+        blocks.push(`<tr><td style="padding:12px ${padX} 4px">
+          <img src="${esc(src)}" alt="${esc(alt)}" width="${insetW}" style="display:block;width:100%;max-width:${insetW}px;height:auto;border:0;border-radius:${imageRadius}px" />
+          ${doc.hero?.tag ? `<div style="padding:10px 0 0;font-family:${esc(body)};font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:${esc(muted)};text-align:left">${esc(doc.hero.tag)}</div>` : ''}
+        </td></tr>`);
+      } else {
+        blocks.push(`<tr><td style="padding:0;font-size:0;line-height:0">
+          <img src="${esc(src)}" alt="${esc(alt)}" width="${width}" style="display:block;width:100%;max-width:${width}px;height:auto;border:0" />
+          ${doc.hero?.tag ? `<div style="padding:10px ${padX} 0;font-family:${esc(body)};font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:${esc(muted)};text-align:${align}">${esc(doc.hero.tag)}</div>` : ''}
+        </td></tr>`);
+      }
       continue;
     }
 
     if (t === 'headline' && doc.headline) {
       ensureLogo();
       const hSize = { s: Math.round(defaultHead * 0.76), m: defaultHead, l: Math.round(defaultHead * 1.18) }[look(key).size ?? 'm'];
-      blocks.push(`<tr><td align="${alignOf(key)}" style="padding:${personal ? '8px' : '28px'} ${padX} 10px;font-family:${esc(head)};font-size:${hSize}px;text-align:${alignOf(key)};line-height:1.15;font-weight:700;letter-spacing:-0.03em;color:${esc(textColor)}">${esc(fillName(doc.headline, name))}</td></tr>`);
+      blocks.push(`<tr><td align="${alignOf(key)}" style="padding:${personal ? '10px' : '28px'} ${padX} 10px;font-family:${esc(head)};font-size:${hSize}px;text-align:${alignOf(key)};line-height:1.15;font-weight:700;letter-spacing:-0.03em;color:${esc(textColor)}">${esc(fillName(doc.headline, name))}</td></tr>`);
       continue;
     }
 
@@ -294,8 +329,18 @@ export function mailDocToHtml(
     }
 
     if (t === 'cta' && doc.cta) {
-      if (personal) {
+      if (personal && skin === 'professional') {
         blocks.push(`<tr><td align="left" style="padding:18px ${padX} 8px;font-family:${esc(body)};font-size:16px"><a href="${esc(ctaHref)}" style="color:${esc(accent)};font-weight:600;text-decoration:underline;text-underline-offset:3px">${esc(fillName(doc.cta, name))} →</a></td></tr>`);
+      } else if (personal) {
+        // Modern / playful personal notes: left pill CTA (not a full-bleed campaign button).
+        const label = fillName(doc.cta, name);
+        blocks.push(`<tr><td align="left" style="padding:20px ${padX} 8px">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+            <td align="center" bgcolor="${esc(accent)}" style="background:${esc(accent)};border-radius:${ctaRadius}px">
+              <a href="${esc(ctaHref)}" style="display:inline-block;background:${esc(accent)};color:${esc(btnInk)};font-family:${esc(body)};font-size:15px;font-weight:600;letter-spacing:0.01em;text-decoration:none;padding:13px 24px;border-radius:${ctaRadius}px;border:1px solid ${esc(accent)}">${esc(label)}</a>
+            </td>
+          </tr></table>
+        </td></tr>`);
       } else {
         blocks.push(bulletproofCta({
           href: ctaHref,
@@ -348,8 +393,13 @@ export function mailDocToHtml(
     </td></tr>`);
   }
 
-  if (!showedLogo && !personal) {
-    blocks.unshift(logoRow(brand, head, textColor));
+  if (!showedLogo) {
+    const logo = personal
+      ? logoRow(brand, head, textColor, `28px ${padX} 6px`, { align: 'left', maxWidth: 96 })
+      : logoRow(brand, head, textColor);
+    // Keep accent bar first on personal notes.
+    if (personal && blocks[0]?.includes('height:3px')) blocks.splice(1, 0, logo);
+    else blocks.unshift(logo);
   }
 
   return `<!DOCTYPE html>

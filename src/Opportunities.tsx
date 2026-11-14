@@ -645,8 +645,8 @@ function Detail({ p, device, onDevice, onEdit, onPeople }: { p: PersonState; dev
             </div>
             <div className="op-from"><Sender doc={p.mail} /><div><b>{senderName(p.mail)}</b><small>to {p.email ?? 'no recipient yet'}</small></div></div>
             {device === 'phone'
-              ? <div className="op-phone"><MailPhone doc={p.mail} page={p.page}><MailBody doc={p.mail} onText={editable ? write : undefined} /></MailPhone></div>
-              : <div className="op-sheet ml-skin" style={pageVars(p.page)}><MailBody doc={p.mail} onText={editable ? write : undefined} /></div>}
+              ? <div className="op-phone"><MailPhone doc={p.mail} page={p.page}><MailBody doc={p.mail} page={p.page} onText={editable ? write : undefined} /></MailPhone></div>
+              : <div className="op-sheet ml-skin" style={pageVars(p.page)}><MailBody doc={p.mail} page={p.page} onText={editable ? write : undefined} /></div>}
           </div>
         )}
       </div>

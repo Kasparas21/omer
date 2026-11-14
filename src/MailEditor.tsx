@@ -364,12 +364,12 @@ export function MailEditor({ space, brand, published, onPublish }: {
         <div className="cpe-surface" aria-hidden="true" />
         <div className="cpe-canvas" onPointerDown={(e) => { if (e.target === e.currentTarget) setSel('page'); }}>
           {device === 'phone' ? (
-            <div className="cpe-phonewrap"><MailPhone doc={doc} page={draft.page} subject={subject}><MailBody doc={doc} edit={edit} /></MailPhone></div>
+            <div className="cpe-phonewrap"><MailPhone doc={doc} page={draft.page} subject={subject}><MailBody doc={doc} page={draft.page} edit={edit} /></MailPhone></div>
           ) : (
             <div className="cpe-zoom">
               <label className="cpe-subjrow"><span>Subject</span>{subject}</label>
               <label className="cpe-subjrow"><span>Preview</span>{previewLine}</label>
-              <div className="cpe-page ml-skin" style={pageVars(draft.page)}><MailBody doc={doc} edit={edit} /></div>
+              <div className="cpe-page ml-skin" style={pageVars(draft.page)}><MailBody doc={doc} page={draft.page} edit={edit} /></div>
             </div>
           )}
         </div>
