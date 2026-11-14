@@ -116,7 +116,20 @@ export function MailBody({ doc, edit, typing = true, onText }: { doc: MailDoc; e
         </div>
       );
     }
-    if (t === 'perks') return doc.perks ? <p className="ml-perks">{doc.perks.join(' · ')}</p> : null;
+    if (t === 'perks') {
+      const rows = doc.perks?.length ? doc.perks : doc.features;
+      return rows?.length ? <p className="ml-perks">{rows.join(' · ')}</p> : null;
+    }
+    if (t === 'features') {
+      const rows = doc.features?.length ? doc.features : doc.perks;
+      if (!rows?.length) return null;
+      return (
+        <ul className="ml-features">
+          {rows.slice(0, 4).map((f) => <li key={f}>{f}</li>)}
+        </ul>
+      );
+    }
+    if (t === 'social') return doc.social?.length ? <p className="ml-social">{doc.social.join('  ·  ')}</p> : null;
     if (t === 'sig') {
       return personal
         ? <div className="ml-sig plain"><b>{brand.sender}</b><small>{brand.paw ? `Founder, ${brand.name}` : brand.signoff}</small></div>

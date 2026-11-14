@@ -31,15 +31,17 @@ export type MailDoc = {
   /** Where the button goes. Empty means the store's home page. */
   ctaUrl?: string;
   perks?: string[];
+  features?: string[];
+  social?: string[];
   hero?: { photo?: PhotoKey; src?: string; tag?: string };
   cart?: { photo: PhotoKey; item: string; price: string; lines: [string, string][]; total: string };
   footer?: string;
-  /** Block keys in order: headline, body.N, products, code, cta, perks, hero, cart, sig, div.N, footer. */
+  /** Block keys in order: headline, body.N, products, code, cta, perks, features, social, hero, cart, sig, div.N, footer. */
   order: string[];
   blocks: Record<string, BlockStyle>;
 };
 export type PageStyle = { bg: string; fill: string; text: string; accent: string; headFont: string; bodyFont: string; size: number; width: number; corners: number };
-export const PAGE_STYLE: PageStyle = { bg: '#F5F5F7', fill: '#FFFFFF', text: '#4D3E36', accent: STORE.color, headFont: 'Inter', bodyFont: 'Inter', size: 15, width: 520, corners: 12 };
+export const PAGE_STYLE: PageStyle = { bg: '#F6F6F6', fill: '#FFFFFF', text: '#111111', accent: STORE.color, headFont: 'Georgia', bodyFont: 'Helvetica', size: 16, width: 600, corners: 16 };
 
 type Draft = Omit<MailDoc, 'order' | 'blocks' | 'kind'> & { kind?: MailDoc['kind']; order?: string[] };
 function mail(d: Draft): MailDoc {

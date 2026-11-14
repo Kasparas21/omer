@@ -5,3 +5,7 @@ dist/
 !.dev.vars.example
 .env*
 !.env.example
+TEAM.md
+deployment.md
+local/
+omer-email-preview*.html
